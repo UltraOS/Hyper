@@ -75,7 +75,8 @@ BITS 32
         mov ss, ax
 
     off_to_stage2:
-        jmp STAGE2_LOAD_BASE
+        ; jump to base + 16 to skip stage 2 signature
+        jmp STAGE2_LOAD_BASE + 16
 
 BITS 16
 
