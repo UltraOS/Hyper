@@ -10,20 +10,30 @@ ORG MBR_LOAD_BASE
 
 start:
     cli
-    xor ax, ax
-    mov ds, ax
-    mov es, ax
-    mov ss, ax
-    mov sp, MBR_LOAD_BASE
-    sti
+
+    ; in case BIOS sets 0x07C0:0000
+    jmp 0:segment_0
+
+    segment_0:
+        xor ax, ax
+        mov ds, ax
+        mov es, ax
+        mov ss, ax
+        mov sp, MBR_LOAD_BASE
+        sti
 
     load_lba_partition:
+        clc ; carry gets set in case of an error, clear just in case
+
         ; NOTE: dl contains the drive number here, don't overwrite it
         ; Actual function: https://en.wikipedia.org/wiki/INT_13H#INT_13h_AH=42h:_Extended_Read_Sectors_From_Drive
         mov ax, DAP
         mov si, ax
         mov ah, 0x42
         int 0x13
+
+        mov si, disk_error
+        jc panic
 
     STAGE2_MAGIC_LOWER: equ 'Hype'
     STAGE2_MAGIC_UPPER: equ 'rST2'
@@ -39,17 +49,7 @@ start:
 
     on_invalid_magic:
         mov si, invalid_magic_error
-        call write_string
-
-        mov si, reboot_msg
-        call write_string
-
-        ; https://stanislavs.org/helppc/int_16-0.html
-        xor ax, ax
-        int 0x16
-
-        ; actually reboot
-        jmp word 0xFFFF:0x0000
+        jmp panic
 
     switch_to_protected_mode:
         cli
@@ -97,6 +97,20 @@ write_string:
 .done:
     ret
 
+; [[noreturn]] void panic(ds:si message)
+panic:
+    call write_string
+
+    mov si, reboot_msg
+    call write_string
+
+    ; https://stanislavs.org/helppc/int_16-0.html
+    xor ax, ax
+    int 0x16
+
+    ; actually reboot
+    jmp word 0xFFFF:0x0000
+
 DAP_SIZE: equ 16
 DAP:
     .size:              db DAP_SIZE
@@ -109,7 +123,7 @@ DAP:
 
 gdt_ptr:
     dw gdt_struct_end - gdt_struct - 1
-    dd gdt_ptr
+    dd gdt_struct
 
 ; access
 READWRITE:    equ (1 << 1)
@@ -122,10 +136,10 @@ MODE_32BIT:       equ (1 << 6)
 PAGE_GRANULARITY: equ (1 << 7)
 
 gdt_struct:
-    .null: equ $ - gdt_ptr
+    .null: equ $ - gdt_struct
     dq 0x0000000000000000
 
-    .code: equ $ - gdt_ptr
+    .code: equ $ - gdt_struct
     ; 32 bit code segment descriptor
     dw 0xFFFF ; limit
     dw 0x0000 ; base
@@ -134,7 +148,7 @@ gdt_struct:
     db MODE_32BIT | PAGE_GRANULARITY | 0x0F ; 4 bits of flags + 4 bits of limit
     db 0x00   ; base
 
-    .data: equ $ - gdt_ptr
+    .data: equ $ - gdt_struct
     ; 32 bit data segment descriptor
     dw 0xFFFF ; limit
     dw 0x0000 ; base
@@ -148,6 +162,7 @@ CR: equ 0x0D
 LF: equ 0x0A
 
 no_lba_support_error: db "This BIOS doesn't support LBA disk access!", CR, LF, 0
+disk_error:           db "Error reading the disk!", CR, LF, 0
 invalid_magic_error:  db "Invalid stage 2 loader magic!", CR, LF, 0
 reboot_msg:           db "Press any key to reboot...", CR, LF, 0
 
