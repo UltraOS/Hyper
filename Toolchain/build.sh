@@ -31,7 +31,7 @@ compiler_prefix="i686"
 
 pushd $true_path
 
-if [ -e "CrossCompiler/Tools/bin/$compiler_prefix-elf-g++" ]
+if [ -e "bin/$compiler_prefix-elf-g++" ]
 then
   exit 0
 else
@@ -92,35 +92,37 @@ binutils_version="binutils-2.37"
 gcc_url="ftp://ftp.gnu.org/gnu/gcc/$gcc_version/$gcc_version.tar.gz"
 binutils_url="https://ftp.gnu.org/gnu/binutils/$binutils_version.tar.gz"
 
-if [ ! -e "CrossCompiler/gcc/configure" ]
+gcc_sources_dir="gcc_sources"
+
+if [ ! -e "gcc_sources/configure" ]
 then
   echo "Downloading GCC source files..."
-  mkdir -p "CrossCompiler"     || on_error
-  mkdir -p "CrossCompiler/gcc" || on_error
-  wget -O "CrossCompiler/gcc.tar.gz" $gcc_url || on_error
+  mkdir -p $gcc_sources_dir || on_error
+  wget -O "gcc.tar.gz" $gcc_url || on_error
   echo "Unpacking GCC source files..."
-  tar -xf "CrossCompiler/gcc.tar.gz" \
-      -C  "CrossCompiler/gcc" --strip-components 1  || on_error
-  rm "CrossCompiler/gcc.tar.gz"
+  tar -xf "gcc.tar.gz" \
+      -C  "$gcc_sources_dir" --strip-components 1  || on_error
+  rm "gcc.tar.gz"
 else
   echo "GCC is already downloaded!"
 fi
 
-if [ ! -e "CrossCompiler/binutils/configure" ]
+binutils_sources_dir="binutils_sources"
+
+if [ ! -e "$binutils_sources_dir/configure" ]
 then
   echo "Downloading binutils source files..."
-  mkdir -p  "CrossCompiler"          || on_error
-  mkdir -p  "CrossCompiler/binutils" || on_error
-  wget -O "CrossCompiler/binutils.tar.gz" $binutils_url || on_error
+  mkdir -p  $binutils_sources_dir || on_error
+  wget -O "binutils.tar.gz" $binutils_url || on_error
   echo "Unpacking binutils source files..."
-  tar -xf "CrossCompiler/binutils.tar.gz" \
-      -C "CrossCompiler/binutils" --strip-components 1 || on_error
-  rm "CrossCompiler/binutils.tar.gz"
+  tar -xf "binutils.tar.gz" \
+      -C $binutils_sources_dir --strip-components 1 || on_error
+  rm "binutils.tar.gz"
 else
   echo "binutils is already downloaded!"
 fi
 
-export PREFIX="$true_path/CrossCompiler/Tools"
+export PREFIX=$true_path
 export TARGET=$compiler_prefix-elf
 export PATH="$PREFIX/bin:$PATH"
 
@@ -128,38 +130,45 @@ export PATH="$PREFIX/bin:$PATH"
 export CFLAGS="-g0 -O2"
 export CXXFLAGS="-g0 -O2"
 
-echo "Building binutils..."
-mkdir -p "CrossCompiler/binutils_build" || on_error
+binutils_build_dir="binutils_build"
 
-pushd "CrossCompiler/binutils_build"
-../binutils/configure --target=$TARGET \
-                      --prefix="$PREFIX" \
-                      --with-sysroot \
-                      --disable-nls \
-                      --disable-werror || on_error
+echo "Building binutils..."
+mkdir -p $binutils_build_dir || on_error
+
+pushd $binutils_build_dir
+../$binutils_sources_dir/configure --target=$TARGET \
+                                   --prefix="$PREFIX" \
+                                   --with-sysroot \
+                                   --disable-nls \
+                                   --disable-werror || on_error
 make         -j$cores || on_error
 make install          || on_error
 popd
 
+rm -rf $binutils_sources_dir
+rm -rf $binutils_build_dir
+
+gcc_build_dir="gcc_build"
+
 echo "Building GCC..."
-mkdir -p "CrossCompiler/gcc_build" || on_error
-pushd "CrossCompiler/gcc_build"
+mkdir -p $gcc_build_dir || on_error
+pushd $gcc_build_dir
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  ../gcc/configure --target=$TARGET \
-                   --prefix="$PREFIX" \
-                   --disable-nls \
-                   --enable-languages=c,c++ \
-                   --without-headers || on_error
+  ../$gcc_sources_dir/configure --target=$TARGET \
+                                --prefix="$PREFIX" \
+                                --disable-nls \
+                                --enable-languages=c,c++ \
+                                --without-headers || on_error
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-  ../gcc/configure --target=$TARGET \
-                   --prefix="$PREFIX" \
-                   --disable-nls \
-                   --enable-languages=c,c++ \
-                   --without-headers \
-                   --with-gmp=/usr/local/opt/gmp \
-                   --with-mpc=/usr/local/opt/libmpc \
-                   --with-mpfr=/usr/local/opt/mpfr || on_error
+  ../$gcc_sources_dir/configure --target=$TARGET \
+                                --prefix="$PREFIX" \
+                                --disable-nls \
+                                --enable-languages=c,c++ \
+                                --without-headers \
+                                --with-gmp=/usr/local/opt/gmp \
+                                --with-mpc=/usr/local/opt/libmpc \
+                                --with-mpfr=/usr/local/opt/mpfr || on_error
 fi
 
 make all-gcc               -j$cores || on_error
@@ -167,6 +176,9 @@ make all-target-libgcc     -j$cores || on_error
 make install-gcc                    || on_error
 make install-target-libgcc          || on_error
 popd
+
+rm -rf $gcc_sources_dir
+rm -rf $gcc_build_dir
 
 popd # true_path
 
