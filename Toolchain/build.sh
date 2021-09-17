@@ -10,13 +10,8 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
   cores=$(nproc)
 fi
 
-pushd () {
-    command pushd "$@" > /dev/null
-}
-
-popd () {
-    command popd "$@" > /dev/null
-}
+pushd () { command pushd "$@" > /dev/null ; }
+popd () { command popd "$@" > /dev/null ; }
 
 true_path="$(dirname "$(realpath "$0")")"
 root_path=$true_path/..
