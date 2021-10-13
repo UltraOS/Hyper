@@ -25,10 +25,12 @@ struct SystemInfoAttribute {
 #define MEMORY_TYPE_INVALID            0
 #define MEMORY_TYPE_FREE               1
 #define MEMORY_TYPE_RESERVED           2
-#define MEMORY_TYPE_LOADER_RECLAIMABLE 3
-#define MEMORY_TYPE_MODULE             4
-#define MEMORY_TYPE_KERNEL_STACK       5
-#define MEMORY_TYPE_KERNEL_BINARY      6
+#define MEMORY_TYPE_RECLAIMABLE        3
+#define MEMORY_TYPE_NVS                4
+#define MEMORY_TYPE_LOADER_RECLAIMABLE 5
+#define MEMORY_TYPE_MODULE             6
+#define MEMORY_TYPE_KERNEL_STACK       7
+#define MEMORY_TYPE_KERNEL_BINARY      8
 
 struct MemoryMapEntry {
     uint64_t physical_address;
@@ -77,3 +79,6 @@ struct BootContext {
     struct AttributeHeader* attributes;
 };
 #define NEXT_ATTRIBUTE(current) ((AttributeHeader*)(((uint8_t*)(current)) + (current)->size_in_bytes))
+
+#define MAGIC32 0x48595045
+#define MAGIC64 0x48595045525f3634
