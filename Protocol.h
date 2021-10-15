@@ -73,7 +73,7 @@ struct Framebuffer {
 struct FramebufferAttribute {
     struct AttributeHeader header;
     struct Framebuffer framebuffer;
-}
+};
 
 struct BootContext {
     struct AttributeHeader* attributes;
