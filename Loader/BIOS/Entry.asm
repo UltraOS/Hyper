@@ -1,4 +1,5 @@
-BITS 32
+extern enable_a20
+extern bios_entry
 
 section .entry
     stage2_magic: db "HyperST2"
@@ -6,10 +7,36 @@ section .entry
     ; pad to 16
     dq 0
 
-    extern bios_entry
+main:
+BITS 16
+
+    call enable_a20
+    mov [a20_enabled], al
+    cli
+
+    lgdt [gdt_ptr]
+
+    PROTECTED_MODE_BIT: equ (1 << 0)
+    mov eax, cr0
+    or  eax, PROTECTED_MODE_BIT
+    mov cr0, eax
+
+    jmp gdt_struct.code32:.protected_mode
+
+.protected_mode:
+BITS 32
+
+    mov ax, gdt_struct.data32
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+
     jmp bios_entry
 
-section .data
+align 16
+section .real_data
 
 global gdt_ptr
 gdt_ptr:
@@ -48,7 +75,7 @@ gdt_struct:
     db MODE_32BIT | PAGE_GRANULARITY | 0x0F ; 4 bits of flags + 4 bits of limit
     db 0x00   ; base
 
-    .data16: equ $ - gdt_struct
+    .code16: equ $ - gdt_struct
     ; 16 bit code segment descriptor
     dw 0xFFFF ; limit
     dw 0x0000 ; base
@@ -66,3 +93,6 @@ gdt_struct:
     db 0x00   ; byte granularity
     db 0x00   ; base
 gdt_struct_end:
+
+global a20_enabled
+a20_enabled: db 0
