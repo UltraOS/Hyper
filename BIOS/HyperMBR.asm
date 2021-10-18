@@ -19,6 +19,8 @@ start:
         mov ds, ax
         mov es, ax
         mov ss, ax
+        mov fs, ax
+        mov gs, ax
         mov sp, MBR_LOAD_BASE
         sti
 
@@ -45,36 +47,15 @@ start:
 
         mov eax, [STAGE2_LOAD_BASE + 4]
         cmp eax, STAGE2_MAGIC_UPPER
-        je switch_to_protected_mode
+        je off_to_stage2
 
     on_invalid_magic:
         mov si, invalid_magic_error
         jmp panic
 
-    switch_to_protected_mode:
-        cli
-
-        lgdt [gdt_ptr]
-
-        PROTECTED_MODE_BIT: equ (1 << 0)
-
-        mov eax, cr0
-        or  eax, PROTECTED_MODE_BIT
-        mov cr0, eax
-
-        jmp gdt_struct.code:protected_mode
-
-BITS 32
-
-    protected_mode:
-        mov ax, gdt_struct.data
-        mov ds, ax
-        mov es, ax
-        mov fs, ax
-        mov gs, ax
-        mov ss, ax
-
     off_to_stage2:
+        mov sp, STAGE2_LOAD_BASE
+
         ; jump to base + 16 to skip stage 2 signature
         jmp STAGE2_LOAD_BASE + 16
 
@@ -120,43 +101,6 @@ DAP:
     .read_into_segment: dw 0x0
     .sector_begin_low:  dd STAGE2_BASE_SECTOR
     .sector_begin_high: dd 0x0
-
-gdt_ptr:
-    dw gdt_struct_end - gdt_struct - 1
-    dd gdt_struct
-
-; access
-READWRITE:    equ (1 << 1)
-EXECUTABLE:   equ (1 << 3)
-CODE_OR_DATA: equ (1 << 4)
-PRESENT:      equ (1 << 7)
-
-; flags
-MODE_32BIT:       equ (1 << 6)
-PAGE_GRANULARITY: equ (1 << 7)
-
-gdt_struct:
-    .null: equ $ - gdt_struct
-    dq 0x0000000000000000
-
-    .code: equ $ - gdt_struct
-    ; 32 bit code segment descriptor
-    dw 0xFFFF ; limit
-    dw 0x0000 ; base
-    db 0x00   ; base
-    db READWRITE | EXECUTABLE | CODE_OR_DATA | PRESENT
-    db MODE_32BIT | PAGE_GRANULARITY | 0x0F ; 4 bits of flags + 4 bits of limit
-    db 0x00   ; base
-
-    .data: equ $ - gdt_struct
-    ; 32 bit data segment descriptor
-    dw 0xFFFF ; limit
-    dw 0x0000 ; base
-    db 0x00   ; base
-    db READWRITE | CODE_OR_DATA | PRESENT
-    db MODE_32BIT | PAGE_GRANULARITY | 0x0F ; 4 bits of flags + 4 bits of limit
-    db 0x00   ; base
-gdt_struct_end:
 
 CR: equ 0x0D
 LF: equ 0x0A
