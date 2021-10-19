@@ -31,6 +31,7 @@ if (NOT WIN32)
 endif ()
 
 FILE(GLOB CPP_FILES "${PROJECT_SOURCE_DIR}/*cpp"                    "${PROJECT_SOURCE_DIR}/*h"
+                    "${PROJECT_SOURCE_DIR}/Common/*cpp"             "${PROJECT_SOURCE_DIR}/Common/*h"
                     "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*cpp" "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*h")
 
 FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*asm")
