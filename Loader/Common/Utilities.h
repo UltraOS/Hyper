@@ -37,39 +37,39 @@ struct Less<void> {
 };
 
 template <typename ItrT, typename U, typename Comparator = Less<>>
-    ItrT lower_bound(ItrT begin, ItrT end, const U& key, Comparator comparator = Comparator())
-    {
-        ASSERT(begin <= end);
+ItrT lower_bound(ItrT begin, ItrT end, const U& key, Comparator comparator = Comparator())
+{
+    ASSERT(begin <= end);
 
-        if (begin == end)
-            return end;
+    if (begin == end)
+        return end;
 
-        auto* lower_bound = end;
+    auto* lower_bound = end;
 
-        ssize_t left = 0;
-        ssize_t right = end - begin - 1;
+    ssize_t left = 0;
+    ssize_t right = end - begin - 1;
 
-        while (left <= right) {
-            ssize_t pivot = left + (right - left) / 2;
+    while (left <= right) {
+        ssize_t pivot = left + (right - left) / 2;
 
-            auto& pivot_value = begin[pivot];
+        auto& pivot_value = begin[pivot];
 
-            if (comparator(key, pivot_value)) {
-                lower_bound = &pivot_value;
-                right = pivot - 1;
-                continue;
-            }
-
-            if (comparator(pivot_value, key)) {
-                left = pivot + 1;
-                continue;
-            }
-
-            return &begin[pivot];
+        if (comparator(key, pivot_value)) {
+            lower_bound = &pivot_value;
+            right = pivot - 1;
+            continue;
         }
 
-        return lower_bound;
+        if (comparator(pivot_value, key)) {
+            left = pivot + 1;
+            continue;
+        }
+
+        return &begin[pivot];
     }
+
+    return lower_bound;
+}
 
 template <typename T, typename Comparator = Less<T>>
 void insertion_sort(T* begin, T* end, Comparator comparator = Comparator())
