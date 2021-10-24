@@ -2,19 +2,34 @@
 
 #include "Common/Types.h"
 #include "Common/StringView.h"
+#include "Common/Span.h"
 
 #include "Protocol.h"
 
+struct Disk {
+    u64 sectors;
+    u32 bytes_per_sector;
+    u32 id;
+};
+
 class DiskServices {
 public:
-    // Reads count sectors at sector offset.
+    // Lists all available disks.
+    virtual Span<Disk> list_disks() = 0;
+
+    // Reads sectors from a disk.
+    // id -> one of disk ids returned by list_disks.
+    // buffer -> first byte of the buffer that receives data.
+    // sector -> first sector from which data is read.
+    // count -> number of sectors to read.
     // Returns true if data was read successfully, false otherwise.
-    virtual bool read(void* buffer, size_t sector, size_t count) = 0;
+    virtual bool read(u32 id, void* buffer, u64 sector, size_t count) = 0;
 };
 
 struct VideoMode {
     u32 width;
     u32 height;
+    u32 bpp;
     u32 id;
 };
 
@@ -25,10 +40,8 @@ struct Resolution {
 
 class VideoServices {
 public:
-    // Lists up to max_count modes into buffer.
-    // Returns the number of modes that could've been listed or 0 if
-    // no modes could be listed.
-    virtual size_t list_modes(VideoMode* into_buffer, size_t max_count) = 0;
+    // Lists all available video modes.
+    virtual Span<VideoMode> list_modes() = 0;
 
     // Attempts to query native screen resolution.
     // out_resolution -> main display resolution in pixels.
@@ -76,7 +89,7 @@ public:
     //        that changes with every allocate/free call. Only set if capacity_in_bytes
     //        was enough to receive the entire map.
     // Returns the number of bytes that would've been copied if buffer had enough capacity.
-    virtual size_t copy_map(void* into_buffer, size_t capacity_in_bytes, size_t& out_key) = 0;
+    virtual size_t copy_map(MemoryMapEntry* into_buffer, size_t capacity_in_bytes, size_t& out_key) = 0;
 
     // Disables the service and makes caller the owner of the entire map.
     // key -> expected id of the current state of the memory map.
@@ -131,3 +144,6 @@ private:
     MemoryServices& m_memory_services;
     TTYServices& m_tty_services;
 };
+
+// Entrypoint implemented by the loader
+void loader_entry(Services& services);
