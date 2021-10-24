@@ -1,3 +1,5 @@
+EBDA_BEGIN = 0x00080000;
+
 SECTIONS
 {
     . = 0x7E00;
@@ -29,5 +31,6 @@ SECTIONS
         *(COMMON)
         *(.bss .bss.*)
         section_bss_end = .;
+        ASSERT(section_bss_end < EBDA_BEGIN, "Loader executable is too large");
     }
 }
