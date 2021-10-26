@@ -146,3 +146,18 @@ inline Address real_mode_address(u16 segment, u16 offset)
 {
     return (static_cast<u32>(segment) << 4) | offset;
 }
+
+struct RealModeAddress {
+    u16 segment;
+    u16 offset;
+};
+
+inline RealModeAddress as_real_mode_address(Address address)
+{
+    ASSERT(address < 1 * MB);
+
+    u16 offset = address & 0xF;
+    u16 segment = (address & 0xFFFF0) >> 4;
+
+    return { segment, offset };
+}
