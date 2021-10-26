@@ -16,7 +16,7 @@ struct RealModeRegisterState {
     u16 ds;
     u32 flags;
 
-    [[nodiscard]] bool is_carry_set() { return flags & 1; }
+    [[nodiscard]] bool is_carry_set() const { return flags & 1; }
 };
 
 extern "C" void bios_call(u32 number, const RealModeRegisterState* in, RealModeRegisterState* out);
