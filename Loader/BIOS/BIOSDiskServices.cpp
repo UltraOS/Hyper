@@ -176,11 +176,14 @@ bool BIOSDiskServices::read(u32 id, void* buffer, u64 sector, size_t count)
     auto sectors_per_read = transfer_buffer_capacity / disk->bytes_per_sector;
     auto* byte_buffer = reinterpret_cast<u8*>(buffer);
 
+    auto transfer_buffer_address = as_real_mode_address(g_transfer_buffer);
+
     for (size_t i = 0; i < count; i += sectors_per_read) {
         if ((count - i) < sectors_per_read)
             sectors_per_read = count - i;
 
-        packet.buffer_offset = reinterpret_cast<u32>(g_transfer_buffer);
+        packet.buffer_segment = transfer_buffer_address.segment;
+        packet.buffer_offset = transfer_buffer_address.offset;
         packet.blocks_to_transfer = sectors_per_read;
         packet.first_block = sector + i;
         registers.eax = 0x4200;
