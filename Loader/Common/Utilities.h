@@ -173,3 +173,19 @@ inline RealModeAddress as_real_mode_address(Address address)
 
     return { segment, offset };
 }
+
+static constexpr size_t page_size = 4096;
+static constexpr uint64_t page_alignment_mask = 0xFFFFFFFFFFFFF000;
+
+static constexpr uint64_t page_round_down(uint64_t size)
+{
+    return size & ~page_alignment_mask ? size & page_alignment_mask : size;
+}
+
+static constexpr uint64_t page_round_up(uint64_t size)
+{
+    if (size == 0)
+        return page_size;
+
+    return size & ~page_alignment_mask ? (size + page_size) & page_alignment_mask : size;
+}
