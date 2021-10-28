@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Runtime.h"
+#include "Traits.h"
 
 template <typename T>
 remove_reference_t<T>&& move(T&& value)
@@ -8,6 +9,17 @@ remove_reference_t<T>&& move(T&& value)
     return static_cast<remove_reference_t<T>&&>(value);
 }
 
+template <typename T>
+T&& forward(remove_reference_t<T>& value)
+{
+    return static_cast<T&&>(value);
+}
+
+template <typename T>
+T&& forward(remove_reference_t<T>&& value)
+{
+    return static_cast<T&&>(value);
+}
 
 template <typename T>
 void swap(T& l, T& r)
