@@ -137,6 +137,8 @@ bool BIOSDiskServices::read(u32 id, void* buffer, u64 sector, size_t count)
     }
 
     DiskAddressPacket packet {};
+    packet.packet_size = sizeof(packet);
+
     RealModeRegisterState registers {};
     registers.eax = 0x4200;
     registers.edx = drive_id;
