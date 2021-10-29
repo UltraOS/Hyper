@@ -19,7 +19,7 @@ enable_a20:
     test al, al
     jnz .done
 
-    sub ecx, 1
+    dec ecx
     jnz .try_once
 
 .done:
@@ -90,7 +90,7 @@ is_a20_enabled:
 
 .rw_loop:
     ; write old number + 1
-    add eax, 1
+    inc eax
     mov [fs:0x0000], eax
 
     IO_DELAY
@@ -103,7 +103,7 @@ is_a20_enabled:
     ; values didn't match, A20 is enabled
     jne .done
 
-    sub ecx, 1
+    dec ecx
     jnz .rw_loop
 
 .done:
@@ -169,11 +169,11 @@ drain_8042:
     cmp al, 0xFF
     jne .test_output
 
-    sub ebx, 1
+    dec ebx
     jnz .drain_once
 
     ; controller returned 0xFF too many times
-    mov al, 0
+    xor eax, eax
     ret
 
 .test_output:
@@ -194,11 +194,11 @@ drain_8042:
     ret
 
 .next_iteration:
-    sub ecx, 1
+    dec ecx
     jnz .drain_once
 
     ; failed to drain after all attempts
-    mov eax, 0
+    xor eax, eax
     ret
 
 ; bool do_enable_a20_using_8042()
