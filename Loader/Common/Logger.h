@@ -8,7 +8,7 @@ namespace logger
 {
     // Sets new backend to use for logging, returns the previous backend
     // or nullptr if none was set.
-    TTYServices* set_backend(TTYServices*);
+    VideoServices* set_backend(VideoServices*);
 
     enum class Mode {
         DEC,

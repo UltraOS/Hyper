@@ -38,6 +38,15 @@ struct Resolution {
     u32 height;
 };
 
+enum class Color {
+    WHITE,
+    GRAY,
+    YELLOW,
+    RED,
+    BLUE,
+    GREEN,
+};
+
 class VideoServices {
 public:
     // Lists all available video modes.
@@ -53,6 +62,12 @@ public:
     // out_framebuffer -> memory region and various data about the set mode.
     // Returns true if mode was set successfully, false otherwise.
     virtual bool set_mode(u32 id, Framebuffer& out_framebuffer) = 0;
+
+    // Writes string to the output device with the given color.
+    // test -> ascii string to output to the device.
+    // color -> color of the output message.
+    // Returns true if string was successfully written, false otherwise.
+    virtual bool tty_write(StringView text, Color color) = 0;
 };
 
 enum class TopDown {
@@ -98,51 +113,23 @@ public:
     virtual bool handover(size_t key) = 0;
 };
 
-enum class Color {
-    WHITE,
-    GRAY,
-    YELLOW,
-    RED,
-    BLUE,
-    GREEN,
-};
-
-class TTYServices {
-public:
-    // Writes string to the output device with the given color.
-    // test -> ascii string to output to the device.
-    // color -> color of the output message.
-    // Returns true if string was successfully written, false otherwise.
-    virtual bool write(StringView text, Color color) = 0;
-
-    // Returns the output device resolution in characters.
-    virtual Resolution resolution() const = 0;
-
-    // Returns true if the service is currently available.
-    // This might change after setting a video mode.
-    virtual bool is_available() const = 0;
-};
-
 class Services {
 public:
-    Services(DiskServices& disk_services, VideoServices& video_services, MemoryServices& memory_services, TTYServices& tty_services)
+    Services(DiskServices& disk_services, VideoServices& video_services, MemoryServices& memory_services)
         : m_disk_services(disk_services)
         , m_video_services(video_services)
         , m_memory_services(memory_services)
-        , m_tty_services(tty_services)
     {
     }
 
     DiskServices& disk_services() { return m_disk_services; }
     VideoServices& video_services() { return m_video_services; }
     MemoryServices& memory_services() { return m_memory_services; }
-    TTYServices& tty_services() { return m_tty_services; }
 
 private:
     DiskServices& m_disk_services;
     VideoServices& m_video_services;
     MemoryServices& m_memory_services;
-    TTYServices& m_tty_services;
 };
 
 // Entrypoint implemented by the loader

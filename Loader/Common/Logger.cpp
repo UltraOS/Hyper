@@ -1,10 +1,10 @@
 #include "Logger.h"
 
 namespace logger {
-    static TTYServices* g_backend = nullptr;
+    static VideoServices* g_backend = nullptr;
     static Mode g_mode = Mode::DEC;
 
-    TTYServices* set_backend(TTYServices* backend)
+    VideoServices* set_backend(VideoServices* backend)
     {
         auto* previous = g_backend;
         g_backend = backend;
@@ -24,6 +24,6 @@ namespace logger {
     void log(Color color, StringView string)
     {
         if (g_backend)
-            g_backend->write(string, color);
+            g_backend->tty_write(string, color);
     }
 }
