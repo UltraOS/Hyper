@@ -38,12 +38,13 @@ static_assert(sizeof(DriverParameters) == 0x42);
 struct __attribute__((packed)) DiskAddressPacket {
     u8 packet_size;
     u8 reserved;
-    u8 blocks_to_transfer;
+    u16 blocks_to_transfer;
     u16 buffer_offset;
     u16 buffer_segment;
     u64 first_block;
     u64 flat_buffer_address;
 };
+static_assert(sizeof(DiskAddressPacket) == 0x18);
 
 bool operator<(const Disk& l, const Disk& r) { return static_cast<u8>(l.id) < static_cast<u8>(r.id); }
 bool operator<(u32 id, const Disk& r) { return static_cast<u8>(id) < static_cast<u8>(r.id); }
