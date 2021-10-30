@@ -129,18 +129,17 @@ Span<Disk> BIOSDiskServices::list_disks()
 bool BIOSDiskServices::read(u32 id, void* buffer, u64 sector, size_t count)
 {
     auto drive_id = id & 0xFF;
-    bool dma64 = id & dma64_support_bit;
 
     if (drive_id < first_drive_index || drive_id >= last_drive_index) {
         logger::error("read() called on invalid drive ", drive_id);
         hang();
     }
 
+    // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0708.htm
     DiskAddressPacket packet {};
     packet.packet_size = sizeof(packet);
 
     RealModeRegisterState registers {};
-    registers.eax = 0x4200;
     registers.edx = drive_id;
     registers.esi = reinterpret_cast<u32>(&packet);
 
@@ -154,28 +153,26 @@ bool BIOSDiskServices::read(u32 id, void* buffer, u64 sector, size_t count)
         return true;
     };
 
-    // Fast path for EDD3.0
-    if (dma64) {
-        packet.buffer_offset = 0xFFFF;
-        packet.buffer_segment = 0xFFFF;
-        packet.flat_buffer_address = reinterpret_cast<u64>(buffer);
-        packet.blocks_to_transfer = count;
-        packet.first_block = sector;
-
-        bios_call(0x13, &registers, &registers);
-        if (check_read(registers))
-            return true;
-    }
-
     auto* end = m_buffer + m_size;
     auto disk = lower_bound(m_buffer, end, drive_id);
 
-    if (disk == end || disk->id != id) {
-        logger::error("write() called on invalid id ", drive_id);
+    if (disk == end || disk->id != drive_id) {
+        logger::error("read() called on invalid id ", drive_id);
         hang();
     }
 
-    auto sectors_per_read = transfer_buffer_capacity / disk->bytes_per_sector;
+    auto last_read_sector = sector + count;
+    if (disk->sectors < last_read_sector || last_read_sector < sector) {
+        logger::error("invalid read() at ", sector, " count ", count);
+        hang();
+    }
+
+    bool dma64 = disk->id & dma64_support_bit;
+
+    // Cap dma64 at 64 sectors, 0x7F seems to be the actual limit, but just to be on the safe side
+    // and read at powers of 2.
+    auto sectors_per_read = dma64 ? 64 : transfer_buffer_capacity / disk->bytes_per_sector;
+
     auto* byte_buffer = reinterpret_cast<u8*>(buffer);
 
     auto transfer_buffer_address = as_real_mode_address(g_transfer_buffer);
@@ -184,18 +181,39 @@ bool BIOSDiskServices::read(u32 id, void* buffer, u64 sector, size_t count)
         if ((count - i) < sectors_per_read)
             sectors_per_read = count - i;
 
-        packet.buffer_segment = transfer_buffer_address.segment;
-        packet.buffer_offset = transfer_buffer_address.offset;
-        packet.blocks_to_transfer = sectors_per_read;
-        packet.first_block = sector + i;
         registers.eax = 0x4200;
+        packet.first_block = sector + i;
+        packet.blocks_to_transfer = sectors_per_read;
 
-        bios_call(0x13, &registers, &registers);
-        if (!check_read(registers))
-            return false;
+        // Fast path for EDD3.0
+        if (dma64) {
+            packet.buffer_offset = 0xFFFF;
+            packet.buffer_segment = 0xFFFF;
+            packet.flat_buffer_address = reinterpret_cast<u64>(byte_buffer);
+
+            bios_call(0x13, &registers, &registers);
+            dma64 = check_read(registers);
+
+            if (!dma64) {
+                logger::warning("disabling DMA64 for disk ", drive_id);
+                sectors_per_read = min(transfer_buffer_capacity / disk->bytes_per_sector, sectors_per_read);
+                disk->id &= ~dma64_support_bit;
+            }
+        }
 
         auto bytes_for_this_read = sectors_per_read * disk->bytes_per_sector;
-        copy_memory(g_transfer_buffer, byte_buffer, bytes_for_this_read);
+
+        if (!dma64) {
+            packet.buffer_segment = transfer_buffer_address.segment;
+            packet.buffer_offset = transfer_buffer_address.offset;
+
+            bios_call(0x13, &registers, &registers);
+            if (!check_read(registers))
+                return false;
+
+            copy_memory(g_transfer_buffer, byte_buffer, bytes_for_this_read);
+        }
+
         byte_buffer += bytes_for_this_read;
     }
 
