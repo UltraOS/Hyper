@@ -189,3 +189,9 @@ static constexpr uint64_t page_round_up(uint64_t size)
 
     return size & ~page_alignment_mask ? (size + page_size) & page_alignment_mask : size;
 }
+
+template <typename T>
+enable_if_t<is_integral_v<T>, T> ceiling_divide(T l, T r)
+{
+    return !!l + ((l - !!l) / r);
+}
