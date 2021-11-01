@@ -1,4 +1,5 @@
 EBDA_BEGIN = 0x00080000;
+REAL_MODE_SEGMENT0_END = 0x10000;
 
 SECTIONS
 {
@@ -12,6 +13,7 @@ SECTIONS
     .real : {
         *(.real_code*)
         *(.real_data*)
+        ASSERT(. < REAL_MODE_SEGMENT0_END, "Real mode section is too large");
     }
 
     .text : {
@@ -31,6 +33,7 @@ SECTIONS
         *(COMMON)
         *(.bss .bss.*)
         section_bss_end = .;
-        ASSERT(section_bss_end < EBDA_BEGIN, "Loader executable is too large");
+
+        ASSERT(. < EBDA_BEGIN, "Loader executable is too large");
     }
 }
