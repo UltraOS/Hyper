@@ -47,6 +47,16 @@ namespace logger
         log(color, StringView(string));
     }
 
+    inline void log(Color color, bool value)
+    {
+        log(color, value ? "true" : "false");
+    }
+
+    inline void log(bool value)
+    {
+        log(Color::GRAY, value);
+    }
+
     template <typename T>
     enable_if_t<is_arithmetic_v<T>> log(Color color, T number)
     {
