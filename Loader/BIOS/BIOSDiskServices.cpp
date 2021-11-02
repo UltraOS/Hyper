@@ -66,9 +66,12 @@ BIOSDiskServices::BIOSDiskServices(Disk* buffer, size_t capacity)
 
 void BIOSDiskServices::fetch_all_disks()
 {
-    static constexpr ptr_t bda_number_of_disks_ptr = 0x0475;
-    u8 number_of_disks = *Address(bda_number_of_disks_ptr).as_pointer<volatile u8>();
+    static constexpr Address bda_number_of_disks_address = 0x0475;
+    u8 number_of_disks = *bda_number_of_disks_address.as_pointer<volatile u8>();
     logger::info("BIOS-detected disks: ", number_of_disks);
+
+    if (number_of_disks == 0)
+        panic("BIOS reported 0 detected disks");
 
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0715.htm
     RealModeRegisterState registers;
@@ -101,9 +104,6 @@ void BIOSDiskServices::fetch_all_disks()
             continue;
         }
 
-        if (detected_disks++ == number_of_disks)
-            return;
-
         logger::info("detected drive: ", logger::hex, drive_index,
                      logger::dec, " -> sectors: ", drive_params.total_sector_count,
                      ", bytes per sector: ", drive_params.bytes_per_sector);
@@ -116,10 +116,13 @@ void BIOSDiskServices::fetch_all_disks()
         static constexpr size_t edd_v3 = 0x42;
         if (drive_params.buffer_size == edd_v3)
             disk.id |= dma64_support_bit;
+
+        if (++detected_disks == number_of_disks)
+            return;
     }
 
-    if (detected_disks < number_of_disks)
-        logger::warning("BIOS reported more disks than was detected?");
+    logger::warning("BIOS reported more disks than was detected? (",
+                    detected_disks, " vs ", number_of_disks, ")");
 }
 
 Span<Disk> BIOSDiskServices::list_disks()
