@@ -63,3 +63,21 @@ private:
     const char* m_string { nullptr };
     size_t m_size { 0 };
 };
+
+inline bool operator==(StringView lhs, StringView rhs)
+{
+    if (lhs.size() != rhs.size())
+        return false;
+
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        if (lhs[i] != rhs[i])
+            return false;
+    }
+
+    return true;
+}
+
+inline bool operator!=(StringView lhs, StringView rhs)
+{
+    return !operator==(lhs, rhs);
+}
