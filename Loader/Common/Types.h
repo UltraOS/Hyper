@@ -108,3 +108,6 @@ private:
 using Address = BasicAddress<ptr_t>;
 using Address32 = BasicAddress<u32>;
 using Address64 = BasicAddress<u64>;
+
+#define PACKED [[gnu::packed]]
+#define SET_BIT(x) (1ul << (x))
