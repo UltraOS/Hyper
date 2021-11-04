@@ -160,7 +160,7 @@ void BIOSMemoryServices::load_e820()
             continue;
         }
 
-        if (registers.ecx == sizeof(entry) && (!(entry.attributes & 1))) {
+        if (registers.ecx == sizeof(entry) && !(entry.attributes & 1)) {
             logger::warning("E820 attribute reserved bit not set, skipped");
             continue;
         }
@@ -365,7 +365,7 @@ Address64 BIOSMemoryServices::allocate_top_down(size_t page_count, Address64 upp
     Address64 range_end {};
     size_t i = m_size;
 
-    while (--i > 0) {
+    while (i-- > 0) {
         auto& range = m_buffer[i];
 
         if (range.begin() >= upper_limit)
@@ -401,7 +401,7 @@ Address64 BIOSMemoryServices::allocate_within(size_t page_count, Address64 lower
     m_key++;
 
     auto fail_on_allocation = [&]() {
-        logger::error("MemoryServices: failed to allocate ", page_count,
+        logger::error("invalid allocate_within() call ", page_count,
                       " pages within:\n", lower_limit, " -> ", upper_limit);
         hang();
     };
@@ -436,7 +436,7 @@ Address64 BIOSMemoryServices::allocate_within(size_t page_count, Address64 lower
 
     if (picked_range == end() || picked_range->begin() != lower_limit) {
         if (picked_range == begin())
-            fail_on_allocation();
+            return nullptr;
 
         --picked_range;
     }
@@ -456,7 +456,7 @@ Address64 BIOSMemoryServices::allocate_within(size_t page_count, Address64 lower
             if (should_look_further(*picked_range))
                 continue;
 
-            fail_on_allocation();
+            return nullptr;
         }
 
         break;
