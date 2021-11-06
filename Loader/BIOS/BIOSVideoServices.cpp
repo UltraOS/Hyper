@@ -223,17 +223,20 @@ bool BIOSVideoServices::tty_write(StringView text, Color color)
         return false;
 
     auto* vga_memory = reinterpret_cast<volatile u16*>(vga_address);
+    bool no_write;
 
     for (char c : text) {
+        no_write = false;
+
         if (c == '\n') {
             m_y++;
             m_x = 0;
-            continue;
+            no_write = true;
         }
 
         if (c == '\t') {
             m_x += 4;
-            continue;
+            no_write = true;
         }
 
         if (m_x >= columns) {
@@ -242,9 +245,12 @@ bool BIOSVideoServices::tty_write(StringView text, Color color)
         }
 
         if (m_y >= rows) {
-            m_y--;
+            m_y = rows - 1;
             tty_scroll();
         }
+
+        if (no_write)
+            continue;
 
         vga_memory[m_y * columns + m_x++] = as_attribute(color) | c;
     }
