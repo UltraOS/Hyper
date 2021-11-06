@@ -10,7 +10,7 @@ PROTECTED_MODE_BIT: equ 1
 
 SIZEOF_REGISTER_STATE: equ 40
 
-section .real_text
+section .real_code
 
 ; NOTE: this function assumes all pointers are located within the first 64K of memory.
 ; NOTE(2): this function is not reentrant and uses global state.
