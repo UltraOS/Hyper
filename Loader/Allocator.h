@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Services.h"
 #include "Common/Utilities.h"
 
 // only placement new, no normal new/delete
@@ -13,6 +12,18 @@ inline void* operator new[](size_t, void* ptr)
 {
     return ptr;
 }
+
+inline void operator delete(void*)
+{
+    panic("delete() called directly");
+}
+
+inline void operator delete(void* ptr, unsigned long)
+{
+    operator delete(ptr);
+}
+
+class MemoryServices;
 
 namespace allocator {
 
