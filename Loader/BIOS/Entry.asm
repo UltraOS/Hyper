@@ -33,7 +33,7 @@ BITS 32
     mov gs, ax
     mov ss, ax
 
-    jmp bios_entry
+    call bios_entry
 
 align 16
 section .real_data
