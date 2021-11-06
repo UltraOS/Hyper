@@ -7,7 +7,7 @@
 static constexpr size_t mode_count_capacity = 256;
 static VideoMode g_video_modes[mode_count_capacity] {};
 
-struct __attribute__((packed)) SuperVGAInformation {
+struct PACKED SuperVGAInformation {
     u32 signature; // 'VBE2' request -> 'VESA' response
     u16 vesa_version;
     u16 oem_name_offset;
@@ -33,7 +33,7 @@ struct __attribute__((packed)) SuperVGAInformation {
 };
 static_assert(sizeof(SuperVGAInformation) == 512);
 
-struct __attribute__((packed)) ModeInformation {
+struct PACKED ModeInformation {
     u16 attributes;
     u8 window_attributes_a;
     u8 window_attributes_b;
@@ -89,7 +89,7 @@ struct __attribute__((packed)) ModeInformation {
 };
 static_assert(sizeof(ModeInformation) == 256);
 
-struct __attribute__((packed)) EDID {
+struct PACKED EDID {
     u8 header[8];
     u16 manufacturer_id;
     u16 manufacturer_product_code;
@@ -115,13 +115,13 @@ struct __attribute__((packed)) EDID {
     u8 default_white_y_point_value_most_significant_bits;
     u8 established_timing_bitmap[3];
 
-    struct __attribute__((packed)) {
+    struct PACKED {
         u8 x_resolution;
         u8 vertical_frequency : 6;
         u8 aspect_ratio : 2;
     } standard_timing_information[8];
 
-    struct __attribute__((packed)) {
+    struct PACKED {
         u16 pixel_clock;
         u8 horizontal_active_pixels_lo;
         u8 horizontal_blanking_pixels_lo;
