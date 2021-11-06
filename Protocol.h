@@ -1,7 +1,9 @@
 #pragma once
 
+#include <stdint.h>
+
 #define ATTRIBUTE_INVALID          0
-#define ATTRIBUTE_SYSTEM_INFO      1
+#define ATTRIBUTE_PLATFORM_INFO    1
 #define ATTRIBUTE_MEMORY_MAP       2
 #define ATTRIBUTE_MODULE_INFO      3
 #define ATTRIBUTE_COMMAND_LINE     4
@@ -17,9 +19,12 @@ struct AttributeHeader {
 #define PLATFORM_BIOS    1
 #define PLATFORM_UEFI    2
 
-struct SystemInfoAttribute {
+struct PlatformInfoAttribute {
     struct AttributeHeader header;
     uint32_t platform_type;
+    uint16_t loader_major;
+    uint16_t loader_minor;
+    char loader_name[32];
 };
 
 #define MEMORY_TYPE_INVALID            0
@@ -80,5 +85,4 @@ struct BootContext {
 };
 #define NEXT_ATTRIBUTE(current) ((AttributeHeader*)(((uint8_t*)(current)) + (current)->size_in_bytes))
 
-#define MAGIC32 0x48595045
-#define MAGIC64 0x48595045525f3634
+#define ULTRA_MAGIC 0x554c5442
