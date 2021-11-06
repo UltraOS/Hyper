@@ -39,7 +39,7 @@ FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*asm")
 set(LOADER_SOURCES ${CPP_FILES} ${ASM_FILES})
 add_executable(Hyper ${LOADER_SOURCES})
 
-target_include_directories(Hyper PRIVATE ${PROJECT_SOURCE_DIR})
+target_include_directories(Hyper PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/..)
 
 if (PLATFORM MATCHES "BIOS")
     set_target_properties(Hyper PROPERTIES LINK_FLAGS "-T ${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/Linker.ld -Wl,--oformat,binary")
