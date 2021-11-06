@@ -195,3 +195,18 @@ enable_if_t<is_integral_v<T>, T> ceiling_divide(T l, T r)
 {
     return !!l + ((l - !!l) / r);
 }
+
+template <typename To, typename From>
+enable_if_t<
+    sizeof(To) == sizeof(From) &&
+    is_trivially_constructible_v<To> &&
+    is_trivially_copyable_v<To> &&
+    is_trivially_copyable_v<From>,
+    To
+>
+bit_cast(const From& value)
+{
+    To to;
+    copy_memory(&value, &to, sizeof(value));
+    return to;
+}
