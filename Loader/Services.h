@@ -8,8 +8,9 @@
 
 struct Disk {
     u64 sectors;
-    u32 bytes_per_sector;
-    u32 id;
+    u16 bytes_per_sector;
+    u16 opaque_flags;
+    void* handle;
 };
 
 class DiskServices {
@@ -17,13 +18,21 @@ public:
     // Lists all available disks.
     virtual Span<Disk> list_disks() = 0;
 
+    // Reads byte aligned data from disk.
+    // handle -> one of disk handles returned by list_disks.
+    // buffer -> first byte of the buffer that receives data.
+    // offset -> byte offset of where to start reading.
+    // bytes -> number of bytes to read.
+    // Returns true if data was read successfully, false otherwise.
+    virtual bool read(void* handle, void* buffer, u64 offset, size_t bytes) = 0;
+
     // Reads sectors from a disk.
-    // id -> one of disk ids returned by list_disks.
+    // handle -> one of disk handles returned by list_disks.
     // buffer -> first byte of the buffer that receives data.
     // sector -> first sector from which data is read.
     // count -> number of sectors to read.
     // Returns true if data was read successfully, false otherwise.
-    virtual bool read(u32 id, void* buffer, u64 sector, size_t count) = 0;
+    virtual bool read_blocks(void* handle, void* buffer, u64 sector, size_t blocks) = 0;
 };
 
 struct VideoMode {

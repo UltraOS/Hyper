@@ -7,14 +7,14 @@
 static constexpr size_t disk_buffer_capacity = 128;
 static Disk g_disks_buffer[disk_buffer_capacity];
 
-static constexpr size_t transfer_buffer_capacity = 2048;
+static constexpr size_t transfer_buffer_capacity = 4096;
 static u8 g_transfer_buffer[transfer_buffer_capacity];
 
 static constexpr u8 first_drive_index = 0x80;
 static constexpr u8 last_drive_index = 0xFF;
 static constexpr u32 dma64_support_bit = 1 << 8;
 
-struct __attribute__((packed)) DriverParameters {
+struct PACKED DriverParameters {
     u16 buffer_size;
     u16 flags;
     u32 cylinders;
@@ -35,20 +35,20 @@ struct __attribute__((packed)) DriverParameters {
 };
 static_assert(sizeof(DriverParameters) == 0x42);
 
-struct __attribute__((packed)) DiskAddressPacket {
+struct PACKED DiskAddressPacket {
     u8 packet_size;
     u8 reserved;
     u16 blocks_to_transfer;
     u16 buffer_offset;
     u16 buffer_segment;
     u64 first_block;
-    u64 flat_buffer_address;
+    u64 flat_address;
 };
 static_assert(sizeof(DiskAddressPacket) == 0x18);
 
-bool operator<(const Disk& l, const Disk& r) { return static_cast<u8>(l.id) < static_cast<u8>(r.id); }
-bool operator<(u32 id, const Disk& r) { return static_cast<u8>(id) < static_cast<u8>(r.id); }
-bool operator<(const Disk& l, u32 id) { return static_cast<u8>(l.id) < static_cast<u8>(id); }
+bool operator<(const Disk& l, const Disk& r) { return l.handle < r.handle; }
+bool operator<(void* l, const Disk& r) { return l < r.handle; }
+bool operator<(const Disk& l, void* r) { return l.handle < r; }
 
 BIOSDiskServices BIOSDiskServices::create()
 {
@@ -111,11 +111,11 @@ void BIOSDiskServices::fetch_all_disks()
         auto& disk = m_buffer[m_size++];
         disk.bytes_per_sector = drive_params.bytes_per_sector;
         disk.sectors = drive_params.total_sector_count;
-        disk.id = drive_index;
+        disk.handle = reinterpret_cast<void*>(drive_index);
 
         static constexpr size_t edd_v3 = 0x42;
         if (drive_params.buffer_size == edd_v3)
-            disk.id |= dma64_support_bit;
+            disk.opaque_flags |= dma64_support_bit;
 
         if (++detected_disks == number_of_disks)
             return;
@@ -130,21 +130,54 @@ Span<Disk> BIOSDiskServices::list_disks()
     return { m_buffer, m_size };
 }
 
-bool BIOSDiskServices::read(u32 id, void* buffer, u64 sector, size_t count)
+Disk* BIOSDiskServices::disk_from_handle(void* handle)
 {
-    auto drive_id = id & 0xFF;
+    auto drive_id = reinterpret_cast<u32>(handle) & 0xFF;
 
-    if (drive_id < first_drive_index || drive_id >= last_drive_index) {
-        logger::error("read() called on invalid drive ", drive_id);
+    if (drive_id < first_drive_index || drive_id >= last_drive_index)
+        return nullptr;
+
+    auto* end = m_buffer + m_size;
+    auto disk = lower_bound(m_buffer, end, handle);
+
+    if (disk == end || disk->handle != handle)
+        return nullptr;
+
+    return disk;
+}
+
+bool BIOSDiskServices::read_blocks(void* handle, void* buffer, u64 sector, size_t blocks)
+{
+    auto* disk = disk_from_handle(handle);
+    if (!disk) {
+        logger::error("read_blocks() called on invalid handle ", handle);
         hang();
     }
+
+    return do_read(*disk, buffer, sector * disk->bytes_per_sector, blocks * disk->bytes_per_sector);
+}
+
+bool BIOSDiskServices::read(void* handle, void* buffer, u64 offset, size_t bytes)
+{
+    auto* disk = disk_from_handle(handle);
+    if (!disk) {
+        logger::error("read() called on invalid handle ", handle);
+        hang();
+    }
+
+    return do_read(*disk, buffer, offset, bytes);
+}
+
+bool BIOSDiskServices::do_read(const Disk& disk, void* buffer, u64 offset, size_t bytes)
+{
+    ASSERT(bytes != 0);
 
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0708.htm
     DiskAddressPacket packet {};
     packet.packet_size = sizeof(packet);
 
     RealModeRegisterState registers {};
-    registers.edx = drive_id;
+    registers.edx = reinterpret_cast<u32>(disk.handle) & 0xFF;
     registers.esi = reinterpret_cast<u32>(&packet);
 
     auto check_read = [] (const RealModeRegisterState& registers) -> bool
@@ -157,68 +190,48 @@ bool BIOSDiskServices::read(u32 id, void* buffer, u64 sector, size_t count)
         return true;
     };
 
-    auto* end = m_buffer + m_size;
-    auto disk = lower_bound(m_buffer, end, drive_id);
-
-    if (disk == end || disk->id != drive_id) {
-        logger::error("read() called on invalid id ", drive_id);
+    auto last_read_sector = (offset + bytes) / disk.bytes_per_sector;
+    if (disk.sectors <= last_read_sector) {
+        logger::error("invalid read(..., ", offset, ", ", bytes, ")");
         hang();
     }
-
-    auto last_read_sector = sector + count;
-    if (disk->sectors < last_read_sector || last_read_sector < sector) {
-        logger::error("invalid read() at ", sector, " count ", count);
-        hang();
-    }
-
-    bool dma64 = disk->id & dma64_support_bit;
-
-    // Cap dma64 at 64 sectors, 0x7F seems to be the actual limit, but just to be on the safe side
-    // and read at powers of 2.
-    auto sectors_per_read = dma64 ? 64 : transfer_buffer_capacity / disk->bytes_per_sector;
 
     auto* byte_buffer = reinterpret_cast<u8*>(buffer);
-
     auto transfer_buffer_address = as_real_mode_address(g_transfer_buffer);
 
-    for (size_t i = 0; i < count; i += sectors_per_read) {
-        if ((count - i) < sectors_per_read)
-            sectors_per_read = count - i;
+    auto current_sector = offset / disk.bytes_per_sector;
+    auto sectors_to_read = bytes / disk.bytes_per_sector;
+
+    offset -= current_sector * disk.bytes_per_sector;
+
+    // round up sectors to read in case read is not aligned to sector size
+    if (offset != 0 || (bytes % disk.bytes_per_sector))
+        sectors_to_read++;
+
+    for (;;) {
+        u32 sectors_for_this_read = min(sectors_to_read, transfer_buffer_capacity / disk.bytes_per_sector);
+        logger::info("reading ", sectors_to_read, " this batch: ", sectors_for_this_read);
+
+        auto bytes_for_this_read = sectors_for_this_read * disk.bytes_per_sector;
+        sectors_to_read -= sectors_for_this_read;
 
         registers.eax = 0x4200;
-        packet.first_block = sector + i;
-        packet.blocks_to_transfer = sectors_per_read;
+        packet.first_block = current_sector;
+        packet.blocks_to_transfer = sectors_for_this_read;
+        packet.buffer_segment = transfer_buffer_address.segment;
+        packet.buffer_offset = transfer_buffer_address.offset;
 
-        // Fast path for EDD3.0
-        if (dma64) {
-            packet.buffer_offset = 0xFFFF;
-            packet.buffer_segment = 0xFFFF;
-            packet.flat_buffer_address = reinterpret_cast<u64>(byte_buffer);
+        bios_call(0x13, &registers, &registers);
+        if (!check_read(registers))
+            return false;
 
-            bios_call(0x13, &registers, &registers);
-            dma64 = check_read(registers);
+        auto bytes_to_copy = min(bytes_for_this_read, bytes);
+        copy_memory(&g_transfer_buffer[offset], byte_buffer, bytes_to_copy);
 
-            if (!dma64) {
-                logger::warning("disabling DMA64 for disk ", drive_id);
-                sectors_per_read = min(transfer_buffer_capacity / disk->bytes_per_sector, sectors_per_read);
-                disk->id &= ~dma64_support_bit;
-            }
-        }
-
-        auto bytes_for_this_read = sectors_per_read * disk->bytes_per_sector;
-
-        if (!dma64) {
-            packet.buffer_segment = transfer_buffer_address.segment;
-            packet.buffer_offset = transfer_buffer_address.offset;
-
-            bios_call(0x13, &registers, &registers);
-            if (!check_read(registers))
-                return false;
-
-            copy_memory(g_transfer_buffer, byte_buffer, bytes_for_this_read);
-        }
-
-        byte_buffer += bytes_for_this_read;
+        bytes -= bytes_to_copy;
+        if (bytes == 0)
+            break;
+        ASSERT(sectors_to_read != 0);
     }
 
     return true;
