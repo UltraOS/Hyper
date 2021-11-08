@@ -32,6 +32,8 @@ endif ()
 
 FILE(GLOB CPP_FILES "${PROJECT_SOURCE_DIR}/*cpp"                    "${PROJECT_SOURCE_DIR}/*h"
                     "${PROJECT_SOURCE_DIR}/Common/*cpp"             "${PROJECT_SOURCE_DIR}/Common/*h"
+                    "${PROJECT_SOURCE_DIR}/FileSystem/*cpp"         "${PROJECT_SOURCE_DIR}/FileSystem/*h"
+                    "${PROJECT_SOURCE_DIR}/FileSystem/FAT32/*cpp"   "${PROJECT_SOURCE_DIR}/FileSystem/FAT32/*h"
                     "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*cpp" "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*h")
 
 FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*asm")

@@ -74,7 +74,6 @@ static u32 pure_cluster_value(u32 value)
     return value - reserved_cluster_count;
 }
 
-
 FAT32::FAT32(const Disk& disk, LBARange lba_range, void* first_block_buffer)
     : FileSystem(disk, lba_range)
 {
@@ -101,7 +100,7 @@ bool FAT32::ensure_root_directory() {
     return m_root_directory != nullptr;
 }
 
-u8 generate_short_name_checksum(StringView name)
+static u8 generate_short_name_checksum(StringView name)
 {
     u8 sum = 0;
     const u8* byte_ptr = reinterpret_cast<const u8*>(name.data());
@@ -307,14 +306,10 @@ File* FAT32::open(StringView path)
         if (!is_directory)
             return nullptr;
 
-        logger::info("looking at ", node);
-
         Directory directory(*this, first_cluster);
         Entry dir_entry {};
 
         while (directory.next_entry(dir_entry)) {
-            logger::info("found ", dir_entry.name_view());
-
             if (dir_entry.name_view() != node)
                 continue;
 
@@ -424,11 +419,6 @@ bool FAT32::File::compute_contiguous_ranges()
             if (!emplace_range(range))
                 return false;
 
-            logger::info("Computed contiguous ranges: countL: ", m_range_count);
-
-            for (size_t i = 0; i < m_range_count; ++i)
-                logger::info("range[", i, "] -> ", m_contiguous_ranges[i].global_cluster, " ", m_contiguous_ranges[i].file_offset_cluster);
-
             return true;
         }
         case FATEntryType::LINK:
@@ -470,7 +460,6 @@ u32 FAT32::File::cluster_from_offset(u32 offset)
         --itr;
 
     auto global_cluster = itr->global_cluster + (offset - itr->file_offset_cluster);
-    logger::info("cluster ", logger::hex, global_cluster, " at offset ", offset);
     ASSERT(entry_type_of_fat_value(global_cluster) == FATEntryType::LINK);
 
     return global_cluster;
@@ -488,8 +477,6 @@ bool FAT32::read(u32 cluster, u32 offset, u32 bytes, void* buffer)
 
     auto sector_to_read = m_data_range.begin();
     sector_to_read += cluster * m_ebpb.sectors_per_cluster;
-
-    logger::info("reading ", bytes, " at ", offset, " cluster ", cluster);
 
     return srvc->read(d.handle, buffer, sector_to_read * d.bytes_per_sector + offset, bytes);
 }
