@@ -1,3 +1,5 @@
 build/
-Toolchain/*
+Toolchain/
+cmake-build-debug/
+.idea/
 !Toolchain/build.sh
