@@ -21,14 +21,27 @@ on_error()
     exit 1
 }
 
+platform="BIOS"
+
+if [ "$1" ]
+  then
+    if [ $1 != "UEFI" ] && [ $1 != "BIOS" ]
+    then
+      echo "Unknown platform $1"
+      on_error
+    else
+      platform="$1"
+    fi
+fi
+
 pushd $true_path
 
-build_dir="build"
+build_dir="build$platform"
 
 mkdir -p $build_dir || on_error
 
 pushd $build_dir
-cmake .. || on_error
+cmake .. -DPLATFORM=$platform || on_error
 cmake --build . -j$cores || on_error
 popd
 

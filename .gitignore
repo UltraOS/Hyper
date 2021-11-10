@@ -1,4 +1,6 @@
 build/
+buildUEFI/
+buildBIOS/
 Toolchain/
 cmake-build-debug/
 .idea/

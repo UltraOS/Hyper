@@ -22,15 +22,33 @@ on_error()
     exit 1
 }
 
-compiler_prefix="i686"
+platform="BIOS"
+
+if [ "$1" ]
+  then
+    if [ $1 != "UEFI" ] && [ $1 != "BIOS" ]
+    then
+      echo "Unknown platform $1"
+      on_error
+    else
+      platform="$1"
+    fi
+fi
+
+compiler_prefix="i686-elf"
+
+if [ $platform = "UEFI" ]
+then
+    compiler_prefix="mingw64"
+fi
 
 pushd $true_path
 
-if [ -e "bin/$compiler_prefix-elf-g++" ]
+if [ -e "Tools$platform/bin/$compiler_prefix-g++" ]
 then
   exit 0
 else
-  echo "Building the cross-compiler for $compiler_prefix..."
+  echo "Building the cross-compiler for $compiler_prefix ($platform)..."
 fi
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -117,15 +135,15 @@ else
   echo "binutils is already downloaded!"
 fi
 
-export PREFIX=$true_path
-export TARGET=$compiler_prefix-elf
+export PREFIX="$true_path/Tools$platform"
+export TARGET="$compiler_prefix"
 export PATH="$PREFIX/bin:$PATH"
 
 # Build with optimizations and no debug information
 export CFLAGS="-g0 -O2"
 export CXXFLAGS="-g0 -O2"
 
-binutils_build_dir="binutils_build"
+binutils_build_dir="binutils_build_$platform"
 
 echo "Building binutils..."
 mkdir -p $binutils_build_dir || on_error
@@ -143,7 +161,7 @@ popd
 rm -rf $binutils_sources_dir
 rm -rf $binutils_build_dir
 
-gcc_build_dir="gcc_build"
+gcc_build_dir="gcc_build_$platform"
 
 echo "Building GCC..."
 mkdir -p $gcc_build_dir || on_error
@@ -167,9 +185,14 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
 fi
 
 make all-gcc               -j$cores || on_error
-make all-target-libgcc     -j$cores || on_error
 make install-gcc                    || on_error
-make install-target-libgcc          || on_error
+
+if [ $platform = "BIOS" ]
+then
+  make all-target-libgcc     -j$cores || on_error
+  make install-target-libgcc          || on_error
+fi
+
 popd
 
 rm -rf $gcc_sources_dir

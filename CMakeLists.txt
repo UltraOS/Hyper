@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
- 
+
 if (NOT PLATFORM)
     set(PLATFORM "BIOS")
 elseif ((NOT PLATFORM MATCHES "BIOS") AND (NOT PLATFORM MATCHES "UEFI"))
@@ -7,14 +7,14 @@ elseif ((NOT PLATFORM MATCHES "BIOS") AND (NOT PLATFORM MATCHES "UEFI"))
 endif ()
 
 if (PLATFORM MATCHES "UEFI")
-    message(FATAL_ERROR "UEFI is currently not supported!")
+    set(COMPILER_PREFIX "mingw64")
+else ()
+    set(COMPILER_PREFIX "i686-elf")
 endif ()
-
-set(COMPILER_PREFIX "i686")
 
 if (NOT WIN32)
     execute_process(
-        COMMAND /bin/bash ${CMAKE_SOURCE_DIR}/Toolchain/build.sh
+        COMMAND /bin/bash ${CMAKE_SOURCE_DIR}/Toolchain/build.sh ${PLATFORM}
         RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
     )
     if (TOOLCHAIN_BUILD_FAILED)
@@ -25,10 +25,10 @@ if (NOT WIN32)
     set(CMAKE_C_COMPILER_WORKS 1)
     set(CMAKE_CXX_COMPILER_WORKS 1)
 
-    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/Toolchain)
+    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/Toolchain/Tools${PLATFORM})
     set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
-    set(PATH_TO_FILT "${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-elf-c++filt")
-    set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-elf-)
+    set(PATH_TO_FILT "${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-c++filt")
+    set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-)
 
     set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc)
     set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PREFIX}g++)
