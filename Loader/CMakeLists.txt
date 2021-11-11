@@ -8,8 +8,15 @@ enable_language(CXX)
 
 if (PLATFORM MATCHES "BIOS")
     set(CMAKE_ASM_NASM_FLAGS "-felf32")
-    add_definitions(-DHYPER_PLATFORM_BIOS)
     set(PLATFORM_FOLDER "BIOS")
+    set(EXECUTABLE_NAME "Hyper")
+elseif (PLATFORM MATCHES "UEFI")
+    set(CMAKE_ASM_NASM_FLAGS "-fwin64")
+    set(PLATFORM_FOLDER "UEFI")
+    set(ADDITIONAL_FLAGS "-fno-stack-protector")
+    set(EXECUTABLE_NAME "BOOTX64.EFI")
+else ()
+    message(FATAL_ERROR "Unknown platform ${PLATFORM}")
 endif ()
 
 # Don't set flags if we're building cmake purely for the sake of syntax highlighting,
@@ -39,11 +46,14 @@ FILE(GLOB CPP_FILES "${PROJECT_SOURCE_DIR}/*cpp"                    "${PROJECT_S
 FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*asm")
 
 set(LOADER_SOURCES ${CPP_FILES} ${ASM_FILES})
-add_executable(Hyper ${LOADER_SOURCES})
 
-target_include_directories(Hyper PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/..)
+add_executable(${EXECUTABLE_NAME} ${LOADER_SOURCES})
+
+target_include_directories(${EXECUTABLE_NAME} PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/..)
 
 if (PLATFORM MATCHES "BIOS")
-    set_target_properties(Hyper PROPERTIES LINK_FLAGS "-T ${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/Linker.ld -Wl,--oformat,binary")
-    target_link_libraries(Hyper gcc)
+    set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-T ${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/Linker.ld -Wl,--oformat,binary")
+    target_link_libraries(${EXECUTABLE_NAME} gcc)
+else ()
+    set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-Wl,-dll -Wl,--subsystem,10 -e EfiMain -s -Wl,-Bsymbolic -shared")
 endif ()

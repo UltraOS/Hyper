@@ -442,7 +442,7 @@ bool FAT32::File::compute_contiguous_ranges()
 u32 FAT32::File::cluster_from_offset(u32 offset)
 {
     ASSERT(m_range_count);
-    ASSERT(offset < ceiling_divide(size(), fs_as_fat32().bytes_per_cluster()));
+    ASSERT(offset < ceiling_divide<size_t>(size(), fs_as_fat32().bytes_per_cluster()));
 
     auto* begin = m_contiguous_ranges.begin();
     auto* end = begin + m_range_count;
@@ -493,7 +493,7 @@ bool FAT32::File::read(void* buffer, u32 offset, u32 size)
     auto offset_within_cluster = offset - (cluster_offset * fs.bytes_per_cluster());
     auto bytes_left_after_offset = this->size() - offset;
 
-    size_t bytes_to_read = min(size, bytes_left_after_offset);
+    size_t bytes_to_read = min<size_t>(size, bytes_left_after_offset);
     u8* byte_buffer = reinterpret_cast<u8*>(buffer);
 
     for (;;) {

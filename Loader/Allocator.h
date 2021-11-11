@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common/Utilities.h"
+#include "Common/Types.h"
 
 // only placement new, no normal new/delete
 inline void* operator new(size_t, void* ptr)
@@ -18,7 +19,7 @@ inline void operator delete(void*)
     panic("delete() called directly");
 }
 
-inline void operator delete(void* ptr, unsigned long)
+inline void operator delete(void* ptr, size_t)
 {
     operator delete(ptr);
 }

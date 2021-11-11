@@ -17,10 +17,12 @@ using u64 = uint64_t;
 
 using ptr_t = size_t;
 
-#ifdef __i386__
+#ifdef __x86_64__
+using ssize_t = i64;
+#elif defined(__i386__)
 using ssize_t = i32;
 #else
-using ssize_t = i64;
+#error unknown architecture
 #endif
 
 #define SIZEOF_I8 1
@@ -53,9 +55,9 @@ static_assert(sizeof(u64) == SIZEOF_U64, "Incorrect size of 64 bit unsigned inte
 #undef SIZEOF_I32
 #undef SIZEOF_I64
 
-#define KB (1024ul)
-#define MB (1024ul * KB)
-#define GB (1024ul * MB)
+#define KB (static_cast<size_t>(1024))
+#define MB (static_cast<size_t>(1024) * KB)
+#define GB (static_cast<size_t>(1024) * MB)
 
 template <typename SizeT>
 class BasicAddress {
@@ -110,4 +112,4 @@ using Address32 = BasicAddress<u32>;
 using Address64 = BasicAddress<u64>;
 
 #define PACKED [[gnu::packed]]
-#define SET_BIT(x) (1ul << (x))
+#define SET_BIT(x) (static_cast<size_t>(1) << (x))
