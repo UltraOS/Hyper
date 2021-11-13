@@ -315,3 +315,111 @@ template <typename T>
 using make_unsigned_t = typename make_unsigned<T>::type;
 // -----------------------
 
+// ---- is_unsigned ----
+// TODO: implement is_any_of and remove_const_volatile here
+template <typename T>
+struct is_unsigned : false_value {
+};
+
+template <>
+struct is_unsigned<char> : conditional_t<static_cast<char>(-1) < 0, false_value, true_value> {
+};
+
+template <>
+struct is_unsigned<signed char> : false_value {
+};
+
+template <>
+struct is_unsigned<unsigned char> : true_value {
+};
+
+template <>
+struct is_unsigned<short> : false_value {
+};
+
+template <>
+struct is_unsigned<unsigned short> : true_value {
+};
+
+template <>
+struct is_unsigned<int> : false_value {
+};
+
+template <>
+struct is_unsigned<unsigned int> : true_value {
+};
+
+template <>
+struct is_unsigned<long> : false_value {
+};
+
+template <>
+struct is_unsigned<unsigned long> : true_value {
+};
+
+template <>
+struct is_unsigned<long long> : false_value {
+};
+
+template <>
+struct is_unsigned<unsigned long long> : true_value {
+};
+
+template <typename T>
+inline constexpr bool is_unsigned_v = is_unsigned<T>::value;
+// --------------------
+
+// ---- is_signed ----
+// TODO: implement is_any_of and remove_const_volatile here
+template <typename T>
+struct is_signed : false_value {
+};
+
+template <>
+struct is_signed<char> : conditional_t<static_cast<char>(-1) < 0, true_value, false_value> {
+};
+
+template <>
+struct is_signed<signed char> : true_value {
+};
+
+template <>
+struct is_signed<unsigned char> : false_value {
+};
+
+template <>
+struct is_signed<short> : true_value {
+};
+
+template <>
+struct is_signed<unsigned short> : false_value {
+};
+
+template <>
+struct is_signed<int> : true_value {
+};
+
+template <>
+struct is_signed<unsigned int> : false_value {
+};
+
+template <>
+struct is_signed<long> : true_value {
+};
+
+template <>
+struct is_signed<unsigned long> : false_value {
+};
+
+template <>
+struct is_signed<long long> : true_value {
+};
+
+template <>
+struct is_signed<unsigned long long> : false_value {
+};
+
+template <typename T>
+inline constexpr bool is_signed_v = is_signed<T>::value;
+// --------------------
+
