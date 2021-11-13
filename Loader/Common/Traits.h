@@ -266,3 +266,52 @@ inline constexpr in_place_t in_place {};
 template <class...>
 using void_t = void;
 // --------------------
+
+// ---- make_unsigned ----
+template <typename T>
+struct make_unsigned { };
+
+template <>
+struct make_unsigned<i8> {
+    using type = u8;
+};
+
+template <>
+struct make_unsigned<i16> {
+    using type = u16;
+};
+
+template <>
+struct make_unsigned<i32> {
+    using type = u32;
+};
+
+template <>
+struct make_unsigned<i64> {
+    using type = u64;
+};
+
+template <>
+struct make_unsigned<u8> {
+    using type = u8;
+};
+
+template <>
+struct make_unsigned<u16> {
+    using type = u16;
+};
+
+template <>
+struct make_unsigned<u32> {
+    using type = u32;
+};
+
+template <>
+struct make_unsigned<u64> {
+    using type = u64;
+};
+
+template <typename T>
+using make_unsigned_t = typename make_unsigned<T>::type;
+// -----------------------
+
