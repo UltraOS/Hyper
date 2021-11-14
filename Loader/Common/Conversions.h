@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Traits.h"
+#include "StringView.h"
 
 template <typename T>
 enable_if_t<is_integral_v<T>, size_t> to_string(T number, char* string, size_t max_size, bool null_terminate = true)
@@ -72,4 +73,93 @@ enable_if_t<is_integral_v<T>, size_t> to_hex_string(T number, char* string, size
     }
 
     return required_length;
+}
+
+using number_from_char_fn = i16(*)(char);
+
+struct NumberFromStringConversion {
+    StringView number_as_string;
+    number_from_char_fn number_from_char;
+    u8 base;
+    bool negative;
+};
+
+template <typename T>
+enable_if_t<is_integral_v<T>, T> from_string(const NumberFromStringConversion& spec, bool& ok)
+{
+    ok = false;
+
+    if (spec.number_as_string.empty())
+        return 0;
+
+    if constexpr (is_unsigned_v<T>) {
+        if (spec.negative)
+            return 0;
+    }
+
+    using unsignedT = make_unsigned_t<T>;
+
+    unsignedT out_as_unsigned = 0;
+    const auto max_value = numeric_limits<T>::max() + static_cast<unsignedT>(spec.negative);
+
+    for (char c : spec.number_as_string) {
+        auto value = spec.number_from_char(c);
+        if (value < 0 || value >= spec.base)
+            return 0;
+
+        unsignedT next = out_as_unsigned * spec.base + value;
+        if (next / spec.base != out_as_unsigned)
+            return 0;
+
+        if constexpr (is_signed_v<T>) {
+            if (next > max_value)
+                return 0;
+        }
+
+        out_as_unsigned = next;
+    }
+
+    ok = true;
+
+    if constexpr (is_signed_v<T>)
+    return spec.negative ? -out_as_unsigned : out_as_unsigned;
+
+    return out_as_unsigned;
+}
+
+template <typename T>
+enable_if_t<is_integral_v<T>, T> from_hex_string(StringView string, bool& ok, bool is_negative = false)
+{
+    NumberFromStringConversion spec{
+        string,
+        +[](char c) -> i16 {
+            if (c >= '0' && c <= '9')
+                return c - '0';
+
+            if (c >= 'A' && c <= 'F')
+                return c - 'A' + 10;
+
+            if (c >= 'a' && c <= 'f')
+                return c - 'a' + 10;
+
+            return 16;
+        },
+        16,
+        is_negative
+    };
+
+    return from_string<T>(spec, ok);
+}
+
+template <typename T>
+enable_if_t<is_integral_v<T>, T> from_dec_string(StringView string, bool& ok, bool is_negative = false)
+{
+    NumberFromStringConversion spec{
+        string,
+        +[](char c) -> i16 { return c - '0'; },
+        10,
+        is_negative
+    };
+
+    return from_string<T>(spec, ok);
 }
