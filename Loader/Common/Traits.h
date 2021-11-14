@@ -423,3 +423,88 @@ template <typename T>
 inline constexpr bool is_signed_v = is_signed<T>::value;
 // --------------------
 
+// ---- numeric_limits ----
+// TODO: implement is_any_of and remove_const_volatile here
+template <typename T>
+struct numeric_limits {
+};
+
+template <>
+struct numeric_limits<char> {
+    static constexpr char min()
+    {
+        if constexpr (is_unsigned_v<char>)
+           return 0;
+
+        return -__SCHAR_MAX__ - 1;
+    }
+
+    static constexpr char max()
+    {
+        if constexpr (is_unsigned_v<char>)
+            return __SCHAR_MAX__ * 2 + 1;
+
+        return __SCHAR_MAX__;
+    }
+};
+
+template <>
+struct numeric_limits<signed char> {
+    static constexpr signed char min() { return -__SCHAR_MAX__ - 1; }
+    static constexpr signed char max() { return __SCHAR_MAX__; }
+};
+
+template <>
+struct numeric_limits<unsigned char> {
+    static constexpr unsigned char min() { return 0; }
+    static constexpr unsigned char max() { return __SCHAR_MAX__ * 2 + 1; }
+};
+
+template <>
+struct numeric_limits<short> {
+    static constexpr short min() { return -__SHRT_MAX__ - 1; }
+    static constexpr short max() { return __SCHAR_MAX__; }
+};
+
+template <>
+struct numeric_limits<unsigned short> {
+    static constexpr unsigned short min() { return 0; }
+    static constexpr unsigned short max() { return __SHRT_MAX__ * 2 + 1; }
+};
+
+template <>
+struct numeric_limits<int> {
+    static constexpr int min() { return -__INT_MAX__ - 1; }
+    static constexpr int max() { return __INT_MAX__; }
+};
+
+template <>
+struct numeric_limits<unsigned int> {
+    static constexpr unsigned int min() { return 0; }
+    static constexpr unsigned int max() { return __INT_MAX__ * 2u + 1; }
+};
+
+template <>
+struct numeric_limits<long> {
+    static constexpr long min() { return -__LONG_MAX__ - 1; }
+    static constexpr long max() { return __LONG_MAX__; }
+};
+
+template <>
+struct numeric_limits<unsigned long> : false_value {
+    static constexpr unsigned long min() { return 0; }
+    static constexpr unsigned long max() { return __LONG_MAX__ * 2ul + 1; }
+};
+
+template <>
+struct numeric_limits<long long> : true_value {
+    static constexpr long long min() { return -__LONG_LONG_MAX__ - 1; }
+    static constexpr long long max() { return __LONG_LONG_MAX__; }
+};
+
+template <>
+struct numeric_limits<unsigned long long> : false_value {
+    static constexpr unsigned long long min() { return 0; }
+    static constexpr unsigned long long max() { return __LONG_LONG_MAX__ * 2ull + 1; }
+};
+// --------------------
