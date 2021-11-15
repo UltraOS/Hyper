@@ -112,6 +112,12 @@ public:
         m_size -= value;
     }
 
+    void extend_by(size_t value)
+    {
+        ASSERT(m_string != nullptr);
+        m_size += value;
+    }
+
 private:
     const char* m_string { nullptr };
     size_t m_size { 0 };
