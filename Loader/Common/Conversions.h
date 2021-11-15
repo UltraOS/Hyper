@@ -122,7 +122,7 @@ enable_if_t<is_integral_v<T>, T> from_string(const NumberFromStringConversion& s
     ok = true;
 
     if constexpr (is_signed_v<T>)
-    return spec.negative ? -out_as_unsigned : out_as_unsigned;
+        return spec.negative ? -out_as_unsigned : out_as_unsigned;
 
     return out_as_unsigned;
 }

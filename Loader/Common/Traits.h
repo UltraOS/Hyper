@@ -491,19 +491,19 @@ struct numeric_limits<long> {
 };
 
 template <>
-struct numeric_limits<unsigned long> : false_value {
+struct numeric_limits<unsigned long> {
     static constexpr unsigned long min() { return 0; }
     static constexpr unsigned long max() { return __LONG_MAX__ * 2ul + 1; }
 };
 
 template <>
-struct numeric_limits<long long> : true_value {
+struct numeric_limits<long long> {
     static constexpr long long min() { return -__LONG_LONG_MAX__ - 1; }
     static constexpr long long max() { return __LONG_LONG_MAX__; }
 };
 
 template <>
-struct numeric_limits<unsigned long long> : false_value {
+struct numeric_limits<unsigned long long> {
     static constexpr unsigned long long min() { return 0; }
     static constexpr unsigned long long max() { return __LONG_LONG_MAX__ * 2ull + 1; }
 };
