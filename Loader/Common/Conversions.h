@@ -130,7 +130,7 @@ enable_if_t<is_integral_v<T>, T> from_string(const NumberFromStringConversion& s
 template <typename T>
 enable_if_t<is_integral_v<T>, T> from_hex_string(StringView string, bool& ok, bool is_negative = false)
 {
-    NumberFromStringConversion spec{
+    NumberFromStringConversion spec {
         string,
         +[](char c) -> i16 {
             if (c >= '0' && c <= '9')
@@ -152,9 +152,22 @@ enable_if_t<is_integral_v<T>, T> from_hex_string(StringView string, bool& ok, bo
 }
 
 template <typename T>
+enable_if_t<is_integral_v<T>, T> from_octal_string(StringView string, bool& ok, bool is_negative = false)
+{
+    NumberFromStringConversion spec {
+        string,
+        +[](char c) -> int16_t { return c - '0'; },
+        8,
+        is_negative
+    };
+
+    return from_string<T>(spec, ok);
+}
+
+template <typename T>
 enable_if_t<is_integral_v<T>, T> from_dec_string(StringView string, bool& ok, bool is_negative = false)
 {
-    NumberFromStringConversion spec{
+    NumberFromStringConversion spec {
         string,
         +[](char c) -> i16 { return c - '0'; },
         10,
