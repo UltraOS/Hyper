@@ -10,7 +10,9 @@ class Optional {
 public:
     constexpr Optional() = default;
 
-    template <typename U = T>
+    // TODO: should be remove_cvref
+    template <typename U = T,
+              typename = typename enable_if<!is_same_v<Optional<T>, remove_reference_t<U>>>::type>
     constexpr Optional(U&& value)
         : m_has_value(true)
     {
