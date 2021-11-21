@@ -73,7 +73,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
 
         // Set in case we have encountered whitespace in the current value string,
         // e.g "key=val e" in this example, the 'e' after whitespace is considered invalid.
-        bool encountered_whitespace_after_value = false;
+        bool expecting_end_of_value = false;
 
         // Set for KEY/VALUE in case at least one character has been consumed
         bool consumed_at_least_one = false;
@@ -91,16 +91,23 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         bool within_loadable_entry = false;
         bool expecting_depth_plus_one = false;
 
+        // Empty loadable entries are not allowed
+        bool consumed_at_least_one_kv = false;
+
         size_t current_depth = 0;
 
         // Depth -> offset pairs, used to link together values of the same scope.
         Optional<u32> depth_to_offset[depth_capacity];
-    }* parse_state = allocator::allocate_new<ParseState>();
+    };
 
-    if (!parse_state)
+    allocator::ScopedObjectAllocation<ParseState> parse_state;
+
+    if (parse_state.failed()) {
+        m_error.message = "out of memory";
         return false;
+    }
 
-    auto& s = *parse_state;
+    auto& s = *parse_state.value();
 
     auto is = [&s](State state) -> bool { return state == s.state; };
 
@@ -116,7 +123,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                     s.depth_to_offset[i].reset();
                 s.current_depth = 0;
             }
-            s.encountered_whitespace_after_value = false;
+            s.expecting_end_of_value = false;
             s.consumed_at_least_one = false;
             s.open_quote_character = 0;
 
@@ -128,11 +135,12 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         case State::VALUE:
             s.expecting_depth_plus_one = false;
             s.consumed_at_least_one = false;
-            s.encountered_whitespace_after_value = false;
+            s.expecting_end_of_value = false;
             s.open_quote_character = 0;
             break;
         case State::LOADABLE_ENTRY_TITLE:
             s.consumed_at_least_one = false;
+            s.consumed_at_least_one_kv = false;
             break;
         default:
             break;
@@ -177,9 +185,10 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         }
 
         s.depth_to_offset[depth] = static_cast<u32>(offset);
+        s.consumed_at_least_one_kv = true;
+
         return true;
     };
-
 
     auto do_depth_transition = [&]() -> bool {
         if (!s.characters_per_level)
@@ -212,7 +221,6 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
             s.depth_to_offset[s.current_depth-- + !base_is_nonzero].reset();
 
         s.current_depth = next_depth;
-
         return true;
     };
 
@@ -235,14 +243,14 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
             }
 
             if (is(State::KEY)) {
-                s.encountered_whitespace_after_value = s.consumed_at_least_one;
+                s.expecting_end_of_value = s.consumed_at_least_one;
                 continue;
             }
             if (is(State::VALUE) && !s.open_quote_character) {
-                s.encountered_whitespace_after_value = s.consumed_at_least_one;
+                s.expecting_end_of_value = s.consumed_at_least_one;
                 continue;
             }
-            if (s.encountered_whitespace_after_value)
+            if (s.expecting_end_of_value)
                 continue;
 
             PARSE_ERROR("invalid character");
@@ -260,6 +268,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                 s.whitespace_character = 0;
 
             s.current_whitespace_depth = 0;
+            s.expecting_end_of_value = false;
 
             if (is(State::NORMAL))
                 continue;
@@ -300,6 +309,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                     return false;
 
                 set(State::NORMAL);
+                s.expecting_end_of_value = true;
                 continue;
             }
 
@@ -325,6 +335,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                     return false;
 
                 set(State::NORMAL);
+                s.expecting_end_of_value = true;
                 continue;
             }
 
@@ -332,9 +343,15 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
             continue;
 
         case '[':
+            if (s.current_whitespace_depth)
+                PARSE_ERROR("loadable entry title must start on a new line");
+
             if (is(State::NORMAL)) {
                 if (s.expecting_depth_plus_one)
                     PARSE_ERROR("empty objects are not allowed");
+
+                if (s.within_loadable_entry && !s.consumed_at_least_one_kv)
+                    PARSE_ERROR("empty loadable entries are not allowed");
 
                 set(State::LOADABLE_ENTRY_TITLE);
                 continue;
@@ -345,7 +362,6 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                 continue;
             }
 
-            // TODO: could mean end of all scopes and new entry
             PARSE_ERROR("invalid character");
         case ']':
             if (is(State::LOADABLE_ENTRY_TITLE)) {
@@ -376,6 +392,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
 
                 m_last_loadable_entry_offset = offset;
                 set(State::NORMAL);
+                s.expecting_end_of_value = true;
                 continue;
             }
 
@@ -390,15 +407,12 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
             if (is(State::KEY) || is(State::LOADABLE_ENTRY_TITLE))
                 PARSE_ERROR("invalid character");
 
-            if (is(State::VALUE)) {
-                if (s.open_quote_character) {
-                    s.current_value_view.extend_by(1);
-                    continue;
-                }
-
-                // END OF VLAUE, do stuff
+            if (is(State::VALUE) && s.open_quote_character) {
+                s.current_value_view.extend_by(1);
+                continue;
             }
 
+            s.expecting_end_of_value = false;
             set(State::COMMENT);
             continue;
 
@@ -406,11 +420,14 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
             if (c <= 32 || c >= 127)
                 PARSE_ERROR("invalid character");
 
+            if (s.expecting_end_of_value)
+                PARSE_ERROR("unexpected character");
+
             if (s.state == State::NORMAL) {
                 if (s.current_whitespace_depth && !s.characters_per_level)
                     s.characters_per_level = s.current_whitespace_depth;
 
-                if (!s.base_depth_is_nonzero && s.within_loadable_entry)
+                if (!s.base_depth_is_nonzero.has_value() && s.within_loadable_entry)
                     s.base_depth_is_nonzero = s.current_whitespace_depth != 0;
 
                 if (!do_depth_transition())
@@ -428,7 +445,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                 continue;
             }
 
-            if (s.encountered_whitespace_after_value)
+            if (s.expecting_end_of_value)
                 PARSE_ERROR("invalid character");
 
             if (is(State::VALUE) || is(State::LOADABLE_ENTRY_TITLE)) {
@@ -445,14 +462,19 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         }
     }
 
-    if (is(State::VALUE) && !finalize_key_value())
-        return false;
-    if (s.expecting_depth_plus_one)
+    if (is(State::VALUE))
+        return finalize_key_value();
+
+    if (s.expecting_depth_plus_one || (s.within_loadable_entry && !s.consumed_at_least_one_kv))
         PARSE_ERROR("early EOF");
 
-    allocator::free(*parse_state);
-    return true;
+    if (is(State::COMMENT))
+        return true;
 
+    if (!is(State::NORMAL))
+        PARSE_ERROR("early EOF");
+
+    return true;
 }
 
 bool Config::try_parse_as_number(StringView string, Value& out)
