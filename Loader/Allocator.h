@@ -104,4 +104,26 @@ private:
     size_t m_count { 0 };
 };
 
+template <typename T>
+class ScopedObjectAllocation {
+public:
+    template <typename... Args>
+    ScopedObjectAllocation(Args&& ... args)
+    {
+        m_ptr = allocate_new<T>(forward<Args>(args)...);
+    }
+
+    [[nodiscard]] T* value() const { return m_ptr; }
+    [[nodiscard]] bool failed() const { return m_ptr == nullptr; }
+
+    ~ScopedObjectAllocation()
+    {
+        if (m_ptr)
+            free(*m_ptr);
+    }
+
+private:
+    T* m_ptr { nullptr };
+};
+
 }
