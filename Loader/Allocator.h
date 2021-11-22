@@ -61,6 +61,8 @@ T* allocate_new_array(size_t count)
 template <typename T>
 void free(T& object)
 {
+    static_assert(!is_pointer_v<remove_reference_t<T>>, "attempted to free a pointer");
+
     object.~T();
     free_bytes(&object, sizeof(T));
 }
