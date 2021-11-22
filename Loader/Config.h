@@ -158,6 +158,22 @@ public:
         OBJECT,
     };
 
+    static StringView type_as_string(Type t)
+    {
+        switch (t) {
+        case NONE:
+            return "None";
+        case UNSIGNED:
+            return "Unsigned integer";
+        case SIGNED:
+            return "Signed integer";
+        case OBJECT:
+            return "Object";
+        }
+
+        return "<Invalid>";
+    }
+
     Value()
         : m_type(NONE)
     {
