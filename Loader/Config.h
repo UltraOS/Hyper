@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Common/Logger.h"
 #include "Common/StringView.h"
 #include "Common/Optional.h"
 
@@ -150,8 +151,9 @@ private:
 
 class Value {
 public:
-    enum Type {
+    enum Type : uint8_t {
         NONE,
+        BOOLEAN,
         UNSIGNED,
         SIGNED,
         STRING,
@@ -163,6 +165,8 @@ public:
         switch (t) {
         case NONE:
             return "None";
+        case BOOLEAN:
+            return "Boolean";
         case UNSIGNED:
             return "Unsigned integer";
         case SIGNED:
@@ -197,10 +201,21 @@ public:
         m_value.as_string = value;
     }
 
+    Value(bool value)
+        : m_type(BOOLEAN)
+    {
+        m_value.as_bool = value;
+    }
+
     [[nodiscard]] bool is_null() const { return m_type == NONE; }
     operator bool() const { return !is_null(); }
 
     [[nodiscard]] Type type() const { return m_type; }
+    [[nodiscard]] bool is_bool() const { return m_type == BOOLEAN; }
+    [[nodiscard]] bool is_unsigned() const { return m_type == UNSIGNED; }
+    [[nodiscard]] bool is_signed() const { return m_type == SIGNED; }
+    [[nodiscard]] bool is_string() const { return m_type == STRING; }
+    [[nodiscard]] bool is_object() const { return m_type == OBJECT; }
 
     [[nodiscard]] u64 as_unsigned() const
     {
@@ -218,6 +233,12 @@ public:
     {
         ASSERT(type() == STRING);
         return m_value.as_string;
+    }
+
+    [[nodiscard]] bool as_bool() const
+    {
+        ASSERT(type() == BOOLEAN);
+        return m_value.as_bool;
     }
 
     [[nodiscard]] Optional<Value> get(StringView key, MustBeUnique = MustBeUnique::YES);
@@ -242,6 +263,7 @@ private:
     Type m_type { NONE };
 
     union {
+        bool as_bool;
         u64 as_unsigned;
         i64 as_signed;
         StringView as_string;
