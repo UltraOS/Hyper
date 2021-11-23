@@ -149,6 +149,26 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         s.state = state;
     };
 
+    auto deduce_value_type = [&]() -> Value {
+        // Value is stored inside "" or '', force a string type.
+        if (s.open_quote_character)
+            return s.current_value_view;
+
+        if (s.current_value_view == "null")
+            return {};
+        if (s.current_value_view == "true")
+            return true;
+        if (s.current_value_view == "false")
+            return false;
+
+        Value value_as_number {};
+        if (try_parse_as_number(s.current_value_view, value_as_number))
+            return value_as_number;
+
+        // Nothing else worked, assume string.
+        return s.current_value_view;
+    };
+
     auto finalize_key_value = [&](bool is_object = false) -> bool {
         Value value;
 
@@ -157,14 +177,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         if (is_object) {
             value = { this };
         } else {
-            if (s.open_quote_character) {
-                value = s.current_value_view;
-            } else {
-                auto result = try_parse_as_number(s.current_value_view, value);
-
-                if (!result)
-                    value = s.current_value_view;
-            }
+            value = deduce_value_type();
         }
 
         s.current.data.as_value = value;
@@ -321,10 +334,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
 
         case '"':
         case '\'':
-            if (!is(State::VALUE))
-                PARSE_ERROR("invalid character");
-
-            if (!s.open_quote_character && s.consumed_at_least_one)
+            if (!is(State::VALUE) || (!s.open_quote_character && s.consumed_at_least_one))
                 PARSE_ERROR("invalid character");
 
             if (s.open_quote_character) {
