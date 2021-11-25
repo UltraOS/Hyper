@@ -142,6 +142,19 @@ inline void move_memory(const void* source, void* destination, size_t size)
         copy_memory(source, destination, size);
 }
 
+inline bool compare_memory(const void* lhs, const void* rhs, size_t size)
+{
+    const u8* byte_lhs = reinterpret_cast<const u8*>(lhs);
+    const u8* byte_rhs = reinterpret_cast<const u8*>(rhs);
+
+    while (size--) {
+        if (*byte_lhs++ != *byte_rhs++)
+            return false;
+    }
+
+    return true;
+}
+
 template <typename T>
 constexpr const T& max(const T& l, const T& r)
 {
