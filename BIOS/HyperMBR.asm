@@ -1,10 +1,13 @@
 BITS 16
 
+BYTES_PER_SECTOR:       equ 512
 MBR_LOAD_BASE:          equ 0x7C00
-MBR_SIZE_IN_BYTES:      equ 512
+MBR_SIZE_IN_BYTES:      equ BYTES_PER_SECTOR
 STAGE2_LOAD_BASE:       equ MBR_LOAD_BASE + MBR_SIZE_IN_BYTES
 STAGE2_BASE_SECTOR:     equ 1
-STAGE2_SECTORS_TO_LOAD: equ 31 ; currently assuming first partition starts at LBA 32
+SECTORS_PER_BATCH:      equ 64
+BYTES_PER_BATCH:        equ SECTORS_PER_BATCH * BYTES_PER_SECTOR
+STAGE2_SECTORS_TO_LOAD: equ 128 ; must be a multiple of SECTORS_PER_BATCH
 
 ORG MBR_LOAD_BASE
 
@@ -24,8 +27,18 @@ start:
         mov sp, MBR_LOAD_BASE
         sti
 
-    load_lba_partition:
-        clc ; carry gets set in case of an error, clear just in case
+    clc ; carry gets set in case of an error, clear just in case
+    mov cx, STAGE2_SECTORS_TO_LOAD
+    mov ebx, STAGE2_LOAD_BASE
+
+    load_stage2:
+        mov al, bl
+        and al, ~0xF0
+        mov [DAP.read_into_offset], al
+
+        mov eax, ebx
+        shr eax, 4
+        mov [DAP.read_into_segment], ax
 
         ; NOTE: dl contains the drive number here, don't overwrite it
         ; Actual function: https://en.wikipedia.org/wiki/INT_13H#INT_13h_AH=42h:_Extended_Read_Sectors_From_Drive
@@ -36,6 +49,11 @@ start:
 
         mov si, disk_error
         jc panic
+
+        add [DAP.sector_begin_low], dword SECTORS_PER_BATCH
+        add ebx, BYTES_PER_BATCH
+        sub cx, SECTORS_PER_BATCH
+        jnz load_stage2
 
     STAGE2_MAGIC_LOWER: equ 'Hype'
     STAGE2_MAGIC_UPPER: equ 'rST2'
@@ -95,12 +113,12 @@ panic:
 DAP_SIZE: equ 16
 DAP:
     .size:              db DAP_SIZE
-    .unused:            db 0x0
-    .sector_count:      dw STAGE2_SECTORS_TO_LOAD
-    .read_into_offset:  dw STAGE2_LOAD_BASE
-    .read_into_segment: dw 0x0
+    .unused:            db 0x00
+    .sector_count:      dw SECTORS_PER_BATCH
+    .read_into_offset:  dw 0x0000
+    .read_into_segment: dw 0x0000
     .sector_begin_low:  dd STAGE2_BASE_SECTOR
-    .sector_begin_high: dd 0x0
+    .sector_begin_high: dd 0x00000000
 
 CR: equ 0x0D
 LF: equ 0x0A
