@@ -171,6 +171,8 @@ public:
             return "Unsigned integer";
         case SIGNED:
             return "Signed integer";
+        case STRING:
+            return "String";
         case OBJECT:
             return "Object";
         }
@@ -333,6 +335,7 @@ public:
         StringView message;
         size_t line;
         size_t offset;
+        size_t global_offset;
     };
     Error last_error() { return m_error; }
 

@@ -34,12 +34,13 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
     return result;
 }
 
-#define PARSE_ERROR(msg)                \
-    do {                                \
-        m_error.message = msg;          \
-        m_error.line = s.file_line;     \
-        m_error.offset = s.line_offset; \
-        return false;                   \
+#define PARSE_ERROR(msg)                         \
+    do {                                         \
+        m_error.message = msg;                   \
+        m_error.line = s.file_line;              \
+        m_error.offset = s.line_offset;          \
+        m_error.global_offset = s.global_offset; \
+        return false;                            \
     } while (0)
 
 [[nodiscard]] bool Config::parse(StringView config)
@@ -57,6 +58,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
     struct ParseState {
         size_t file_line = 1;
         size_t line_offset = 1;
+        size_t global_offset = 0;
 
         State state = State::NORMAL;
 
@@ -149,7 +151,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         s.state = state;
     };
 
-    auto deduce_value_type = [&]() -> Value {
+    auto deduce_object_type = [&]() -> Value {
         // Value is stored inside "" or '', force a string type.
         if (s.open_quote_character)
             return s.current_value_view;
@@ -177,7 +179,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         if (is_object) {
             value = { this };
         } else {
-            value = deduce_value_type();
+            value = deduce_object_type();
         }
 
         s.current.data.as_value = value;
@@ -237,8 +239,18 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
         return true;
     };
 
+    auto consume_character = [&](const char& c) {
+        if (s.consumed_at_least_one)
+            s.current_value_view.extend_by(1);
+        else
+            s.current_value_view = { &c, 1 };
+
+        s.consumed_at_least_one = true;
+    };
+
     for (const char& c : config) {
         s.line_offset++;
+        s.global_offset++;
 
         if (is(State::COMMENT) && c != '\n')
             continue;
@@ -259,10 +271,17 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                 s.expecting_end_of_value = s.consumed_at_least_one;
                 continue;
             }
-            if (is(State::VALUE) && !s.open_quote_character) {
-                s.expecting_end_of_value = s.consumed_at_least_one;
+
+            if (is(State::VALUE)) {
+                if (!s.open_quote_character) {
+                    s.expecting_end_of_value = s.consumed_at_least_one;
+                    continue;
+                }
+
+                consume_character(c);
                 continue;
             }
+
             if (s.expecting_end_of_value)
                 continue;
 
@@ -338,8 +357,10 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                 PARSE_ERROR("invalid character");
 
             if (s.open_quote_character) {
-                if (s.open_quote_character != c)
-                    PARSE_ERROR("open quote doesn't match closing quote");
+                if (s.open_quote_character != c) {
+                    consume_character(c);
+                    continue;
+                }
 
                 if (!finalize_key_value())
                     return false;
@@ -459,12 +480,7 @@ Config::FindResult Config::find(size_t offset, StringView key, size_t constraint
                 PARSE_ERROR("invalid character");
 
             if (is(State::VALUE) || is(State::LOADABLE_ENTRY_TITLE)) {
-                if (s.consumed_at_least_one)
-                    s.current_value_view.extend_by(1);
-                else
-                    s.current_value_view = { &c, 1 };
-
-                s.consumed_at_least_one = true;
+                consume_character(c);
                 continue;
             }
 
