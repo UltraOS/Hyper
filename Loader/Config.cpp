@@ -701,3 +701,34 @@ bool LoadableEntry::contains(StringView key) const
 {
     return m_config->contains(m_offset, key);
 }
+
+void pretty_print_error(const Config::Error& err, StringView config_as_view)
+{
+    if (err.message.empty())
+        return;
+
+    static constexpr StringView line_delimeter = " | ";
+
+    logger::error("Failed to parse config, error at line ", err.line);
+
+    size_t first_char_of_line = err.global_offset - err.offset;
+    config_as_view.offset_by(first_char_of_line);
+    auto newline = config_as_view.find("\n");
+    if (newline)
+        config_as_view = StringView(config_as_view.begin(), newline.value());
+
+    char line_as_string[32] {};
+    auto size = to_string(err.line, line_as_string, sizeof(line_as_string));
+
+    logger::log(line_as_string, line_delimeter, config_as_view, "\n");
+
+    for (size_t i = 0; i < size; ++i)
+        logger::log(" ");
+
+    logger::log(line_delimeter);
+
+    for (size_t i = 1; i < (err.offset); ++i)
+        logger::log(" ");
+
+    logger::log(Color::RED, "^--- ", err.message, "\n");
+}

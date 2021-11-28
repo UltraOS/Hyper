@@ -441,3 +441,5 @@ public:
     size_t m_capacity { 0 };
     size_t m_size { 0 };
 };
+
+void pretty_print_error(const Config::Error&, StringView config);
