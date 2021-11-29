@@ -27,6 +27,39 @@ inline bool operator!=(const GUID& l, const GUID& r)
     return !operator==(l, r);
 }
 
+struct FullPath {
+    enum class DiskIdentifier {
+        INVALID,
+        INDEX,
+        UUID,
+        ORIGIN
+    } disk_id_type;
+
+    union {
+        GUID disk_guid;
+        u32 disk_index;
+    };
+
+    enum class PartitionIdentifier {
+        INVALID,
+        RAW,
+        MBR_INDEX,
+        GPT_INDEX,
+        GPT_UUID,
+        ORIGIN
+    } partition_id_type;
+
+    union {
+        u32 partition_index;
+        GUID partition_guid;
+    };
+
+    StringView path_within_partition;
+};
+
+static constexpr size_t chars_per_guid = 32;
+static constexpr size_t chars_per_hex_byte = 2;
+
 class FileSystem;
 
 class File {
