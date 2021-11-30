@@ -443,3 +443,50 @@ public:
 };
 
 void pretty_print_error(const Config::Error&, StringView config);
+
+[[noreturn]] inline void panic_on_unexpected_type(StringView key, Value::Type expected, Value::Type got)
+{
+    logger::error("Unexpected type of \"", key, "\", expected ", Value::type_as_string(expected),
+                  " got ", Value::type_as_string(got));
+    hang();
+}
+
+inline bool extract_boolean(KeyValue kv)
+{
+    if (!kv.value.is_bool())
+        panic_on_unexpected_type(kv.key, Value::BOOLEAN, kv.value.type());
+
+    return kv.value.as_bool();
+}
+
+inline StringView extract_string(KeyValue kv)
+{
+    if (!kv.value.is_string())
+        panic_on_unexpected_type(kv.key, Value::STRING, kv.value.type());
+
+    return kv.value.as_string();
+}
+
+inline u64 extract_unsigned(KeyValue kv)
+{
+    if (!kv.value.is_unsigned())
+        panic_on_unexpected_type(kv.key, Value::UNSIGNED, kv.value.type());
+
+    return kv.value.as_unsigned();
+}
+
+inline i64 extract_signed(KeyValue kv)
+{
+    if (!kv.value.is_signed())
+        panic_on_unexpected_type(kv.key, Value::SIGNED, kv.value.type());
+
+    return kv.value.as_signed();
+}
+
+inline Value extract_object(KeyValue kv)
+{
+    if (!kv.value.is_object())
+        panic_on_unexpected_type(kv.key, Value::OBJECT, kv.value.type());
+
+    return kv.value;
+}
