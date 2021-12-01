@@ -76,14 +76,16 @@ public:
         return true;
     }
 
-    Optional<size_t> find(StringView str)
+    Optional<size_t> find(StringView str, size_t starting_at = 0)
     {
-        if (str.size() > size())
+        ASSERT(starting_at <= size());
+
+        if (str.size() > (size() - starting_at))
             return {};
         if (str.empty())
             return 0;
 
-        for (size_t i = 0; i < size() - str.size() + 1; ++i) {
+        for (size_t i = starting_at; i < size() - str.size() + 1; ++i) {
             if (at(i) != str.at(0))
                 continue;
 
@@ -103,6 +105,8 @@ public:
 
         return {};
     }
+
+    bool contains(StringView string) { return find(string).has_value(); }
 
     void offset_by(size_t value)
     {
