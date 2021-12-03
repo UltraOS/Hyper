@@ -22,7 +22,7 @@ endif ()
 # Don't set flags if we're building cmake purely for the sake of syntax highlighting,
 # because obviously MSVC doesn't support these flags.
 if (NOT WIN32)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffreestanding")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
