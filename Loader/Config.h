@@ -3,6 +3,7 @@
 #include "Common/Logger.h"
 #include "Common/StringView.h"
 #include "Common/Optional.h"
+#include "Common/Panic.h"
 
 class Config;
 class Value;
@@ -368,7 +369,7 @@ private:
             return {};
 
         if (result.count > 1 && must_be_unqiue == MustBeUnique::YES)
-            return {};
+            unrecoverable_error("Key {} must be unique", key);
 
         return m_buffer[result.first_occurence].data.as_value;
     }
@@ -446,9 +447,8 @@ void pretty_print_error(const Config::Error&, StringView config);
 
 [[noreturn]] inline void panic_on_unexpected_type(StringView key, Value::Type expected, Value::Type got)
 {
-    logger::error("Unexpected type of \"", key, "\", expected ", Value::type_as_string(expected),
-                  " got ", Value::type_as_string(got));
-    hang();
+    panic("Unexpected type of \"{}\", expected {} got {}", key,
+          Value::type_as_string(expected), Value::type_as_string(got));
 }
 
 inline bool extract_boolean(KeyValue kv)
@@ -483,10 +483,8 @@ inline i64 extract_signed(KeyValue kv)
     return kv.value.as_signed();
 }
 
-inline Value extract_object(KeyValue kv)
+inline void ensure_is_object(KeyValue kv)
 {
     if (!kv.value.is_object())
         panic_on_unexpected_type(kv.key, Value::OBJECT, kv.value.type());
-
-    return kv.value;
 }

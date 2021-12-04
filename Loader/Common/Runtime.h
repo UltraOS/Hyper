@@ -18,7 +18,6 @@
     }
 
 [[noreturn]] void on_assertion_failed(const char* message, const char* file, const char* function, u32 line);
-[[noreturn]] void panic(const char* message);
 
 #define ASSERT(expression)         \
     (static_cast<bool>(expression) \
