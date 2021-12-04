@@ -3,8 +3,9 @@
 #include "Common/StaticArray.h"
 #include "Common/Range.h"
 #include "Common/Logger.h"
-#include "Common/Runtime.h"
+#include "Common/Panic.h"
 #include "Common/Utilities.h"
+#include "Common/Serializers.h"
 
 #include "BIOSCall.h"
 
@@ -89,6 +90,18 @@ struct PhysicalRange : public LongRange {
     }
 };
 
+void serialize(write_callback_t write_cb, const PhysicalRange& range, const SerializeAttributes& attributes)
+{
+    write_cb("begin:");
+    serialize(write_cb, range.begin(), attributes);
+    write_cb(" end:");
+    serialize(write_cb, range.end(), attributes);
+    write_cb(" size:");
+    serialize(write_cb, range.length(), attributes);
+    write_cb(" type: ");
+    serialize(write_cb, range.type, attributes);
+}
+
 static constexpr size_t buffer_capacity = page_size / sizeof(PhysicalRange);
 static PhysicalRange g_entries_buffer[buffer_capacity];
 
@@ -138,7 +151,7 @@ void BIOSMemoryServices::load_e820()
 
         if (registers.is_carry_set()) {
             if (first_call)
-                panic("E820 call unsupported by the BIOS");
+                unrecoverable_error("E820 call unsupported by the BIOS");
 
             // end of list
             break;
@@ -146,27 +159,25 @@ void BIOSMemoryServices::load_e820()
 
         first_call = false;
 
-        if (registers.eax != ascii_smap) {
-            logger::error("E820 call failed, invalid signature ", registers.eax);
-            hang();
-        }
+        if (registers.eax != ascii_smap)
+            unrecoverable_error("E820 call failed, invalid signature {}", registers.eax);
 
         // Restore registers to expected state
         registers.eax = 0xE820;
         registers.edx = ascii_smap;
 
         if (entry.size_in_bytes == 0) {
-            logger::warning("E820 returned an empty range, skipped");
+            warnln("E820 returned an empty range, skipped");
             continue;
         }
 
         if (registers.ecx == sizeof(entry) && !(entry.attributes & 1)) {
-            logger::warning("E820 attribute reserved bit not set, skipped");
+            warnln("E820 attribute reserved bit not set, skipped");
             continue;
         }
 
-        logger::info(logger::hex, "range: ", entry.address, " -> ",
-                     entry.address + entry.size_in_bytes, " type: ", entry.type);
+        logln("range: {x} -> {x}, type: {}", entry.address,
+              entry.address + entry.size_in_bytes, entry.type);
 
         uint64_t converted_type = MEMORY_TYPE_INVALID;
 
@@ -253,8 +264,8 @@ void BIOSMemoryServices::correct_overlapping_ranges(size_t hint)
             }
 
             if (j == i) {
-                logger::error("Couldn't merge range:\n", m_buffer[i], "\nwith\n", m_buffer[i + 1]);
-                hang();
+                panic("Couldn't merge range:\n{}\nwith\n{}",
+                      m_buffer[i], m_buffer[i + 1]);
             }
 
             // only 1 range ended up being valid, erase the second
@@ -305,7 +316,7 @@ void BIOSMemoryServices::emplace_range_at(size_t index, const PhysicalRange& ran
     }
 
     if (m_size >= m_capacity)
-        panic("MemoryServices: out of slot capacity");
+        unrecoverable_error("out of slot capacity");
 
     size_t bytes_to_move = (m_size - index) * sizeof(PhysicalRange);
     ++m_size;
@@ -359,7 +370,9 @@ Address64 BIOSMemoryServices::allocate_top_down(size_t page_count, Address64 upp
 
     m_key++;
 
-    auto bytes_to_allocate = page_count * page_size;
+    u64 bytes_to_allocate = page_count * page_size;
+    if (bytes_to_allocate <= page_count)
+        panic("invalid allocation size of {} pages", page_count);
 
     PhysicalRange picked_range {};
     Address64 range_end {};
@@ -401,12 +414,13 @@ Address64 BIOSMemoryServices::allocate_within(size_t page_count, Address64 lower
     m_key++;
 
     auto fail_on_allocation = [&]() {
-        logger::error("invalid allocate_within() call ", page_count,
-                      " pages within:\n", lower_limit, " -> ", upper_limit);
-        hang();
+        panic("invalid allocate_within() call {} pages within:\n{} -> {}",
+              page_count, lower_limit, upper_limit);
     };
 
-    auto bytes_to_allocate = page_count * page_size;
+    u64 bytes_to_allocate = page_count * page_size;
+    if (bytes_to_allocate <= page_count)
+        panic("invalid allocation size of {} pages", page_count);
 
     // invaid input
     if (lower_limit >= upper_limit)
@@ -441,6 +455,9 @@ Address64 BIOSMemoryServices::allocate_within(size_t page_count, Address64 lower
         --picked_range;
     }
 
+    if (picked_range->end() <= lower_limit)
+        return nullptr;
+
     for (; picked_range != end(); ++picked_range) {
         bool is_bad_range = false;
 
@@ -461,6 +478,9 @@ Address64 BIOSMemoryServices::allocate_within(size_t page_count, Address64 lower
 
         break;
     }
+
+    if (picked_range == end())
+        return nullptr;
 
     PhysicalRange allocated_range(
             max(lower_limit, picked_range->begin()),
@@ -494,8 +514,7 @@ void BIOSMemoryServices::free_pages(Address64 address, size_t count)
 
     auto fail_on_invalid_free = [&] ()
     {
-        logger::error("MemoryServices: invalid free at ", address, " pages: ", count);
-        hang();
+        panic("invalid free at {} pages: {}", address, count);
     };
 
     auto this_range = lower_bound(begin(), end(), address);
@@ -551,6 +570,5 @@ bool BIOSMemoryServices::handover(size_t key)
 
 void BIOSMemoryServices::on_use_after_release(StringView function)
 {
-    logger::error("MemoryServices: ", function, " called after handover");
-    hang();
+    panic("{} called after handover", function);
 }

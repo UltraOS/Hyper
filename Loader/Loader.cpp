@@ -34,7 +34,7 @@ void loader_entry(Services& services)
     for (;;);
 }
 
-void initialize_from_mbr(DiskServices& srvc, const Disk& disk, void* mbr_buffer, size_t base_index = 0, size_t sector_offset = 0)
+void initialize_from_mbr(DiskServices& srvc, const Disk& disk, u32 disk_id, void* mbr_buffer, size_t base_index = 0, size_t sector_offset = 0)
 {
     static constexpr u8 empty_partition_type = 0x00;
     static constexpr u8 ebr_partition_type = 0x05;
@@ -58,19 +58,17 @@ void initialize_from_mbr(DiskServices& srvc, const Disk& disk, void* mbr_buffer,
     size_t max_partitions = is_ebr ? 2 : 4;
 
     for (size_t i = 0; i < max_partitions; ++i, ++partition) {
-        logger::info("looking at partition ", i, " base ", base_index);
-
         if (partition->type == empty_partition_type)
             continue;
 
         auto real_offset = sector_offset + partition->first_block;
 
         if (i == 1)
-            logger::warning("index type 1 (", partition->type, "), base ", base_index);
+            warnln("index type 1 ({}), base {}", partition->type, base_index);
 
         if (partition->type == ebr_partition_type) {
             if (is_ebr && i == 0) {
-                logger::warning("EBR with chain at index 0");
+                warnln("EBR with chain at index 0");
                 break;
             }
 
@@ -79,13 +77,13 @@ void initialize_from_mbr(DiskServices& srvc, const Disk& disk, void* mbr_buffer,
                 break;
 
             if (srvc.read_blocks(disk.handle, ebr_page.address(), real_offset, page_size / disk.bytes_per_sector))
-                initialize_from_mbr(srvc, disk, ebr_page.address(), base_index + (is_ebr ? 1 : 4), real_offset);
+                initialize_from_mbr(srvc, disk, disk_id, ebr_page.address(), base_index + (is_ebr ? 1 : 4), real_offset);
 
             continue;
         }
 
         if (i == 1 && is_ebr) {
-            logger::warning("EBR with a non-EBR entry at index 1 (", partition->type, ")");
+            warnln("EBR with a non-EBR entry at index 1 ({})", partition->type);
             break;
         }
 
@@ -100,11 +98,11 @@ void initialize_from_mbr(DiskServices& srvc, const Disk& disk, void* mbr_buffer,
             fs = FileSystem::try_detect(disk, range, first_partition_page.address());
 
         if (fs)
-            fs_table::add_mbr_entry(disk.handle, base_index + i, fs);
+            fs_table::add_mbr_entry(disk.handle, disk_id, base_index + i, fs);
     }
 }
 
-void detect_all_filesystems(DiskServices& srvc, const Disk& disk)
+void detect_all_filesystems(DiskServices& srvc, const Disk& disk, u32 disk_id)
 {
     // Currently unsupported
     if (disk.bytes_per_sector != 512)
@@ -122,7 +120,7 @@ void detect_all_filesystems(DiskServices& srvc, const Disk& disk)
     auto* gpt_signature_data = first_page.as_pointer<const char>() + offset_to_gpt_signature;
 
     if (gpt_signature == gpt_signature_data) {
-        logger::warning("GPT-partitioned drive ", logger::hex, disk.handle, " skipped");
+        warnln("GPT-partitioned drive {x} skipped", disk.handle);
         return;
     }
 
@@ -132,11 +130,11 @@ void detect_all_filesystems(DiskServices& srvc, const Disk& disk)
     auto* mbr_signature_data = first_page.as_pointer<u16>() + (offset_to_mbr_signature / sizeof(u16));
 
     if (*mbr_signature_data != mbr_signature) {
-        logger::warning("unpartitioned drive ", logger::hex, disk.handle, " skipped");
+        warnln("unpartitioned drive {x} skipped", disk.handle);
         return;
     }
 
-    initialize_from_mbr(srvc, disk, first_page.address());
+    initialize_from_mbr(srvc, disk, disk_id, first_page.address());
 }
 
 File* find_config_file(FileSystemEntry& out_entry)

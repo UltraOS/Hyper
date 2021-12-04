@@ -709,7 +709,7 @@ void pretty_print_error(const Config::Error& err, StringView config_as_view)
 
     static constexpr StringView line_delimeter = " | ";
 
-    logger::error("Failed to parse config, error at line ", err.line);
+    errorln("Failed to parse config, error at line {}", err.line);
 
     size_t first_char_of_line = err.global_offset - err.offset;
     config_as_view.offset_by(first_char_of_line);
@@ -720,15 +720,15 @@ void pretty_print_error(const Config::Error& err, StringView config_as_view)
     char line_as_string[32] {};
     auto size = to_string(err.line, line_as_string, sizeof(line_as_string));
 
-    logger::log(line_as_string, line_delimeter, config_as_view, "\n");
+    logln("{}{}{}", line_as_string, line_delimeter, config_as_view);
 
     for (size_t i = 0; i < size; ++i)
-        logger::log(" ");
+        logger::write(" ");
 
-    logger::log(line_delimeter);
+    logger::write(line_delimeter);
 
     for (size_t i = 1; i < (err.offset); ++i)
-        logger::log(" ");
+        logger::write(" ");
 
-    logger::log(Color::RED, "^--- ", err.message, "\n");
+    errorln("^--- {}\n", err.message);
 }

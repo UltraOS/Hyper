@@ -2,6 +2,7 @@
 
 #include "Common/Logger.h"
 #include "Common/Utilities.h"
+#include "Common/Panic.h"
 #include "BIOSCall.h"
 
 static constexpr size_t disk_buffer_capacity = 128;
@@ -68,7 +69,7 @@ void BIOSDiskServices::fetch_all_disks()
 {
     static constexpr Address bda_number_of_disks_address = 0x0475;
     u8 number_of_disks = *bda_number_of_disks_address.as_pointer<volatile u8>();
-    logger::info("BIOS-detected disks: ", number_of_disks);
+    logln("BIOS-detected disks: {}", number_of_disks);
 
     if (number_of_disks == 0)
         panic("BIOS reported 0 detected disks");
@@ -99,14 +100,13 @@ void BIOSDiskServices::fetch_all_disks()
             continue;
 
         if (drive_params.bytes_per_sector != 512 && drive_params.bytes_per_sector != 2048) {
-            logger::warning("unsupported bytes per second ", drive_params.bytes_per_sector,
-                            " for drive ", drive_index);
+            warnln("unsupported bytes per sector {} for drive {}",
+                   drive_params.bytes_per_sector, drive_index);
             continue;
         }
 
-        logger::info("detected drive: ", logger::hex, drive_index,
-                     logger::dec, " -> sectors: ", drive_params.total_sector_count,
-                     ", bytes per sector: ", drive_params.bytes_per_sector);
+        logln("detected drive: {x} -> sectors: {}, bytes per sector: {}",
+              drive_index, drive_params.total_sector_count, drive_params.bytes_per_sector);
 
         auto& disk = m_buffer[m_size++];
         disk.bytes_per_sector = drive_params.bytes_per_sector;
@@ -121,8 +121,8 @@ void BIOSDiskServices::fetch_all_disks()
             return;
     }
 
-    logger::warning("BIOS reported more disks than was detected? (",
-                    detected_disks, " vs ", number_of_disks, ")");
+    warnln("BIOS reported more disks than was detected? ({} vs {})",
+           detected_disks, number_of_disks);
 }
 
 Span<Disk> BIOSDiskServices::list_disks()
@@ -149,10 +149,8 @@ Disk* BIOSDiskServices::disk_from_handle(void* handle)
 bool BIOSDiskServices::read_blocks(void* handle, void* buffer, u64 sector, size_t blocks)
 {
     auto* disk = disk_from_handle(handle);
-    if (!disk) {
-        logger::error("read_blocks() called on invalid handle ", handle);
-        hang();
-    }
+    if (!disk)
+        panic("read_blocks() called on invalid handle {}", handle);
 
     return do_read(*disk, buffer, sector * disk->bytes_per_sector, blocks * disk->bytes_per_sector);
 }
@@ -160,10 +158,8 @@ bool BIOSDiskServices::read_blocks(void* handle, void* buffer, u64 sector, size_
 bool BIOSDiskServices::read(void* handle, void* buffer, u64 offset, size_t bytes)
 {
     auto* disk = disk_from_handle(handle);
-    if (!disk) {
-        logger::error("read() called on invalid handle ", handle);
-        hang();
-    }
+    if (!disk)
+        panic("read() called on invalid handle {}", handle);
 
     return do_read(*disk, buffer, offset, bytes);
 }
@@ -183,7 +179,7 @@ bool BIOSDiskServices::do_read(const Disk& disk, void* buffer, u64 offset, size_
     auto check_read = [] (const RealModeRegisterState& registers) -> bool
     {
         if (registers.is_carry_set() || ((registers.eax & 0xFF00) != 0x0000)) {
-            logger::warning("disk read failed, (ret=", registers.eax, ")");
+            warnln("disk read failed, (ret={})", registers.eax);
             return false;
         }
 
@@ -191,10 +187,8 @@ bool BIOSDiskServices::do_read(const Disk& disk, void* buffer, u64 offset, size_
     };
 
     auto last_read_sector = (offset + bytes) / disk.bytes_per_sector;
-    if (disk.sectors <= last_read_sector) {
-        logger::error("invalid read(..., ", offset, ", ", bytes, ")");
-        hang();
-    }
+    if (disk.sectors <= last_read_sector)
+        panic("invalid read(..., at {} with {} bytes", offset, bytes);
 
     auto* byte_buffer = reinterpret_cast<u8*>(buffer);
     auto transfer_buffer_address = as_real_mode_address(g_transfer_buffer);
@@ -210,7 +204,6 @@ bool BIOSDiskServices::do_read(const Disk& disk, void* buffer, u64 offset, size_
 
     for (;;) {
         u32 sectors_for_this_read = min(sectors_to_read, transfer_buffer_capacity / disk.bytes_per_sector);
-        logger::info("reading ", sectors_to_read, " this batch: ", sectors_for_this_read);
 
         auto bytes_for_this_read = sectors_for_this_read * disk.bytes_per_sector;
         sectors_to_read -= sectors_for_this_read;

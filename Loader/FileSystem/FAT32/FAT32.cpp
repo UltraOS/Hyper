@@ -26,9 +26,8 @@ bool FAT32::detect(const Disk& disk, LBARange lba_range, void* first_block_buffe
     if (!ebpb.sectors_per_fat)
         return false;
 
-    logger::info("detected FAT32: ", ebpb.fat_count, " fats, ",
-                 ebpb.sectors_per_cluster, " sectors/cluster, ",
-                 ebpb.sectors_per_fat, " sectors/fat");
+    logln("detected FAT32: {} fats, {} sectors/cluster, {} sectors/fat",
+          ebpb.fat_count, ebpb.sectors_per_cluster, ebpb.sectors_per_fat);
 
     auto data_range = lba_range;
     data_range.advance_begin_by(ebpb.reserved_sectors);
@@ -281,7 +280,7 @@ bool FAT32::Directory::next_entry(Entry& out_entry)
             if (checksum_array[i] == expected_checksum)
                 continue;
 
-            logger::warning("Invalid FAT32 file checksum");
+            warnln("Invalid FAT32 file checksum");
             return false;
         }
 
@@ -412,7 +411,7 @@ bool FAT32::File::compute_contiguous_ranges()
         switch (entry_type_of_fat_value(next_cluster)) {
         case FATEntryType::END_OF_CHAIN: {
             if (current_file_offset * fs.bytes_per_cluster() < size()) {
-                logger::warning("FAT32: EOC before end of file");
+                warnln("FAT32: EOC before end of file");
                 return false;
             }
 

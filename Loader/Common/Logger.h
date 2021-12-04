@@ -3,147 +3,153 @@
 #include "Services.h"
 #include "Conversions.h"
 #include "StringView.h"
+#include "Serializers.h"
 
 namespace logger
 {
-    // Sets new backend to use for logging, returns the previous backend
-    // or nullptr if none was set.
     VideoServices* set_backend(VideoServices*);
 
-    enum class Mode {
-        DEC,
-        HEX
+    SerializeMode set_mode(SerializeMode);
+    SerializeMode get_mode();
+
+    Color set_color(Color);
+
+    class ScopedColor {
+    public:
+        ScopedColor(Color c) : m_saved_color(set_color(c)) { }
+        ~ScopedColor() { set_color(m_saved_color); }
+
+    private:
+        Color m_saved_color;
     };
-    static constexpr auto hex = Mode::HEX;
-    static constexpr auto dec = Mode::DEC;
 
-    void set_mode(Mode);
-    Mode get_mode();
-
-    void log(Color color, StringView);
-
-    inline void log(Mode mode)
-    {
-        set_mode(mode);
-    }
-
-    inline void log(Color, Mode mode)
-    {
-        set_mode(mode);
-    }
-
-    inline void log(StringView string)
-    {
-        log(Color::GRAY, string);
-    }
-
-    inline void log(const char* string)
-    {
-        log(Color::GRAY, StringView(string));
-    }
-
-    inline void log(Color color, const char* string)
-    {
-        log(color, StringView(string));
-    }
-
-    inline void log(Color color, bool value)
-    {
-        log(color, value ? "true" : "false");
-    }
-
-    inline void log(bool value)
-    {
-        log(Color::GRAY, value);
-    }
+    void write(StringView);
 
     template <typename T>
-    enable_if_t<is_arithmetic_v<T>> log(Color color, T number)
+    void do_log_one(StringView& pattern, const T& arg)
     {
-        static constexpr size_t buffer_size = 32;
-        char number_buffer[buffer_size];
-        size_t chars_written = 0;
+        auto open_brace = pattern.find("{").value();
+        auto close_brace = pattern.find("}", open_brace + 1).value();
 
-        if (get_mode() == Mode::HEX)
-            chars_written = to_hex_string(number, number_buffer, buffer_size, false);
-        else
-            chars_written = to_string(number, number_buffer, buffer_size, false);
+        auto specifier_view = StringView(pattern.data() + open_brace + 1, pattern.data() + close_brace);
+        auto pre_arg_view = StringView(pattern, open_brace);
 
-        log(color, StringView(number_buffer, chars_written));
-    }
+        if (!pre_arg_view.empty())
+            write(pre_arg_view);
 
-    template <typename T>
-    enable_if_t<is_arithmetic_v<T>> log(T number)
-    {
-        log(Color::GRAY, number);
-    }
+        auto old_mode = get_mode();
 
-    template <typename T>
-    void log(Color color, BasicAddress<T> address)
-    {
-        static constexpr size_t buffer_size = 32;
-        char number_buffer[buffer_size];
-        size_t chars_written = to_hex_string(address.raw(), number_buffer, buffer_size, false);
+        SerializeAttributes attributes {};
 
-        log(color, StringView(number_buffer, chars_written));
-    }
+        if (specifier_view.contains("x") || specifier_view.contains("X"))
+            attributes.mode = SerializeMode::HEX;
+        else if (specifier_view.contains("d") || specifier_view.contains("D"))
+            attributes.mode = SerializeMode::DEC;
 
-    template <typename T>
-    void log(BasicAddress<T> address)
-    {
-        log(Color::GRAY, address);
-    }
+        serialize(&write, arg, attributes);
 
-    template <typename T>
-    enable_if_t<is_pointer_v<T>> log(Color color, T pointer)
-    {
-        log(color, Address(pointer));
-    }
+        set_mode(old_mode);
 
-    template <typename T>
-    enable_if_t<is_pointer_v<T>> log(T pointer)
-    {
-        log(Color::GRAY, Address(pointer));
+        pattern.offset_by(close_brace + 1);
     }
 
     template <typename... Args>
-    void log(Color color, const Args& ... args)
+    void do_log(StringView pattern, bool newline, Color color, const Args& ... args)
     {
-        (log(color, args), ...);
-        set_mode(Mode::DEC);
-    }
+        ScopedColor sc(color);
 
-    template <typename... Args>
-    void log(const Args& ... args)
-    {
-        (log(Color::GRAY, args), ...);
-        set_mode(Mode::DEC);
-    }
+        (do_log_one(pattern, args), ...);
 
-    template <typename... Args>
-    void info(const Args& ... args)
-    {
-        log(Color::GRAY, "INFO: ");
-        (log(Color::GRAY, args), ...);
-        log(Color::GRAY, "\n");
-        set_mode(Mode::DEC);
-    }
+        if (!pattern.empty())
+            write(pattern);
 
-    template <typename... Args>
-    void warning(const Args& ... args)
-    {
-        log(Color::YELLOW, "WARNING: ");
-        (log(Color::YELLOW, args), ...);
-        log(Color::YELLOW, "\n");
-        set_mode(Mode::DEC);
-    }
-
-    template <typename... Args>
-    void error(const Args& ... args)
-    {
-        log(Color::RED, "ERROR: ");
-        (log(Color::RED, args), ...);
-        log(Color::RED, "\n");
-        set_mode(Mode::DEC);
+        if (newline)
+            write("\n");
     }
 }
+
+template <size_t N>
+struct PatternString {
+    char characters[N];
+    static constexpr size_t size = N;
+
+    constexpr PatternString(const char(&literal)[N])
+    {
+        for (size_t i = 0; i < N; ++i)
+            characters[i] = literal[i];
+    }
+
+    constexpr size_t argument_count() const
+    {
+        constexpr size_t invalid_count = 0xFFFFFFFF;
+        size_t count = 0;
+        bool open_brace = false;
+
+        for (size_t i = 0; i < size; ++i)
+        {
+            if (characters[i] == '{') {
+                if (open_brace)
+                    return invalid_count;
+
+                open_brace = true;
+            }
+
+            if (characters[i] == '}') {
+                if (!open_brace)
+                    return invalid_count;
+
+                open_brace = false;
+                count++;
+            }
+        }
+
+        if (open_brace)
+            return invalid_count;
+
+        return count;
+    }
+
+    constexpr operator StringView() const { return StringView(characters, N - 1); }
+};
+
+template <PatternString Pattern, typename... Args>
+void validate_pattern_string(const Args& ... args)
+{
+    static_assert(Pattern.argument_count() == sizeof...(args), "invalid format string");
+}
+
+#define log(pattern, ...)                                                      \
+    do {                                                                       \
+        validate_pattern_string<pattern>(__VA_ARGS__);                         \
+        logger::do_log(pattern, false, Color::GRAY __VA_OPT__(,) __VA_ARGS__); \
+    } while (0)
+
+#define logln(pattern, ...)                                                   \
+    do {                                                                      \
+        validate_pattern_string<pattern>(__VA_ARGS__);                        \
+        logger::do_log(pattern, true, Color::GRAY __VA_OPT__(,) __VA_ARGS__); \
+    } while (0)
+
+#define warnln(pattern, ...)                                                    \
+    do {                                                                        \
+        validate_pattern_string<pattern>(__VA_ARGS__);                          \
+        logger::do_log(pattern, true, Color::YELLOW __VA_OPT__(,) __VA_ARGS__); \
+    } while (0)
+
+#define errorln(pattern, ...)                                                \
+    do {                                                                     \
+        validate_pattern_string<pattern>(__VA_ARGS__);                       \
+        logger::do_log(pattern, true, Color::RED __VA_OPT__(,) __VA_ARGS__); \
+    } while (0)
+
+#define warn(pattern, ...)                                                       \
+    do {                                                                         \
+        validate_pattern_string<pattern>(__VA_ARGS__);                           \
+        logger::do_log(pattern, false, Color::YELLOW __VA_OPT__(,) __VA_ARGS__); \
+    } while (0)
+
+#define error(pattern, ...)                                                   \
+    do {                                                                      \
+        validate_pattern_string<pattern>(__VA_ARGS__);                        \
+        logger::do_log(pattern, false, Color::RED __VA_OPT__(,) __VA_ARGS__); \
+    } while (0)

@@ -264,7 +264,7 @@ bool BIOSVideoServices::check_vbe_call(const RealModeRegisterState& registers)
     auto ah = (registers.eax >> 8) & 0xFF;
 
     if (al != 0x4F || ah) {
-        logger::warning("VBE call failed (ret=", registers.eax, ")");
+        warnln("VBE call failed (ret={})", registers.eax);
         return false;
     }
 
@@ -313,7 +313,7 @@ bool BIOSVideoServices::fetch_vga_info(SuperVGAInformation& vga_info)
         return false;
 
     if (vga_info.signature != ascii_vesa) {
-        logger::warning("VESA signature mismatch (got ", logger::hex, vga_info.signature, "), vs ", ascii_vesa);
+        warnln("VESA signature mismatch: got {x} vs {x}", vga_info.signature, ascii_vesa);
         return false;
     }
 
@@ -328,10 +328,11 @@ void BIOSVideoServices::fetch_all_video_modes()
 
     u8 vesa_major = vga_info.vesa_version >> 8;
     u8 vesa_minor = vga_info.vesa_version & 0xFF;
-    logger::info("VESA version ", vesa_major, ".", vesa_minor);
+
+    logln("VESA version {}.{}", vesa_major, vesa_minor);
 
     auto* oem_string = real_mode_address(vga_info.oem_name_segment, vga_info.oem_name_offset).as_pointer<const char>();
-    logger::info("OEM name \"", oem_string, "\"");
+    logln("OEM name \"{}\"", oem_string);
 
     auto video_modes_ptr = real_mode_address(vga_info.supported_modes_list_segment, vga_info.supported_modes_list_offset);
     volatile auto* video_modes_list = video_modes_ptr.as_pointer<u16>();
@@ -346,7 +347,7 @@ void BIOSVideoServices::fetch_all_video_modes()
 
         auto mode_idx = m_size++;
         if (mode_idx >= mode_count_capacity) {
-            logger::warning("Exceeded video mode storage capacity, skipping the rest");
+            warnln("Exceeded video mode storage capacity, skipping the rest");
             return;
         }
 
@@ -406,7 +407,7 @@ void BIOSVideoServices::fetch_native_resolution()
     bios_call(0x10, &registers, &registers);
 
     if (!check_vbe_call(registers)) {
-        logger::warning("READ EDID call unsupported");
+        warnln("READ EDID call unsupported");
         return;
     }
 
@@ -416,7 +417,7 @@ void BIOSVideoServices::fetch_native_resolution()
         checksum += bytes[i];
 
     if (checksum != 0) {
-        logger::warning("EDID checksum invalid (rem=", checksum, ")");
+        warnln("EDID checksum invalid (rem={})", checksum);
         return;
     }
 
@@ -428,7 +429,7 @@ void BIOSVideoServices::fetch_native_resolution()
     m_native_width = td.horizontal_active_pixels_lo;
     m_native_width |= td.horizontal_active_pixels_hi << 8;
 
-    logger::info("detected native resolution ", m_native_width, "x", m_native_height);
+    logln("detected native resolution {}x{}", m_native_width, m_native_height);
 }
 
 Span<VideoMode> BIOSVideoServices::list_modes()
@@ -454,7 +455,7 @@ bool BIOSVideoServices::do_set_mode(u16 id)
 
     RealModeRegisterState registers {};
 
-    logger::info("setting video mode ", id);
+    logln("setting video mode {}", id);
     registers.ebx = id | linear_framebuffer_bit;
     registers.eax = 0x4F02;
 
@@ -481,7 +482,7 @@ bool BIOSVideoServices::set_mode(u32 id, Framebuffer& out_framebuffer)
         out_framebuffer.format = FORMAT_RGBA;
     } else {
         out_framebuffer.format = FORMAT_INVALID;
-        logger::warning("Set video mode with unsupported format (", info.bits_per_pixel, " bpp)");
+        warnln("Set video mode with unsupported format ({} bpp)", info.bits_per_pixel);
     }
 
     m_legacy_tty_available = false;
