@@ -1,10 +1,11 @@
 #include "Services.h"
 #include "Common/Logger.h"
+#include "Common/Panic.h"
 #include "Allocator.h"
 #include "FileSystem/FileSystem.h"
 #include "FileSystem/FileSystemTable.h"
 
-void detect_all_filesystems(DiskServices&, const Disk&);
+void detect_all_filesystems(DiskServices&, const Disk&, u32 disk_index);
 File* find_config_file(FileSystemEntry& out_entry);
 
 void loader_entry(Services& services)

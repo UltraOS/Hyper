@@ -1,7 +1,7 @@
 #include "Panic.h"
 #include "Runtime.h"
 
-bool is_in_panic = false;
+u8 in_panic_depth = 0;
 
 void do_panic()
 {

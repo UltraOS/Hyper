@@ -116,4 +116,10 @@ void free_pages(void* address, size_t count)
     g_backend->free_pages(address, count);
 }
 
+void free_bytes(void* address, size_t count)
+{
+    auto page_count = page_round_up(count) / page_size;
+    free_pages(address, page_count);
+}
+
 }

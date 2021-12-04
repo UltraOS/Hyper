@@ -2,34 +2,12 @@
 
 #include "Common/Utilities.h"
 #include "Common/Types.h"
-
-// only placement new, no normal new/delete
-inline void* operator new(size_t, void* ptr)
-{
-    return ptr;
-}
-
-inline void* operator new[](size_t, void* ptr)
-{
-    return ptr;
-}
-
-inline void operator delete(void*)
-{
-    panic("delete() called directly");
-}
-
-inline void operator delete(void* ptr, size_t)
-{
-    operator delete(ptr);
-}
+#include "Common/Panic.h"
 
 class MemoryServices;
 
 namespace allocator {
 
-// Sets new backend to use for allocations, returns the previous backend
-// or nullptr if none was set.
 MemoryServices* set_backend(MemoryServices*);
 
 void* allocate_pages_with_type_at(Address64, size_t, u32 type);

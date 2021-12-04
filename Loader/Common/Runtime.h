@@ -23,3 +23,24 @@
     (static_cast<bool>(expression) \
             ? static_cast<void>(0) \
             : on_assertion_failed(TO_STRING(expression), __FILE__, __PRETTY_FUNCTION__, __LINE__))
+
+// only placement new, no normal new/delete
+inline void* operator new(size_t, void* ptr)
+{
+    return ptr;
+}
+
+inline void* operator new[](size_t, void* ptr)
+{
+    return ptr;
+}
+
+inline void operator delete(void*)
+{
+    ASSERT(!"delete() called directly");
+}
+
+inline void operator delete(void* ptr, size_t)
+{
+    operator delete(ptr);
+}

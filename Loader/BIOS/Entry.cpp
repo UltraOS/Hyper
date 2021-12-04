@@ -1,5 +1,5 @@
 #include "Common/Logger.h"
-#include "Common/Runtime.h"
+#include "Common/Panic.h"
 #include "Common/Utilities.h"
 
 #include "BIOSMemoryServices.h"
