@@ -7,6 +7,7 @@
 #include "Common/Range.h"
 #include "Common/Optional.h"
 #include "Common/Pair.h"
+#include "Common/Conversions.h"
 
 using LBARange = BasicRange<u64>;
 
@@ -59,6 +60,9 @@ struct FullPath {
 
 static constexpr size_t chars_per_guid = 32;
 static constexpr size_t chars_per_hex_byte = 2;
+
+GUID parse_guid(StringView string, bool& ok);
+FullPath parse_path(StringView path, bool& ok);
 
 class FileSystem;
 
