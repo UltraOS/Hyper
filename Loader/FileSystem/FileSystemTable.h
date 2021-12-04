@@ -4,7 +4,8 @@
 
 struct FileSystemEntry {
     void* disk_handle;
-    u32 partition_id;
+    u32 disk_index;
+    u32 partition_index;
     GUID disk_guid;
     GUID partition_guid;
     FileSystem* filesystem;
@@ -12,15 +13,15 @@ struct FileSystemEntry {
 
 namespace fs_table {
 
-void add_raw_entry(void* disk_handle, FileSystem*);
-void add_mbr_entry(void* disk_handle, u32 partition_id, FileSystem*);
-void add_gpt_entry(void* disk_handle, u32 partition_id, const GUID& disk_guid, const GUID& partition_guid, FileSystem*);
+void add_raw_entry(void* disk_handle, u32 disk_index, FileSystem*);
+void add_mbr_entry(void* disk_handle, u32 disk_index, u32 partition_index, FileSystem*);
+void add_gpt_entry(void* disk_handle, u32 disk_index, u32 partition_index,
+                   const GUID& disk_guid, const GUID& partition_guid, FileSystem*);
 
-FileSystem* get_raw_entry(void* disk_handle);
-FileSystem* get_mbr_entry(void* disk_handle, u32 partition_id);
-FileSystem* get_gpt_entry(void* disk_handle, u32 partition_id);
-FileSystem* get_gpt_entry(const GUID& disk_guid, u32 partition_id);
-FileSystem* get_gpt_entry(const GUID& disk_guid, const GUID& partition_guid);
+const FileSystemEntry* get_by_full_path(const FullPath&);
+
+void set_origin(FileSystemEntry&);
+const FileSystemEntry& get_origin();
 
 class all {
 public:
