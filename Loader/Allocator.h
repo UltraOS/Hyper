@@ -32,11 +32,21 @@ namespace allocator {
 // or nullptr if none was set.
 MemoryServices* set_backend(MemoryServices*);
 
-void* allocate_bytes(size_t);
-void free_bytes(void*, size_t);
-
+void* allocate_pages_with_type_at(Address64, size_t, u32 type);
+void* allocate_pages_with_type(size_t, u32 type);
+void* allocate_pages_at(Address64, size_t);
 void* allocate_pages(size_t);
+void* allocate_bytes(size_t);
+
+// never fails, panics if unable to satisfy allocation
+void* allocate_critical_pages_with_type_at(Address64, size_t, u32 type);
+void* allocate_critical_pages_with_type(size_t, u32);
+void* allocate_critical_pages_at(Address64, size_t);
+void* allocate_critical_pages(size_t);
+void* allocate_critical_bytes(size_t);
+
 void free_pages(void*, size_t);
+void free_bytes(void*, size_t);
 
 template <typename T, typename... Args>
 T* allocate_new(Args&&... args)
