@@ -22,6 +22,7 @@ public:
     }
 
     size_t size() const { return m_size; }
+    size_t size_in_bytes() const { return m_size * sizeof(T); }
 
     T* data() { return m_data; }
     const T* data() const { return m_data; }
