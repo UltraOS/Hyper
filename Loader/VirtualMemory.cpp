@@ -3,9 +3,9 @@
 
 namespace vm {
 
-#define PAGE_PRESENT 1
-#define PAGE_READWRITE 2
-#define PAGE_HUGE 7
+#define PAGE_PRESENT   (1 << 0)
+#define PAGE_READWRITE (1 << 1)
+#define PAGE_HUGE      (1 << 7)
 
 #define ENTRIES_PER_TABLE 512
 
