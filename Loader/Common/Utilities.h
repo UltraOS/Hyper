@@ -188,6 +188,7 @@ inline RealModeAddress as_real_mode_address(Address address)
 }
 
 static constexpr size_t page_size = 4096;
+static constexpr size_t huge_page_size = 2 * MB;
 static constexpr uint64_t page_alignment_mask = 0xFFFFFFFFFFFFF000;
 
 static constexpr uint64_t page_round_down(uint64_t size)
