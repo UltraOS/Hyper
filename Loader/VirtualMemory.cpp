@@ -109,4 +109,34 @@ bool map_huge_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t p
     return true;
 }
 
+[[noreturn]] static void on_critical_mapping_failed(u64 virtual_base, u64 physical_base, size_t pages, bool huge)
+{
+    unrecoverable_error("out of memory while attempting to map {} critical pages at {x} (physical {x}) huge: {}",
+                        pages, virtual_base, physical_base, huge);
+}
+
+void map_critical_page(PageTable* pt, u64 virtual_base, u64 physical_base)
+{
+    if (!map_page(pt, virtual_base, physical_base))
+        on_critical_mapping_failed(virtual_base, physical_base, 1, false);
+}
+
+void map_critical_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
+{
+    if (!map_pages(pt, virtual_base, physical_base, pages))
+        on_critical_mapping_failed(virtual_base, physical_base, pages, false);
+}
+
+void map_critical_huge_page(PageTable* pt, u64 virtual_base, u64 physical_base)
+{
+    if (!map_huge_page(pt, virtual_base, physical_base))
+        on_critical_mapping_failed(virtual_base, physical_base, 1, true);
+}
+
+bool map_critical_huge_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
+{
+    if (!map_huge_pages(pt, virtual_base, physical_base, pages))
+        on_critical_mapping_failed(virtual_base, physical_base, pages, true);
+}
+
 }
