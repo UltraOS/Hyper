@@ -15,7 +15,7 @@ static constexpr u8 first_drive_index = 0x80;
 static constexpr u8 last_drive_index = 0xFF;
 static constexpr u32 dma64_support_bit = 1 << 8;
 
-struct PACKED DriverParameters {
+struct PACKED DriveParameters {
     u16 buffer_size;
     u16 flags;
     u32 cylinders;
@@ -34,7 +34,7 @@ struct PACKED DriverParameters {
     u8 reserved1;
     u8 checksum;
 };
-static_assert(sizeof(DriverParameters) == 0x42);
+static_assert(sizeof(DriveParameters) == 0x42);
 
 struct PACKED DiskAddressPacket {
     u8 packet_size;
@@ -76,7 +76,7 @@ void BIOSDiskServices::fetch_all_disks()
 
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0715.htm
     RealModeRegisterState registers;
-    DriverParameters drive_params;
+    DriveParameters drive_params;
     u8 detected_disks = 0;
 
     for (u8 drive_index = 0x80; drive_index < 0xFF; ++drive_index) {
