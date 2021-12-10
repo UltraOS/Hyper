@@ -32,45 +32,49 @@ static u64* table_at(u64* table, size_t index)
 
 static bool do_map_page(PageTable* pt, u64 virtual_base, u64 physical_base, bool huge)
 {
-   u64* lvl4;
-   u64* lvl3;
-   u64* lvl2;
-   u64* lvl1;
+    // verify alignment
+    ASSERT((virtual_base & (huge ? (huge_page_size - 1) : (page_size - 1))) == 0);
+    ASSERT((physical_base & (huge ? (huge_page_size - 1) : (page_size - 1))) == 0);
 
-   size_t lvl5_index = (virtual_base >> 48) & (ENTRIES_PER_TABLE - 1);
-   size_t lvl4_index = (virtual_base >> 39) & (ENTRIES_PER_TABLE - 1);
-   size_t lvl3_index = (virtual_base >> 30) & (ENTRIES_PER_TABLE - 1);
-   size_t lvl2_index = (virtual_base >> 21) & (ENTRIES_PER_TABLE - 1);
-   size_t lvl1_index = (virtual_base >> 12) & (ENTRIES_PER_TABLE - 1);
+    u64* lvl4;
+    u64* lvl3;
+    u64* lvl2;
+    u64* lvl1;
 
-   if (pt->levels == 5) {
-       lvl4 = table_at(pt->root, lvl5_index);
-       if (!lvl4)
-           return false;
-   } else {
-       ASSERT(pt->levels == 4);
-       lvl4 = pt->root;
-   }
+    size_t lvl5_index = (virtual_base >> 48) & (ENTRIES_PER_TABLE - 1);
+    size_t lvl4_index = (virtual_base >> 39) & (ENTRIES_PER_TABLE - 1);
+    size_t lvl3_index = (virtual_base >> 30) & (ENTRIES_PER_TABLE - 1);
+    size_t lvl2_index = (virtual_base >> 21) & (ENTRIES_PER_TABLE - 1);
+    size_t lvl1_index = (virtual_base >> 12) & (ENTRIES_PER_TABLE - 1);
 
-   lvl3 = table_at(lvl4, lvl4_index);
-   if (!lvl3)
-       return false;
+    if (pt->levels == 5) {
+        lvl4 = table_at(pt->root, lvl5_index);
+        if (!lvl4)
+            return false;
+    } else {
+        ASSERT(pt->levels == 4);
+        lvl4 = pt->root;
+    }
 
-   lvl2 = table_at(lvl3, lvl3_index);
-   if (!lvl2)
-       return false;
+    lvl3 = table_at(lvl4, lvl4_index);
+    if (!lvl3)
+        return false;
 
-   if (huge) {
-       lvl2[lvl2_index] = physical_base | PAGE_HUGE | PAGE_READWRITE | PAGE_PRESENT;
-       return true;
-   }
+    lvl2 = table_at(lvl3, lvl3_index);
+    if (!lvl2)
+        return false;
 
-   lvl1 = table_at(lvl2, lvl2_index);
-   if (!lvl1)
-       return false;
+    if (huge) {
+        lvl2[lvl2_index] = physical_base | PAGE_HUGE | PAGE_READWRITE | PAGE_PRESENT;
+        return true;
+    }
 
-   lvl1[lvl1_index] = physical_base | PAGE_READWRITE | PAGE_PRESENT;
-   return true;
+    lvl1 = table_at(lvl2, lvl2_index);
+    if (!lvl1)
+        return false;
+
+    lvl1[lvl1_index] = physical_base | PAGE_READWRITE | PAGE_PRESENT;
+    return true;
 }
 
 bool map_page(PageTable* pt, u64 virtual_base, u64 physical_base)
