@@ -6,10 +6,16 @@ extern "C" [[noreturn]] void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 c
 
 void kernel_handover32(u32 entrypoint, u32 esp, u32 arg0, u32 arg1)
 {
+    auto stack_push = [&esp] (u32 value) {
+        esp -= 4;
+        *reinterpret_cast<u32*>(esp) = value;
+    };
+
     // make sure the stack is 16 byte aligned pre-call
-    esp += 8;
-    *reinterpret_cast<u32*>(esp) = arg1;
-    *reinterpret_cast<u32*>(esp) = arg0;
+    stack_push(0);
+    stack_push(0);
+    stack_push(arg1);
+    stack_push(arg0);
 
     do_kernel_handover32(entrypoint, esp);
 }
