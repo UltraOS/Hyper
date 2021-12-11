@@ -9,6 +9,7 @@ section .entry
 
 main:
 BITS 16
+    cld
 
     call enable_a20
     mov [a20_enabled], al
@@ -51,6 +52,7 @@ PRESENT:      equ (1 << 7)
 
 ; flags
 MODE_32BIT:       equ (1 << 6)
+MODE_64BIT:       equ (1 << 5)
 PAGE_GRANULARITY: equ (1 << 7)
 
 gdt_struct:
@@ -91,6 +93,15 @@ gdt_struct:
     db 0x00   ; base
     db READWRITE | CODE_OR_DATA | PRESENT
     db 0x00   ; byte granularity
+    db 0x00   ; base
+
+    .code64: equ $ - gdt_struct
+    ; 64 bit code segment descriptor
+    dw 0xFFFF ; limit
+    dw 0x0000 ; base
+    db 0x00   ; base
+    db READWRITE | EXECUTABLE | CODE_OR_DATA | PRESENT
+    db MODE_64BIT | PAGE_GRANULARITY | 0x0F ; 4 bits of flags + 4 bits of limit
     db 0x00   ; base
 gdt_struct_end:
 
