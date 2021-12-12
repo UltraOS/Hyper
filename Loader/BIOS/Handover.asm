@@ -1,4 +1,10 @@
-BITS 32
+section .text
+
+PAE_BIT:                 equ 1 << 5
+EFER_NUMBER:             equ 0xC0000080
+LONG_MODE_BIT:           equ 1 << 8
+PAGING_BIT:              equ 1 << 31
+LONG_MODE_CODE_SELECTOR: equ 0x28
 
 ; [[noreturn]] void do_kernel_handover32(u32 entrypoint, u32 esp)
 ; esp + 8 [esp]
@@ -10,12 +16,6 @@ do_kernel_handover32:
     mov esp, [esp + 8]
 
     call eax
-
-PAE_BIT:                 equ 1 << 5
-EFER_NUMBER:             equ 0xC0000080
-LONG_MODE_BIT:           equ 1 << 8
-PAGING_BIT:              equ 1 << 31
-LONG_MODE_CODE_SELECTOR: equ 0x28
 
 ; [[noreturn]] void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
 ; esp + 36 [arg1]

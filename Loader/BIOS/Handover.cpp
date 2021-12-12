@@ -12,8 +12,8 @@ void kernel_handover32(u32 entrypoint, u32 esp, u32 arg0, u32 arg1)
     };
 
     // make sure the stack is 16 byte aligned pre-call
-    stack_push(0);
-    stack_push(0);
+    stack_push(0x00000000);
+    stack_push(0x00000000);
     stack_push(arg1);
     stack_push(arg0);
 

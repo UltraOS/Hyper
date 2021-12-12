@@ -2,10 +2,11 @@ extern enable_a20
 extern bios_entry
 
 section .entry
-    stage2_magic: db "HyperST2"
 
-    ; pad to 16
-    dq 0
+stage2_magic: db "HyperST2"
+
+; pad to 16
+dq 0
 
 main:
 BITS 16
