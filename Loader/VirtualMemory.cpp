@@ -137,7 +137,7 @@ void map_critical_huge_page(PageTable* pt, u64 virtual_base, u64 physical_base)
         on_critical_mapping_failed(virtual_base, physical_base, 1, true);
 }
 
-bool map_critical_huge_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
+void map_critical_huge_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
 {
     if (!map_huge_pages(pt, virtual_base, physical_base, pages))
         on_critical_mapping_failed(virtual_base, physical_base, pages, true);
