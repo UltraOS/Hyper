@@ -35,3 +35,17 @@ static inline void *memzero(void *dest, size_t count)
 {
     return memset(dest, 0, count);
 }
+
+static inline int memcmp(const void *lhs, const void *rhs, size_t count)
+{
+    const u8 *byte_lhs = lhs;
+    const u8 *byte_rhs = rhs;
+    size_t i;
+
+    for (i = 0; i < count; ++i) {
+        if (byte_lhs[i] != byte_rhs[i])
+            return byte_lhs[i] - byte_rhs[i];
+    }
+
+    return 0;
+}
