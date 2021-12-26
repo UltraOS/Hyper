@@ -20,6 +20,24 @@ static inline void *memcpy(void *dest, const void *src, size_t count)
     return dest;
 }
 
+static inline void *memmove(void *dest, const void *src, size_t count)
+{
+    char *cd = dest;
+    const char *cs = src;
+
+    if (src < dest) {
+        cs += count;
+        cd += count;
+
+        while (count--)
+            *--cd = *--cs;
+    } else {
+        memcpy(dest, src, count);
+    }
+
+    return dest;
+}
+
 static inline void *memset(void *dest, int ch, size_t count)
 {
     unsigned char fill = ch;
