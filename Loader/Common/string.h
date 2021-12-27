@@ -41,12 +41,12 @@ static inline void *memmove(void *dest, const void *src, size_t count)
 static inline void *memset(void *dest, int ch, size_t count)
 {
     unsigned char fill = ch;
-    char *cdest = cdest;
+    unsigned char *cdest = dest;
 
     while (count--)
         *cdest++ = fill;
 
-    return cdest;
+    return dest;
 }
 
 static inline void *memzero(void *dest, size_t count)
