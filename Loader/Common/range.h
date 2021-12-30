@@ -11,7 +11,7 @@ void range_align_start(struct range *range, size_t alignment);
 void range_align_length(struct range *range, size_t alignment);
 void range_align(struct range *range, size_t alignment);
 
-static void range_advance_begin(struct range *range, size_t by)
+static inline void range_advance_begin(struct range *range, size_t by)
 {
     range->begin += by;
 }
