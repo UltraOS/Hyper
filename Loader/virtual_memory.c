@@ -1,7 +1,8 @@
-#include "VirtualMemory.h"
-#include "Allocator.h"
+#include "virtual_memory.h"
+#include "allocator.h"
 
-namespace vm {
+#include "common/bug.h"
+#include "common/constants.h"
 
 #define PAGE_PRESENT   (1 << 0)
 #define PAGE_READWRITE (1 << 1)
@@ -11,31 +12,28 @@ namespace vm {
 
 static u64* table_at(u64* table, size_t index)
 {
-    ASSERT(index < ENTRIES_PER_TABLE);
+    u64 entry;
+    u64 *page;
 
-    u64 entry = table[index];
+    BUG_ON(index >= ENTRIES_PER_TABLE);
+    entry = table[index];
 
     if (entry & PAGE_PRESENT) {
-        ASSERT(!(entry & PAGE_HUGE));
+        BUG_ON(entry & PAGE_HUGE);
         entry &= ~0xFFF;
-        return reinterpret_cast<u64*>(entry);
+        return (u64*)entry;
     }
 
-    u64* page = reinterpret_cast<u64*>(allocator::allocate_pages(1));
+    page = allocator::allocate_pages(1));
     if (!page)
-        return nullptr;
+        return NULL;
 
-    table[index] = reinterpret_cast<u64>(page) | PAGE_READWRITE | PAGE_PRESENT;
-
+    table[index] = (u64)page | PAGE_READWRITE | PAGE_PRESENT;
     return page;
 }
 
-static bool do_map_page(PageTable* pt, u64 virtual_base, u64 physical_base, bool huge)
+static bool do_map_page(struct page_table *pt, u64 virtual_base, u64 physical_base, bool huge)
 {
-    // verify alignment
-    ASSERT((virtual_base & (huge ? (huge_page_size - 1) : (page_size - 1))) == 0);
-    ASSERT((physical_base & (huge ? (huge_page_size - 1) : (page_size - 1))) == 0);
-
     u64* lvl4;
     u64* lvl3;
     u64* lvl2;
@@ -47,12 +45,16 @@ static bool do_map_page(PageTable* pt, u64 virtual_base, u64 physical_base, bool
     size_t lvl2_index = (virtual_base >> 21) & (ENTRIES_PER_TABLE - 1);
     size_t lvl1_index = (virtual_base >> 12) & (ENTRIES_PER_TABLE - 1);
 
+    // verify alignment
+    BUG_ON((virtual_base & (huge ? (HUGE_PAGE_SIZE - 1) : (PAGE_SIZE - 1))) != 0);
+    BUG_ON((physical_base & (huge ? (HUGE_PAGE_SIZE - 1) : (PAGE_SIZE - 1))) != 0);
+
     if (pt->levels == 5) {
         lvl4 = table_at(pt->root, lvl5_index);
         if (!lvl4)
             return false;
     } else {
-        ASSERT(pt->levels == 4);
+        BUG_ON(pt->levels != 4);
         lvl4 = pt->root;
     }
 
@@ -77,37 +79,37 @@ static bool do_map_page(PageTable* pt, u64 virtual_base, u64 physical_base, bool
     return true;
 }
 
-bool map_page(PageTable* pt, u64 virtual_base, u64 physical_base)
+bool map_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
 {
     return do_map_page(pt, virtual_base, physical_base, false);
 }
 
-bool map_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
+bool map_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
 {
     for (size_t i = 0; i < pages; ++i) {
         if (!do_map_page(pt, virtual_base, physical_base, false))
             return false;
 
-        virtual_base += page_size;
-        virtual_base += page_size;
+        virtual_base += PAGE_SIZE;
+        virtual_base += PAGE_SIZE;
     }
 
     return true;
 }
 
-bool map_huge_page(PageTable* pt, u64 virtual_base, u64 physical_base)
+bool map_huge_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
 {
     return do_map_page(pt, virtual_base, physical_base, true);
 }
 
-bool map_huge_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
+bool map_huge_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
 {
     for (size_t i = 0; i < pages; ++i) {
         if (!do_map_page(pt, virtual_base, physical_base, true))
             return false;
 
-        virtual_base += huge_page_size;
-        virtual_base += huge_page_size;
+        virtual_base += HUGE_PAGE_SIZE;
+        virtual_base += HUGE_PAGE_SIZE;
     }
 
     return true;
@@ -115,29 +117,29 @@ bool map_huge_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t p
 
 [[noreturn]] static void on_critical_mapping_failed(u64 virtual_base, u64 physical_base, size_t pages, bool huge)
 {
-    unrecoverable_error("out of memory while attempting to map {} critical pages at {x} (physical {x}) huge: {}",
-                        pages, virtual_base, physical_base, huge);
+    panic("Out of memory while attempting to map %zu critical pages at 0x%llX (physical 0x%llX) huge: %d",
+          pages, virtual_base, physical_base, huge);
 }
 
-void map_critical_page(PageTable* pt, u64 virtual_base, u64 physical_base)
+void map_critical_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
 {
     if (!map_page(pt, virtual_base, physical_base))
         on_critical_mapping_failed(virtual_base, physical_base, 1, false);
 }
 
-void map_critical_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
+void map_critical_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
 {
     if (!map_pages(pt, virtual_base, physical_base, pages))
         on_critical_mapping_failed(virtual_base, physical_base, pages, false);
 }
 
-void map_critical_huge_page(PageTable* pt, u64 virtual_base, u64 physical_base)
+void map_critical_huge_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
 {
     if (!map_huge_page(pt, virtual_base, physical_base))
         on_critical_mapping_failed(virtual_base, physical_base, 1, true);
 }
 
-void map_critical_huge_pages(PageTable* pt, u64 virtual_base, u64 physical_base, size_t pages)
+void map_critical_huge_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
 {
     if (!map_huge_pages(pt, virtual_base, physical_base, pages))
         on_critical_mapping_failed(virtual_base, physical_base, pages, true);
