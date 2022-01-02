@@ -22,29 +22,30 @@ on_error()
     exit 1
 }
 
-platform="BIOS"
+platform="bios"
 
 if [ "$1" ]
   then
-    if [ $1 != "UEFI" ] && [ $1 != "BIOS" ]
-    then
+    if [ $1 == "BIOS" ]; then
+      platform="bios"
+    elif [ $1 = "UEFI" ]; then
+      platform="uefi"
+    else
       echo "Unknown platform $1"
       on_error
-    else
-      platform="$1"
     fi
 fi
 
 compiler_prefix="i686-elf"
 
-if [ $platform = "UEFI" ]
+if [ $platform = "uefi" ]
 then
     compiler_prefix="mingw64"
 fi
 
 pushd $true_path
 
-if [ -e "Tools$platform/bin/$compiler_prefix-g++" ]
+if [ -e "tools_$platform/bin/$compiler_prefix-gcc" ]
 then
   exit 0
 else
@@ -135,7 +136,7 @@ else
   echo "binutils is already downloaded!"
 fi
 
-export PREFIX="$true_path/Tools$platform"
+export PREFIX="$true_path/tools_$platform"
 export TARGET="$compiler_prefix"
 export PATH="$PREFIX/bin:$PATH"
 
@@ -171,13 +172,13 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   ../$gcc_sources_dir/configure --target=$TARGET \
                                 --prefix="$PREFIX" \
                                 --disable-nls \
-                                --enable-languages=c,c++ \
+                                --enable-languages=c \
                                 --without-headers || on_error
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   ../$gcc_sources_dir/configure --target=$TARGET \
                                 --prefix="$PREFIX" \
                                 --disable-nls \
-                                --enable-languages=c,c++ \
+                                --enable-languages=c \
                                 --without-headers \
                                 --with-gmp=/usr/local/opt/gmp \
                                 --with-mpc=/usr/local/opt/libmpc \

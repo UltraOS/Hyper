@@ -12,9 +12,11 @@ else ()
     set(COMPILER_PREFIX "i686-elf")
 endif ()
 
+string(TOLOWER ${PLATFORM} PLATFORM_FOLDER)
+
 if (NOT WIN32)
     execute_process(
-        COMMAND /bin/bash ${CMAKE_SOURCE_DIR}/Toolchain/build.sh ${PLATFORM}
+        COMMAND /bin/bash ${CMAKE_SOURCE_DIR}/toolchain/build.sh ${PLATFORM}
         RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
     )
     if (TOOLCHAIN_BUILD_FAILED)
@@ -23,15 +25,13 @@ if (NOT WIN32)
 
     # dirty hack because it tries to compile with -lc and crt0.o
     set(CMAKE_C_COMPILER_WORKS 1)
-    set(CMAKE_CXX_COMPILER_WORKS 1)
 
-    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/Toolchain/Tools${PLATFORM})
+    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${PLATFORM_FOLDER})
     set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
     set(PATH_TO_FILT "${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-c++filt")
     set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-)
 
     set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc)
-    set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PREFIX}g++)
     set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}gcc)
     set(CMAKE_LINKER ${TOOLCHAIN_PREFIX}ld)
     set(CMAKE_RANLIB ${TOOLCHAIN_PREFIX}gcc-ranlib)
@@ -41,12 +41,12 @@ else ()
     add_compile_options("/std:c++latest")
 endif()
 
-project(Hyper C CXX ASM)
+project(Hyper C ASM)
 
 set(ENV{HYPER_PLATFORM} ${PLATFORM})
 
 if (PLATFORM MATCHES "BIOS")
-    add_subdirectory(BIOS)
+    add_subdirectory(bios)
 endif ()
 
-add_subdirectory(Loader)
+add_subdirectory(loader)

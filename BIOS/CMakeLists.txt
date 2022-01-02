@@ -1,15 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
 
-if (NOT PLATFORM)
-    set(PLATFORM "BIOS")
-elseif ((NOT PLATFORM MATCHES "BIOS") AND (NOT PLATFORM MATCHES "UEFI"))
-    message(FATAL_ERROR "Unknown platform ${PLATFORM}")
-endif ()
-
-if (PLATFORM MATCHES "UEFI")
-    message(FATAL_ERROR "UEFI is currently not supported!")
-endif ()
-
 project(MBR)
 
 enable_language(ASM_NASM)
@@ -24,5 +14,5 @@ add_compile_options(
     $<TARGET_PROPERTY:NASM_OBJ_FORMAT>, ${CMAKE_ASM_NASM_OBJECT_FORMAT}>>"
 )
 
-add_executable(HyperMBR HyperMBR.asm)
-set_target_properties(HyperMBR PROPERTIES NASM_OBJ_FORMAT bin)
+add_executable(hyper_mbr hyper_mbr.asm)
+set_target_properties(hyper_mbr PROPERTIES NASM_OBJ_FORMAT bin)

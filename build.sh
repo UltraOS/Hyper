@@ -21,22 +21,23 @@ on_error()
     exit 1
 }
 
-platform="BIOS"
+platform="bios"
 
 if [ "$1" ]
   then
-    if [ $1 != "UEFI" ] && [ $1 != "BIOS" ]
-    then
+    if [ $1 == "BIOS" ]; then
+      platform="bios"
+    elif [ $1 = "UEFI" ]; then
+      platform="uefi"
+    else
       echo "Unknown platform $1"
       on_error
-    else
-      platform="$1"
     fi
 fi
 
 pushd $true_path
 
-build_dir="build$platform"
+build_dir="build_$platform"
 
 mkdir -p $build_dir || on_error
 
