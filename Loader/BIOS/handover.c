@@ -30,7 +30,7 @@ void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
      * can enable or disable mode specific performance and functional optimizations that are not visible to
      * system software.
     */
-    RealModeRegisterState registers {};
+    real_mode_regs registers {};
     registers.eax = 0xEC00;
     registers.ebx = 0x02;
     bios_call(0x15, &registers, &registers);
