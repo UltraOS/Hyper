@@ -34,7 +34,7 @@ struct platform_info_attribute {
 #define PARTITION_TYPE_MBR 2
 #define PARTITION_TYPE_GPT 3
 
-struct guid {
+struct ultra_guid {
     uint32_t data1;
     uint16_t data2;
     uint16_t data3;
@@ -51,8 +51,8 @@ struct kernel_info_attribute {
     u64 partition_type;
 
     // only valid if partition_type == PARTITION_TYPE_GPT
-    struct guid disk_guid;
-    struct guid partition_guid;
+    struct ultra_guid disk_guid;
+    struct ultra_guid partition_guid;
 
     // always valid
     u32 disk_index;
