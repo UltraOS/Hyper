@@ -1,38 +1,70 @@
-#include "Services.h"
-#include "Common/Logger.h"
-#include "Common/Panic.h"
-#include "Allocator.h"
-#include "FileSystem/FileSystem.h"
-#include "FileSystem/FileSystemTable.h"
+#include "services.h"
+#include "common/log.h"
+#include "common/panic.h"
+#include "allocator.h"
+#include "filesystem/filesystem.h"
+#include "filesystem/filesystem_table.h"
+#include "protocols/ultra/ultra.h"
+#include "config.h"
 
-void detect_all_filesystems(DiskServices&, const Disk&, u32 disk_index);
-File* find_config_file(FileSystemEntry& out_entry);
+void detect_all_filesystems(struct disk_services*, const struct disk* d, u32 disk_index);
+struct file* find_config_file(struct fs_entry *fe);
+void pick_loadable_entry(struct config *cfg, struct loadable_entry* le);
 
-void loader_entry(Services& services)
+enum load_protocol {
+    LOAD_PROTOCOL_ULTRA,
+    // Maybe multiboot/stivale in the future?
+};
+enum load_protocol deduce_protocol(struct config *cfg, struct loadable_entry*);
+
+void loader_entry(struct services *svc)
 {
-    logger::set_backend(&services.video_services());
-    allocator::set_backend(&services.memory_services());
-    FileSystem::set_backend(&services.disk_services());
+    size_t disk_count, disk_index;
+    struct disk *disks;
+    struct fs_entry fe;
+    struct file *cfg_file;
+    char *cfg_data;
+    struct string_view cfg_view = { cfg_data, 0 };
+    struct config cfg = { 0 };
+    struct loadable_entry le;
+    enum load_protocol prot;
 
-    auto& disk_srvc = services.disk_services();
+    logger_set_backend(svc->vs);
+    allocator_set_backend(svc->ms);
+    filesystem_set_backend(svc->ds);
 
-    for (const auto& disk : disk_srvc.list_disks())
-        detect_all_filesystems(disk_srvc, disk);
+    svc->ds->list_disks(&disk_count);
+    for (disk_index = 0; disk_index < disk_count; ++disk_index)
+        detect_all_filesystems(svc->ds, &disks[disk_index], disk_index);
 
-    FileSystemEntry fs_entry {};
-    File* config_file = find_config_file(fs_entry);
+    cfg_file = find_config_file(&fe);
+    if (!cfg_file)
+        oops("Couldn't find ultra.cfg anywhere on disk!");
 
-    if (!config_file)
-        panic("couldn't find ultra.cfg anywhere on disk");
+    set_origin_fs(&fe);
 
-    auto* config_file_data = allocator::allocate_bytes(config_file->size());
-    if (!config_file_data)
-        panic("not enough memory to read config file");
+    cfg_data = allocate_bytes(cfg_file->size);
+    if (!cfg_data)
+        oops("not enough memory to read config file");
 
-    if (!config_file->read(config_file_data, 0, config_file->size()))
-        panic("failed to read config file");
+    if (!cfg_file->read(cfg_file, cfg_data, 0, cfg_file->size))
+        oops("failed to read config file");
+    cfg_view.size = cfg_file->size;
 
-    for (;;);
+    if (!config_parse(cfg_view, &cfg)) {
+        config_pretty_print_error(&cfg.last_error, cfg_view);
+        for (;;);
+    }
+
+    pick_loadable_entry(&cfg, &le);
+    prot = deduce_protocol(&cfg, &le);
+
+    switch (prot) {
+    case LOAD_PROTOCOL_ULTRA:
+        ultra_protocol_load(cfg, loadable_entry, services);
+    default:
+        panic("invalid protocol");
+    }
 }
 
 void initialize_from_mbr(DiskServices& srvc, const Disk& disk, u32 disk_id, void* mbr_buffer, size_t base_index = 0, size_t sector_offset = 0)
@@ -162,4 +194,43 @@ File* find_config_file(FileSystemEntry& out_entry)
     }
 
     return nullptr;
+}
+
+LoadableEntry pick_loadable_entry(Config& cfg)
+{
+    static constexpr StringView key_for_default_entry = "default-entry";
+
+    auto default_entry = cfg.get(key_for_default_entry);
+    if (!default_entry) {
+        auto entries = cfg.loadable_entries();
+        if (entries.begin() == entries.end())
+            unrecoverable_error("configuration file must contain at least one loadable entry");
+
+        return *entries.begin();
+    }
+
+    auto entry_string = extract_string({ key_for_default_entry, default_entry.value() });
+
+    auto entry = cfg.get_loadable_entry(entry_string);
+    if (!entry)
+        unrecoverable_error("Couldn't find loadable entry {}", entry_string);
+
+    return entry.value();
+}
+
+#define PROTOCOL_KEY SV("protocol")
+
+enum load_protocol deduce_protocol(struct config *cfg, struct loadable_entry *entry)
+{
+    struct value protocol_value;
+    if (!loadable_entry_get_child(cfg, entry, PROTOCOL_KEY, &protocol_value, true))
+        return LOAD_PROTOCOL_ULTRA;
+
+    auto value = extract_string({ key_for_protocol, protocol_field.value() });
+
+    // TODO: consider making this non-case-sensitive
+    if (value != "ultra")
+        unrecoverable_error("unsupported load protocol: {}", value);
+
+    return LOAD_PROTOCOL_ULTRA;
 }
