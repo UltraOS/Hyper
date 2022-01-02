@@ -1,7 +1,6 @@
 #pragma once
 
-#define DO_CONCAT(x, y) x##y
-#define CONCAT(x, y) DO_CONCAT(x, y)
+#include "helpers.h"
 
 #define COMPARE(x, y, op) ((x) op (y) ? (x) : (y))
 

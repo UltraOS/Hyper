@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Types.h"
+#include "common/types.h"
 
 struct CPUID {
     u32 a;
