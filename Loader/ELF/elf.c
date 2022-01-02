@@ -1,26 +1,15 @@
-#include "ELF.h"
-#include "Structures.h"
-#include "Allocator.h"
+#include "elf.h"
+#include "structures.h"
+#include "allocator.h"
 
 #define LOAD_ERROR(reason)                \
     do {                                  \
       load_result.success = false;        \
-      load_result.error_message = reason; \
+      load_result.error_msg = reason;     \
       return load_result;                 \
     } while (0)
 
-namespace elf {
-
-template <typename T>
-static constexpr T higher_half_load_address_for_type()
-{
-    static_assert(sizeof(T) == 4 || sizeof(T) == 8);
-
-    if constexpr (sizeof(T) == 4)
-        return 0xC0000000;
-    else
-        return 0xFFFFFFFF80000000;
-}
+#define HIGHER_HALF_BASE 0xFFFFFFFF80000000
 
 template <typename HeaderT, typename ProgramHeaderT, typename AddrT>
 static LoadResult do_load(Span<u8> file, UseVirtualAddress use_va, AllocateAnywhere alloc_anywhere, unsigned char machine_type)
@@ -197,12 +186,12 @@ LoadResult load(Span<u8> file, UseVirtualAddress use_va, AllocateAnywhere alloc_
     LOAD_ERROR("invalid class");
 }
 
-u32 get_bitness(Span<u8> file)
+u32 elf_bitness(void *file_data, size_t size)
 {
-    if (file.size() < sizeof(Elf32_Ehdr))
-        return 0;
+    struct Elf32_Ehdr *hdr = file_data;
 
-    auto* hdr = reinterpret_cast<Elf32_Ehdr*>(file.data());
+    if (size < sizeof(*hdr))
+        return 0;
 
     switch (hdr->e_ident[EI_CLASS]) {
     case ELFCLASS32:
@@ -213,5 +202,8 @@ u32 get_bitness(Span<u8> file)
         return 0;
     }
 }
+
+void elf_load(u8 *file_data, size_t size, bool use_va, bool allocate_anywhere, struct load_result *res)
+{
 
 }
