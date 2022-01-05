@@ -1,209 +1,288 @@
 #include "elf.h"
 #include "structures.h"
 #include "allocator.h"
+#include "common/constants.h"
+#include "common/string.h"
 
-#define LOAD_ERROR(reason)                \
-    do {                                  \
-      load_result.success = false;        \
-      load_result.error_msg = reason;     \
-      return load_result;                 \
+#define LOAD_ERROR(reason)     \
+    do {                       \
+      res->success = false;    \
+      res->error_msg = reason; \
+      return;                  \
     } while (0)
 
 #define HIGHER_HALF_BASE 0xFFFFFFFF80000000
 
-template <typename HeaderT, typename ProgramHeaderT, typename AddrT>
-static LoadResult do_load(Span<u8> file, UseVirtualAddress use_va, AllocateAnywhere alloc_anywhere, unsigned char machine_type)
+static Elf64_Half get_machine_type(const u8 *data, u8 bitness)
 {
-    LoadResult load_result {};
-    auto& info = load_result.info;
+    if (bitness == 32)
+        return ((struct Elf32_Ehdr*)data)->e_machine;
 
-    info.virtual_base = numeric_limits<u64>::max();
+    return ((struct Elf64_Ehdr*)data)->e_machine;
+}
 
-    auto* header = reinterpret_cast<HeaderT*>(file.data());
-    info.entrypoint_address = header->e_entry;
+static Elf64_Half get_binary_type(const u8 *data, u8 bitness)
+{
+    if (bitness == 32)
+        return ((struct Elf32_Ehdr*)data)->e_type;
 
-    if (header->e_machine != machine_type)
+    return ((struct Elf64_Ehdr*)data)->e_type;
+}
+
+static Elf64_Half get_program_header_count(const u8 *data, u8 bitness)
+{
+    if (bitness == 32)
+        return ((struct Elf32_Ehdr*)data)->e_phnum;
+
+    return ((struct Elf64_Ehdr*)data)->e_phnum;
+}
+
+static Elf64_Addr get_entrypoint(const u8 *data, u8 bitness)
+{
+    if (bitness == 32)
+        return ((struct Elf32_Ehdr*)data)->e_entry;
+
+    return ((struct Elf64_Ehdr*)data)->e_entry;
+}
+
+static Elf64_Off get_ph_offset(const u8 *data, u8 bitness)
+{
+    if (bitness == 32)
+        return ((struct Elf32_Ehdr*)data)->e_phoff;
+
+    return ((struct Elf64_Ehdr*)data)->e_phoff;
+}
+
+static Elf64_Half get_ph_entry_size(const u8 *data, u8 bitness)
+{
+    if (bitness == 32)
+        return ((struct Elf32_Ehdr*)data)->e_phentsize;
+
+    return ((struct Elf64_Ehdr*)data)->e_phentsize;
+}
+
+static bool is_valid_ph_size(u32 size, u8 bitness)
+{
+    if (bitness == 32)
+        return sizeof(struct Elf32_Ehdr) < size;
+
+    return sizeof(struct Elf64_Ehdr) < size;
+}
+
+static bool is_valid_file_size(u32 size)
+{
+    return size > sizeof(struct Elf64_Ehdr);
+}
+
+static Elf64_Word get_ph_type(void *data, u8 bitness)
+{
+    if (bitness == 32)
+        return ((struct Elf32_Phdr*)data)->p_type;
+
+    return ((struct Elf64_Phdr*)data)->p_type;
+}
+
+struct load_ph {
+    Elf64_Addr phys_addr, virt_addr;
+    Elf64_Xword memsz, filesz;
+    Elf64_Off fileoff;
+};
+static void get_load_ph(void *data, struct load_ph *out, u8 bitness)
+{
+    if (bitness == 32) {
+        struct Elf32_Phdr *hdr = data;
+        *out = (struct load_ph) {
+            .phys_addr = hdr->p_paddr,
+            .virt_addr = hdr->p_vaddr,
+            .filesz = hdr->p_filesz,
+            .memsz = hdr->p_memsz,
+            .fileoff = hdr->p_offset
+        };
+    } else {
+        struct Elf64_Phdr *hdr = data;
+        *out = (struct load_ph) {
+            .phys_addr = hdr->p_paddr,
+            .virt_addr = hdr->p_vaddr,
+            .filesz = hdr->p_filesz,
+            .memsz = hdr->p_memsz,
+            .fileoff = hdr->p_offset
+        };
+    }
+}
+
+static void do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
+                    Elf64_Half machine_type, u8 bitness, struct load_result *res)
+{
+    struct binary_info *info = &res->info;
+    Elf64_Half ph_count = get_program_header_count(data, bitness);
+    Elf64_Half ph_size = get_ph_entry_size(data, bitness);
+    Elf64_Off ph_begin = get_ph_offset(data, bitness);
+    Elf64_Off ph_end = ph_begin + (get_ph_entry_size(data, bitness) * ph_count);
+    void *ph_addr = data + ph_begin;
+    u64 reference_base, reference_ceiling;
+    bool must_be_higher_half = alloc_anywhere;
+    size_t i;
+
+    info->virtual_base = -1ull;
+    info->entrypoint_address = get_entrypoint(data, bitness);
+    info->physical_valid = !use_va;
+
+    if (get_machine_type(data, bitness) != machine_type)
         LOAD_ERROR("unexpected machine type");
-    if (header->e_type != ET_EXEC)
+    if (get_binary_type(data, bitness) != ET_EXEC)
         LOAD_ERROR("not an executable");
-    if (!header->e_phnum || header->e_phnum == PN_XNUM)
+    if (!ph_count || ph_count == PN_XNUM)
         LOAD_ERROR("invalid number of program headers");
-
-    auto ph_begin = header->e_phoff;
-    auto ph_end = ph_begin + (header->e_phentsize * header->e_phnum);
-
-    if (ph_end < ph_begin || header->e_phentsize < sizeof(ProgramHeaderT) || file.size() < ph_end)
+    if (ph_end < ph_begin || !is_valid_ph_size(size, bitness) || size < ph_end)
         LOAD_ERROR("invalid program header offset/size");
 
-    Address ph_address = reinterpret_cast<ProgramHeaderT*>(file.data() + ph_begin);
-    bool va = use_va == UseVirtualAddress::YES;
-    info.physical_valid = !va;
-    bool must_be_higher_half = alloc_anywhere == AllocateAnywhere::YES;
+    for (i = 0; i < ph_count; ++i, ph_addr += ph_size) {
+        struct load_ph hdr;
+        u64 hdr_end;
 
-    static constexpr auto higher_half_address = higher_half_load_address_for_type<AddrT>();
-
-    for (size_t i = 0; i < header->e_phnum; ++i, ph_address += header->e_phentsize) {
-        auto* program_header = ph_address.as_pointer<ProgramHeaderT>();
-
-        if (program_header->p_type != PT_LOAD)
+        if (get_ph_type(ph_addr, bitness) != PT_LOAD)
             continue;
 
-        if (program_header->p_vaddr < higher_half_address && must_be_higher_half)
+        get_load_ph(ph_addr, &hdr, bitness);
+
+        if (hdr.virt_addr < HIGHER_HALF_BASE && must_be_higher_half)
             LOAD_ERROR("invalid load address");
 
-        if (program_header->p_vaddr < info.virtual_base)
-            info.virtual_base = program_header->p_vaddr;
+        if (hdr.virt_addr < info->virtual_base)
+            info->virtual_base = hdr.virt_addr;
 
-        auto end = program_header->p_vaddr + program_header->p_memsz;
-        if (end > info.virtual_ceiling)
-            info.virtual_ceiling = end;
+        hdr_end = hdr.virt_addr + hdr.memsz;
+        if (hdr_end > info->virtual_ceiling)
+            info->virtual_ceiling = hdr_end;
 
         // Relocate entrypoint to be within the physical address base if needed
-        if (!va && (info.entrypoint_address >= program_header->p_vaddr && info.entrypoint_address < end)) {
-            info.entrypoint_address -= program_header->p_vaddr;
-            info.entrypoint_address += program_header->p_paddr;
+        if (!use_va && (info->entrypoint_address >= hdr.virt_addr && info->entrypoint_address < hdr_end)) {
+            info->entrypoint_address -= hdr.virt_addr;
+            info->entrypoint_address += hdr.phys_addr;
         }
 
-        if (program_header->p_paddr < info.physical_base)
-            info.physical_base = program_header->p_paddr;
+        if (hdr.phys_addr < info->physical_base)
+            info->physical_base = hdr.phys_addr;
 
-        end = program_header->p_paddr + program_header->p_memsz;
-        if (end > info.physical_ceiling)
-            info.physical_ceiling = end;
+        hdr_end = hdr.phys_addr + hdr.memsz;
+        if (hdr_end > info->physical_ceiling)
+            info->physical_ceiling = hdr_end;
     }
 
-    auto& reference_base = va ? info.virtual_base : info.physical_base;
-    auto& reference_ceiling = va ? info.virtual_ceiling : info.physical_ceiling;
+    reference_base = use_va ? info->virtual_base : info->physical_base;
+    reference_ceiling = use_va ? info->virtual_ceiling : info->physical_ceiling;
 
-    if ((info.entrypoint_address >= reference_ceiling) || (info.entrypoint_address < reference_base))
+    if ((info->entrypoint_address >= reference_ceiling) || (info->entrypoint_address < reference_base))
         LOAD_ERROR("invalid entrypoint");
 
-    info.virtual_base = page_round_down(info.virtual_base);
-    info.virtual_ceiling = page_round_up(info.virtual_ceiling);
-    info.physical_base = page_round_down(info.physical_base);
-    info.physical_ceiling = page_round_up(info.physical_ceiling);
+    info->virtual_base = PAGE_ROUND_DOWN(info->virtual_base);
+    info->virtual_ceiling = PAGE_ROUND_UP(info->virtual_ceiling);
+    info->physical_base = PAGE_ROUND_DOWN(info->physical_base);
+    info->physical_ceiling = PAGE_ROUND_UP(info->physical_ceiling);
 
-    if (alloc_anywhere == AllocateAnywhere::YES) {
-        auto pages = (info.virtual_ceiling - info.virtual_base) / page_size;
-        info.physical_base = allocator::allocate_critical_pages(pages);
-        info.physical_ceiling = info.physical_base + (pages * page_size);
-        info.physical_valid = true;
+    if (alloc_anywhere) {
+        size_t pages = (info->virtual_ceiling - info->virtual_base) / PAGE_SIZE;
+        info->physical_base = (u64)allocate_critical_pages(pages);
+        info->physical_ceiling = info->physical_base + (pages * PAGE_SIZE);
+        info->physical_valid = true;
     }
 
-    for (size_t i = 0; i < header->e_phnum; ++i, ph_address += header->e_phentsize) {
-        auto* program_header = ph_address.as_pointer<ProgramHeaderT>();
+    ph_addr = data + ph_begin;
+    for (i = 0; i < ph_count; ++i, ph_addr += ph_size) {
+        struct load_ph hdr;
+        u64 addr, load_base;
+        u64 ph_file_end;
+        void *ph_file_data;
+        u32 bytes_to_zero;
 
-        if (program_header->p_type != PT_LOAD)
+        if (get_ph_type(ph_addr, bitness) != PT_LOAD)
             continue;
 
-        auto& address = va ? program_header->p_vaddr : program_header->p_paddr;
+        get_load_ph(ph_addr, &hdr, bitness);
+        addr = use_va ? hdr.virt_addr : hdr.phys_addr;
 
-        if ((address + program_header->p_memsz) < address)
+        if ((addr + hdr.memsz) < addr)
             LOAD_ERROR("invalid load address");
 
-        auto ph_file_end = program_header->p_offset + program_header->p_filesz;
+        ph_file_end = hdr.fileoff + hdr.filesz;
 
-        if ((ph_file_end < program_header->p_offset) ||
-            (program_header->p_memsz < program_header->p_filesz) ||
-            (file.size() < ph_file_end))
+        if ((ph_file_end < hdr.fileoff) ||
+            (hdr.memsz < hdr.filesz) ||
+            (size < ph_file_end))
             LOAD_ERROR("invalid program header");
 
-        if (address >= higher_half_address) {
-            if (!va)
+        if (addr >= HIGHER_HALF_BASE) {
+            if (!use_va)
                 LOAD_ERROR("invalid load address");
 
-            address -= higher_half_address;
+            addr -= HIGHER_HALF_BASE;
 
-            if ((address < (1 * MB)) && alloc_anywhere == AllocateAnywhere::NO)
+            if ((addr < (1 * MB)) && !alloc_anywhere)
                 LOAD_ERROR("invalid load address");
         }
 
-        Address64 load_base {};
-
-        if (alloc_anywhere == AllocateAnywhere::NO) {
-            auto begin = page_round_down(address);
-            auto end = page_round_up(begin + program_header->p_memsz);
+        if (!alloc_anywhere) {
+            u64 begin = PAGE_ROUND_DOWN(addr);
+            u64 end = PAGE_ROUND_UP(begin + hdr.memsz);
+            size_t pages = (end - begin) / PAGE_SIZE;
 
             if (end > (4ull * GB))
                 LOAD_ERROR("invalid load address");
 
-            auto pages = (end - begin) / page_size;
-            load_base = allocator::allocate_critical_pages_with_type_at(begin, pages, MEMORY_TYPE_KERNEL_BINARY);
-            load_base += address - begin;
+            load_base = (u64)allocate_critical_pages_with_type_at(begin, pages, MEMORY_TYPE_KERNEL_BINARY);
+            load_base += addr - begin;
         }  else {
-            load_base = info.physical_base + (program_header->p_vaddr - info.virtual_base);
+            load_base = info->physical_base + (hdr.virt_addr - info->virtual_base);
         }
 
-        Address ph_file_data = file.data() + program_header->p_offset;
+        ph_file_data = data + hdr.fileoff;
 
-        if (program_header->p_filesz) {
-            copy_memory(ph_file_data.as_pointer<void>(), load_base.as_pointer<void>(), program_header->p_filesz);
-            load_base += program_header->p_filesz;
+        if (hdr.filesz) {
+            memcpy((void*)load_base, ph_file_data, hdr.filesz);
+            load_base += hdr.filesz;
         }
 
-        auto to_zero = program_header->p_memsz - program_header->p_filesz;
-        if (to_zero)
-            zero_memory(load_base.as_pointer<void>(), to_zero);
+        bytes_to_zero = hdr.memsz - hdr.filesz;
+        if (bytes_to_zero)
+            memzero(load_base, bytes_to_zero);
     }
 
-    load_result.success = true;
-    return load_result;
+    res->success = true;
 }
 
-LoadResult load(Span<u8> file, UseVirtualAddress use_va, AllocateAnywhere alloc_anywhere)
+u8 elf_bitness(void *data, size_t size)
 {
-    LoadResult load_result;
+    struct Elf32_Ehdr *hdr = data;
 
-    if (alloc_anywhere == AllocateAnywhere::YES && use_va == UseVirtualAddress::NO)
-        LOAD_ERROR("invalid load options");
-
-    if (file.size() < sizeof(Elf32_Ehdr))
-        LOAD_ERROR("file is too small");
-
-    auto* header = reinterpret_cast<Elf32_Ehdr*>(file.data());
-
-    static unsigned char elf_magic[] = { ELFMAG0, ELFMAG1, ELFMAG2, ELFMAG3 };
-    if (!compare_memory(header, elf_magic, sizeof(elf_magic)))
-        LOAD_ERROR("invalid magic");
-    if (header->e_ident[EI_DATA] != ELFDATA2LSB)
-        LOAD_ERROR("not a little-endian file");
-
-    if (header->e_ident[EI_CLASS] == ELFCLASS64) {
-        load_result = do_load<Elf64_Ehdr, Elf64_Phdr, Address64>(file, use_va, alloc_anywhere, EM_AMD64);
-        load_result.info.bitness = 64;
-        return load_result;
-    }
-
-    if (header->e_ident[EI_CLASS] == ELFCLASS32) {
-        if (use_va == UseVirtualAddress::YES)
-            LOAD_ERROR("invalid load options");
-
-        load_result = do_load<Elf32_Ehdr, Elf32_Phdr, Address32>(file, use_va, alloc_anywhere, EM_386);
-        load_result.info.bitness = 32;
-        return load_result;
-    }
-
-    LOAD_ERROR("invalid class");
-}
-
-u32 elf_bitness(void *file_data, size_t size)
-{
-    struct Elf32_Ehdr *hdr = file_data;
-
-    if (size < sizeof(*hdr))
+    if (!is_valid_file_size(size))
         return 0;
 
     switch (hdr->e_ident[EI_CLASS]) {
-    case ELFCLASS32:
-        return 32;
-    case ELFCLASS64:
-        return 64;
-    default:
-        return 0;
+        case ELFCLASS32:
+            return 32;
+        case ELFCLASS64:
+            return 64;
+        default:
+            return 0;
     }
 }
 
-void elf_load(u8 *file_data, size_t size, bool use_va, bool allocate_anywhere, struct load_result *res)
+void load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load_result *res)
 {
+    struct Elf32_Ehdr *hdr = data;
+    u8 bitness = elf_bitness(data, size);
+    Elf64_Half machine_type = bitness == 64 ? EM_386 : EM_AMD64;
 
+    if (!bitness)
+        LOAD_ERROR("invalid elf class");
+    if (alloc_anywhere && use_va)
+        LOAD_ERROR("invalid load options");
+
+    static unsigned char elf_magic[] = { ELFMAG0, ELFMAG1, ELFMAG2, ELFMAG3 };
+    if (!memcmp(data, elf_magic, sizeof(elf_magic)))
+        LOAD_ERROR("invalid magic");
+    if (hdr->e_ident[EI_DATA] != ELFDATA2LSB)
+        LOAD_ERROR("not a little-endian file");
+
+    do_load(data, size, use_va, alloc_anywhere, machine_type, bitness, res);
 }

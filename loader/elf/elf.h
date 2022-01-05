@@ -11,7 +11,7 @@ struct binary_info {
     u64 physical_base;
     u64 physical_ceiling;
 
-    u32 bitness;
+    u8 bitness;
     bool physical_valid;
 };
 
@@ -22,5 +22,5 @@ struct load_result {
 };
 
 void elf_load(u8 *file_data, size_t size, bool use_va, bool allocate_anywhere, struct load_result *res);
-u32 elf_bitness(void *file_data, size_t size);
+u8 elf_bitness(void *file_data, size_t size);
 
