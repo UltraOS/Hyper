@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Common/Types.h"
+#include "common/types.h"
 
 #define EI_MAG0       0
 #define EI_MAG1       1
