@@ -20,3 +20,5 @@ const struct fs_entry *fs_by_full_path(const struct full_path *path);
 
 void set_origin_fs(struct fs_entry*);
 const struct fs_entry *get_origin_fs();
+
+struct fs_entry *list_fs_entries(size_t *count);

@@ -194,7 +194,7 @@ bool parse_path(struct string_view path, struct full_path *out_path)
     return true;
 }
 
-struct filesystem *try_detect(const struct disk *d, struct range lba_range, void* first_page)
+struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range, void* first_page)
 {
     if (!backend)
         return NULL;

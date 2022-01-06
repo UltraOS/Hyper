@@ -141,3 +141,9 @@ const struct fs_entry *get_origin_fs()
 {
     return &origin_fs;
 }
+
+struct fs_entry *list_fs_entries(size_t *count)
+{
+    *count = entry_buffer_size;
+    return entry_buffer;
+}
