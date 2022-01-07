@@ -6,9 +6,8 @@
 
 #define LOAD_ERROR(reason)     \
     do {                       \
-      res->success = false;    \
       res->error_msg = reason; \
-      return;                  \
+      return false;            \
     } while (0)
 
 #define HIGHER_HALF_BASE 0xFFFFFFFF80000000
@@ -110,7 +109,7 @@ static void get_load_ph(void *data, struct load_ph *out, u8 bitness)
     }
 }
 
-static void do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
+static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
                     Elf64_Half machine_type, u8 bitness, struct load_result *res)
 {
     struct binary_info *info = &res->info;
@@ -247,7 +246,7 @@ static void do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
             memzero(load_base, bytes_to_zero);
     }
 
-    res->success = true;
+    return true;
 }
 
 u8 elf_bitness(void *data, size_t size)
@@ -267,7 +266,7 @@ u8 elf_bitness(void *data, size_t size)
     }
 }
 
-void load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load_result *res)
+bool load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load_result *res)
 {
     struct Elf32_Ehdr *hdr = data;
     u8 bitness = elf_bitness(data, size);
@@ -284,5 +283,5 @@ void load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load
     if (hdr->e_ident[EI_DATA] != ELFDATA2LSB)
         LOAD_ERROR("not a little-endian file");
 
-    do_load(data, size, use_va, alloc_anywhere, machine_type, bitness, res);
+    return do_load(data, size, use_va, alloc_anywhere, machine_type, bitness, res);
 }
