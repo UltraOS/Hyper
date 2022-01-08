@@ -15,6 +15,7 @@ struct string_view {
     (struct string_view) { str, strlen(str) }
 
 bool sv_equals(struct string_view lhs, struct string_view rhs);
+bool sv_equals_caseless(struct string_view lhs, struct string_view rhs);
 bool sv_starts_with(struct string_view str, struct string_view prefix);
 ssize_t sv_find(struct string_view str, struct string_view needle, size_t starting_at);
 

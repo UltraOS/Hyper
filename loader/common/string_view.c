@@ -1,4 +1,5 @@
 #include "string_view.h"
+#include "ctype.h"
 
 bool sv_equals(struct string_view lhs, struct string_view rhs)
 {
@@ -7,6 +8,19 @@ bool sv_equals(struct string_view lhs, struct string_view rhs)
 
     for (size_t i = 0; i < lhs.size; ++i) {
         if (lhs.text[i] != rhs.text[i])
+            return false;
+    }
+
+    return true;
+}
+
+bool sv_equals_caseless(struct string_view lhs, struct string_view rhs)
+{
+    if (lhs.size != rhs.size)
+        return false;
+
+    for (size_t i = 0; i < lhs.size; ++i) {
+        if (tolower(lhs.text[i]) != tolower(rhs.text[i]))
             return false;
     }
 
@@ -38,7 +52,7 @@ ssize_t sv_find(struct string_view str, struct string_view needle, size_t starti
 
     if (needle.size > (str.size - starting_at))
         return -1;
-    if (sv_empty(&needle))
+    if (sv_empty(needle))
         return 0;
 
     for (i = starting_at; i < str.size - needle.size + 1; ++i) {
