@@ -1,23 +1,24 @@
 #include "physical_range.h"
-
+#include "common/bug.h"
+#include "common/minmax.h"
 
 void physical_ranges_shatter(const struct physical_range *lhs, const struct physical_range *rhs,
                              struct shatter_result *out, bool invert_priority)
 {
-    struct range *l = &lhs->l;
-    struct range *r = &rhs->r;
+    const struct range *l = &lhs->r;
+    const struct range *r = &rhs->r;
 
     // cannot shatter against non-overlapping range
-    ASSERT(range_overlaps(l, r));
+    BUG_ON(!range_overlaps(l, r));
 
     // cut out the overlapping piece by default
     out->ranges[0] = (struct physical_range) {
         .r =  { l->begin, r->begin },
-        .type = l->type
+        .type = lhs->type
     };
 
     // both ranges have the same type, so we can just merge them
-    if (l->type == r->type) {
+    if (lhs->type == rhs->type) {
         out->ranges[0].r.end = MAX(l->end, r->end);
         return;
     }
