@@ -33,7 +33,7 @@ void bios_call(u32 number, const struct real_mode_regs *in, struct real_mode_reg
 
 static inline void* from_real_mode_addr(u16 segment, u16 offset)
 {
-    return (void*)(((u32)segment << 4) | offset);
+    return (void*)(((u32)segment << 4) + offset);
 }
 
 static inline void as_real_mode_addr(ptr_t addr, struct real_mode_addr *rm_addr)
