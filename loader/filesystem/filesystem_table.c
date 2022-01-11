@@ -2,7 +2,7 @@
 #include "allocator.h"
 #include "common/constants.h"
 
-#define ENTRIES_PER_PAGE (sizeof(struct fs_entry) / PAGE_SIZE)
+#define ENTRIES_PER_PAGE (PAGE_SIZE / sizeof(struct fs_entry))
 #define RAW_PARTITION_IDX 0xFFFFFFFF
 
 static struct fs_entry *entry_buffer;
