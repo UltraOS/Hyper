@@ -6,6 +6,7 @@
 #include "bios_memory_services.h"
 #include "bios_video_services.h"
 #include "bios_disk_services.h"
+#include "bios_find_rsdp.h"
 
 extern u8 a20_enabled;
 extern u8 section_bss_begin;
@@ -13,7 +14,9 @@ extern u8 section_bss_end;
 
 void bios_entry()
 {
-    struct services s;
+    struct services s = {
+        .get_rsdp = bios_find_rsdp
+    };
 
     memzero(&section_bss_begin, &section_bss_end - &section_bss_begin);
 

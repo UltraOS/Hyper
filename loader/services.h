@@ -144,6 +144,12 @@ struct services {
     struct disk_services *ds;
     struct video_services *vs;
     struct memory_services *ms;
+
+    /*
+     * Attempts to retrieve the RSDP structure location.
+     * Returns a 16-byte aligned address of the structure if successful, NULL otherwise.
+     */
+    ptr_t (*get_rsdp)();
 };
 
 void loader_entry(struct services *services);
