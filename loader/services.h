@@ -140,6 +140,12 @@ struct memory_services {
     bool (*handover)(size_t key);
 };
 
+enum service_provider {
+    SERVICE_PROVIDER_INVALID,
+    SERVICE_PROVIDER_BIOS,
+    SERVICE_PROVIDER_UEFI
+};
+
 struct services {
     struct disk_services *ds;
     struct video_services *vs;
@@ -150,6 +156,8 @@ struct services {
      * Returns a 16-byte aligned address of the structure if successful, NULL otherwise.
      */
     ptr_t (*get_rsdp)();
+
+    enum service_provider provider;
 };
 
 void loader_entry(struct services *services);

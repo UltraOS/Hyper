@@ -15,6 +15,7 @@ extern u8 section_bss_end;
 void bios_entry()
 {
     struct services s = {
+        .provider = SERVICE_PROVIDER_BIOS,
         .get_rsdp = bios_find_rsdp
     };
 
