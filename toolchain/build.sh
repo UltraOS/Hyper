@@ -2,7 +2,7 @@
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
   realpath() {
-      [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
+    [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
   }
 
   cores=$(sysctl -n hw.physicalcpu)
@@ -18,8 +18,8 @@ root_path=$true_path/..
 
 on_error()
 {
-    echo "Cross-compiler build failed!"
-    exit 1
+  echo "Cross-compiler build failed!"
+  exit 1
 }
 
 platform=$(echo "$1" | tr '[:upper:]' '[:lower:]')
@@ -27,15 +27,15 @@ platform=${platform:-"bios"}
 
 if [ $platform != "bios" ] && [ $platform != "uefi" ]
 then
-      echo "Unknown platform $1"
-      on_error
+  echo "Unknown platform $1"
+  on_error
 fi
 
 compiler_prefix="i686-elf"
 
 if [ $platform = "uefi" ]
 then
-    compiler_prefix="mingw64"
+  compiler_prefix="mingw64"
 fi
 
 pushd $true_path
@@ -55,10 +55,10 @@ then
 
   for f in ${!package_managers[@]}
   do
-      if [[ -f $f ]];
-      then
-          package_manager=${package_managers[$f]}
-      fi
+    if [[ -f $f ]];
+    then
+      package_manager=${package_managers[$f]}
+    fi
   done
 
   if [ -z "$package_manager" ]
