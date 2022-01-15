@@ -8,7 +8,7 @@
 #define RSDP_ALIGNMENT 16
 
 /*
- * ACPI 6.3 (5.2.5.1 Finding the RSDP on IA-PC Systems)
+ * ACPI 6.4 (5.2.5.1 Finding the RSDP on IA-PC Systems)
  * ----------------------------------------------------------------------------------------------------
  * OSPM finds the Root System Description Pointer (RSDP) structure by searching physical memory ranges
  * on 16-byte boundaries for a valid Root System Description Pointer structure signature and checksum
@@ -30,7 +30,7 @@
 
 #define EBDA_SEARCH_SIZE (1 * KB)
 
-static ptr_t find_signature_in_range(ptr_t addr, ptr_t end)
+static ptr_t find_signature_in_range(u32 addr, u32 end)
 {
     // Don't attempt to search too low
     if (addr <= EBDA_SEARCH_BASE)
@@ -40,6 +40,7 @@ static ptr_t find_signature_in_range(ptr_t addr, ptr_t end)
         if (memcmp((void*)addr, RSDP_SIGNATURE, RSDP_SIGNATURE_LEN) != 0)
             continue;
 
+        // TODO: verify checksums before actually returning it
         print_info("found RSDP at 0x%08X\n", addr);
         return addr;
     }
@@ -49,7 +50,7 @@ static ptr_t find_signature_in_range(ptr_t addr, ptr_t end)
 
 ptr_t bios_find_rsdp()
 {
-    ptr_t ebda_address = *(volatile u16*)BDA_EBDA_POINTER;
+    u32 ebda_address = *(volatile u16*)BDA_EBDA_POINTER;
     ebda_address <<= 4;
 
     if (ebda_address != EXPECTED_EBDA_BASE)
