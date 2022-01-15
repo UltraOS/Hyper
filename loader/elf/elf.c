@@ -181,7 +181,7 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
 
     if (alloc_anywhere) {
         size_t pages = (info->virtual_ceiling - info->virtual_base) / PAGE_SIZE;
-        info->physical_base = (u64)allocate_critical_pages(pages);
+        info->physical_base = (u64)((ptr_t)allocate_critical_pages(pages));
         info->physical_ceiling = info->physical_base + (pages * PAGE_SIZE);
         info->physical_valid = true;
     }
@@ -228,7 +228,7 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
             if (end > (4ull * GB))
                 LOAD_ERROR("invalid load address");
 
-            load_base = (u64)allocate_critical_pages_with_type_at(begin, pages, MEMORY_TYPE_KERNEL_BINARY);
+            load_base = (u64)((ptr_t)allocate_critical_pages_with_type_at(begin, pages, MEMORY_TYPE_KERNEL_BINARY));
             load_base += addr - begin;
         }  else {
             load_base = info->physical_base + (hdr.virt_addr - info->virtual_base);
@@ -237,13 +237,13 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
         ph_file_data = data + hdr.fileoff;
 
         if (hdr.filesz) {
-            memcpy((void*)load_base, ph_file_data, hdr.filesz);
+            memcpy((void*)((ptr_t)load_base), ph_file_data, hdr.filesz);
             load_base += hdr.filesz;
         }
 
         bytes_to_zero = hdr.memsz - hdr.filesz;
         if (bytes_to_zero)
-            memzero(load_base, bytes_to_zero);
+            memzero((void*)((ptr_t)load_base), bytes_to_zero);
     }
 
     return true;
@@ -266,7 +266,7 @@ u8 elf_bitness(void *data, size_t size)
     }
 }
 
-bool load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load_result *res)
+bool elf_load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load_result *res)
 {
     struct Elf32_Ehdr *hdr = data;
     u8 bitness = elf_bitness(data, size);
@@ -278,7 +278,7 @@ bool load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load
         LOAD_ERROR("invalid load options");
 
     static unsigned char elf_magic[] = { ELFMAG0, ELFMAG1, ELFMAG2, ELFMAG3 };
-    if (!memcmp(data, elf_magic, sizeof(elf_magic)))
+    if (memcmp(data, elf_magic, sizeof(elf_magic)) != 0)
         LOAD_ERROR("invalid magic");
     if (hdr->e_ident[EI_DATA] != ELFDATA2LSB)
         LOAD_ERROR("not a little-endian file");

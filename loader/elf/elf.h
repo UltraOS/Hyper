@@ -20,6 +20,6 @@ struct load_result {
     const char *error_msg;
 };
 
-bool elf_load(u8 *file_data, size_t size, bool use_va, bool allocate_anywhere, struct load_result *res);
+bool elf_load(void *file_data, size_t size, bool use_va, bool allocate_anywhere, struct load_result *res);
 u8 elf_bitness(void *file_data, size_t size);
 
