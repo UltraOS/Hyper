@@ -46,7 +46,7 @@ bool sv_starts_with(struct string_view str, struct string_view prefix)
 
 ssize_t sv_find(struct string_view str, struct string_view needle, size_t starting_at)
 {
-    ssize_t i, j, k;
+    size_t i, j, k;
 
     BUG_ON(starting_at > str.size);
 
