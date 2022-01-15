@@ -53,9 +53,11 @@ struct fat32_file {
     u32 first_cluster;
     u32 range_count;
 
-    // Sorted in ascending order by file_offset_cluster.
-    // Each range at i spans ([i].file_offset_cluster -> [i + 1].file_offset_cluster - 1) clusters
-    // For last i the end is the last cluster of the file (inclusive).
+    /*
+     * Sorted in ascending order by file_offset_cluster.
+     * Each range at i spans (range[i].file_offset_cluster -> range[i + 1].file_offset_cluster - 1) clusters
+     * For last i the end is the last cluster of the file (inclusive).
+     */
     struct contiguous_file_range *ranges_extra;
     struct contiguous_file_range ranges[IN_PLACE_RANGE_CAPACITY];
 };
@@ -170,7 +172,7 @@ static bool ensure_fat_entry(struct fat32_filesystem *fs, u32 index)
         return false;
 
     first_block = fs->fat_lba_range.begin + ((index * sizeof(u32)) / fs->f.d.bytes_per_sector);
-    sectors_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_PAGES / d->bytes_per_sector);
+    sectors_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_PAGES / (size_t)d->bytes_per_sector);
     return srvc->read_blocks(d->handle, fs->fat_view, first_block, sectors_to_read);
 }
 
@@ -373,8 +375,10 @@ static size_t ucs2_to_ascii(const u8 *ucs2, size_t count, char **out)
 #define MAX_SEQUENCE_NUMBER 20
 #define MAX_NAME_LENGTH 255
 
-// Since you can have at max 20 chained long entries, the theoretical limit is 20 * 13 characters,
-// however, the actual allowed limit is 255, which would limit the 20th entry contribution to only 8 characters.
+/*
+ * Since you can have at max 20 chained long entries, the theoretical limit is 20 * 13 characters,
+ * however, the actual allowed limit is 255, which would limit the 20th entry contribution to only 8 characters.
+ */
 #define CHARS_FOR_LAST_LONG_ENTRY 8
 
 static bool directory_next_entry(struct fat32_directory *dir, struct fat_directory_record *out)
@@ -476,7 +480,7 @@ static bool directory_next_entry(struct fat32_directory *dir, struct fat_directo
             if (checksum_array[i] == checksum)
                 continue;
 
-            print_warn("Invalid FAT32 file checksum");
+            print_warn("Invalid FAT32 file checksum\n");
             return false;
         }
 
@@ -613,18 +617,17 @@ static void fat32_close(struct filesystem *base_fs, struct file *f)
     fat32_file_free(file);
 }
 
-struct filesystem *try_create_fat32(const struct disk *d, struct range lba_range, void *first_page)
+static bool is_fat32_fs(const struct disk *d, struct range lba_range, struct fat_ebpb *ebpb)
 {
     static const char fat32_signature[] = "FAT32   ";
-    struct fat_ebpb *ebpb = (char*)first_page + EBPB_OFFSET;
+
     u32 cluster_count;
-    struct fat32_filesystem *fs;
 
     if (ebpb->bytes_per_sector != d->bytes_per_sector)
         return NULL;
     if (ebpb->signature != EBPB_SIGNATURE)
         return NULL;
-    if (memcmp(ebpb->filesystem_type, fat32_signature, sizeof(fat32_signature) - 1))
+    if (memcmp(ebpb->filesystem_type, fat32_signature, sizeof(fat32_signature) - 1) != 0)
         return NULL;
     if (!ebpb->fat_count)
         return NULL;
@@ -638,11 +641,21 @@ struct filesystem *try_create_fat32(const struct disk *d, struct range lba_range
     cluster_count = range_length(&lba_range) / ebpb->sectors_per_cluster;
 
     if (cluster_count < MIN_CLUSTER_COUNT_FAT32)
+        return false;
+
+    return true;
+}
+
+struct filesystem *try_create_fat32(const struct disk *d, struct range lba_range, void *first_page)
+{
+    struct fat_ebpb *ebpb = first_page + EBPB_OFFSET;
+    struct fat32_filesystem *fs;
+
+    if (!is_fat32_fs(d, lba_range, ebpb))
         return NULL;
 
-    print("detected FAT32: %c fats, %c sectors/cluster, %u sectors/fat",
+    print("detected FAT32: %d fats, %d sectors/cluster, %u sectors/fat\n",
           ebpb->fat_count, ebpb->sectors_per_cluster, ebpb->sectors_per_fat);
-
 
     fs = allocate_bytes(sizeof(struct fat32_filesystem));
     if (!fs)
