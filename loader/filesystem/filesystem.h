@@ -17,8 +17,8 @@ static inline int guid_compare(const struct guid *lhs, const struct guid *rhs)
     return memcmp(lhs, rhs, sizeof(*rhs));
 }
 
-static struct disk_services *filesystem_set_backend(struct disk_services*);
-static struct disk_services *filesystem_backend();
+struct disk_services *filesystem_set_backend(struct disk_services*);
+struct disk_services *filesystem_backend();
 
 enum disk_identifier {
     DISK_IDENTIFIER_INVALID,
