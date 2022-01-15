@@ -9,9 +9,10 @@ struct string_view {
     size_t size;
 };
 
+#define SV_CONSTEXPR(str) (struct string_view) { str, sizeof(str) - 1 }
 #define SV(str)                                     \
     __builtin_constant_p(str) ?                     \
-    (struct string_view) { str, sizeof(str) - 1 } : \
+    SV_CONSTEXPR(str) :                             \
     (struct string_view) { str, strlen(str) }
 
 bool sv_equals(struct string_view lhs, struct string_view rhs);
