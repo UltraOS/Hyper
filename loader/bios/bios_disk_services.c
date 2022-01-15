@@ -4,6 +4,9 @@
 #include "common/string.h"
 #include "common/minmax.h"
 
+#undef MSG_FMT
+#define MSG_FMT(msg) "BIOS-IO: " msg
+
 #define DISK_BUFFER_CAPACITY 128
 static struct disk g_disks_buffer[DISK_BUFFER_CAPACITY];
 static size_t g_disk_count = 0;
