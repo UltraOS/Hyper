@@ -15,7 +15,7 @@ void range_align_start(struct range *range, size_t alignment)
 
 void range_align_length(struct range *range, size_t alignment)
 {
-    range_set_length(range, range_length(range) & (alignment - 1));
+    range_set_length(range, range_length(range) & ~(alignment - 1));
 }
 
 void range_align(struct range *range, size_t alignment)
