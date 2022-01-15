@@ -27,7 +27,7 @@ struct platform_info_attribute {
     uint16_t loader_minor;
     char loader_name[32];
 
-    u64 acpi_rsdp_address;
+    uint64_t acpi_rsdp_address;
 };
 
 #define PARTITION_TYPE_RAW 1
@@ -44,19 +44,19 @@ struct ultra_guid {
 struct kernel_info_attribute {
     struct attribute_header header;
 
-    u64 physical_base;
-    u64 virtual_base;
-    u64 range_length;
+    uint64_t physical_base;
+    uint64_t virtual_base;
+    uint64_t range_length;
 
-    u64 partition_type;
+    uint64_t partition_type;
 
     // only valid if partition_type == PARTITION_TYPE_GPT
     struct ultra_guid disk_guid;
     struct ultra_guid partition_guid;
 
     // always valid
-    u32 disk_index;
-    u32 partition_index;
+    uint32_t disk_index;
+    uint32_t partition_index;
 
     char path_on_disk[256];
 };
@@ -112,7 +112,7 @@ struct framebuffer {
 
 struct framebuffer_attribute {
     struct attribute_header header;
-    struct framebuffer framebuffer;
+    struct framebuffer fb;
 };
 
 struct boot_context {
