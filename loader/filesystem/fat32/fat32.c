@@ -6,6 +6,9 @@
 #include "common/ctype.h"
 #include "allocator.h"
 
+#undef MSG_FMT
+#define MSG_FMT(msg) "FAT32: " msg
+
 #define EBPB_OFFSET 0x0B
 #define EBPB_SIGNATURE 0x29
 
@@ -424,7 +427,6 @@ static bool directory_next_entry(struct fat32_directory *dir, struct fat_directo
 
         long_entry = (struct long_name_fat_directory_entry*)&normal_entry;
 
-
         initial_sequence_number = long_entry->sequence_number & SEQUENCE_NUM_BIT_MASK;
         sequence_number = initial_sequence_number;
         if (!(long_entry->sequence_number & LAST_LOGICAL_ENTRY_BIT))
@@ -608,6 +610,7 @@ static void fat32_file_free(struct fat32_file *file)
 
 static void fat32_close(struct filesystem *base_fs, struct file *f)
 {
+    (void)base_fs;
     struct fat32_file *file = container_of(f, struct fat32_file, f);
     struct fat32_filesystem *fs = container_of(file->f.fs, struct fat32_filesystem, f);
 
@@ -654,8 +657,8 @@ struct filesystem *try_create_fat32(const struct disk *d, struct range lba_range
     if (!is_fat32_fs(d, lba_range, ebpb))
         return NULL;
 
-    print("detected FAT32: %d fats, %d sectors/cluster, %u sectors/fat\n",
-          ebpb->fat_count, ebpb->sectors_per_cluster, ebpb->sectors_per_fat);
+    print_info("detected with %d fats, %d sectors/cluster, %u sectors/fat\n",
+               ebpb->fat_count, ebpb->sectors_per_cluster, ebpb->sectors_per_fat);
 
     fs = allocate_bytes(sizeof(struct fat32_filesystem));
     if (!fs)
