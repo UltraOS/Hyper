@@ -1,6 +1,6 @@
-#include "CPU.h"
+#include "cpuid.h"
 
-void cpuid(u32 function, struct CPUID *id)
+void cpuid(u32 function, struct cpuid_res *id)
 {
     asm volatile("cpuid"
         : "=a"(id->a), "=b"(id->b), "=c"(id->c), "=d"(id->d)
@@ -13,7 +13,7 @@ void cpuid(u32 function, struct CPUID *id)
 
 bool cpu_supports_long_mode()
 {
-    struct CPUID id = { 0 };
+    struct cpuid_res id = { 0 };
 
     cpuid(HIGHEST_IMPLEMENTED_FUNCTION_NUMBER, &id);
     if (id.a < EXTENDED_PROCESSOR_INFO_FUNCTION_NUMBER)
