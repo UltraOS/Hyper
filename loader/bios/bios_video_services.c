@@ -3,6 +3,9 @@
 #include "common/log.h"
 #include "common/string.h"
 
+#undef MSG_FMT
+#define MSG_FMT(msg) "BIOS-VBE: " msg
+
 struct PACKED super_vga_info {
     u32 signature; // 'VBE2' request -> 'VESA' response
     u16 vesa_version;
@@ -176,8 +179,8 @@ static void initialize_legacy_tty()
 
     // Disable cursor, https://stanislavs.org/helppc/int_10-1.html
     regs = (struct real_mode_regs) {
-        regs.eax = 0x0100,
-        regs.ecx = 0x2000
+       .eax = 0x0100,
+       .ecx = 0x2000
     };
     bios_call(0x10, &regs, &regs);
 
@@ -220,6 +223,9 @@ static void tty_scroll()
 
 static bool tty_write(const char *text, size_t count, enum color col)
 {
+    for (size_t i = 0; i < count; ++i)
+        asm volatile("outb %0, %1" ::"a"(text[i]), "Nd"(0xE9));
+
     volatile u16 *vga_memory = (volatile u16*)VGA_ADDRESS;
     bool no_write;
     char c;
@@ -261,34 +267,34 @@ static bool tty_write(const char *text, size_t count, enum color col)
     return true;
 }
 
-static bool check_vbe_call(const struct real_mode_regs *regs)
+static bool check_vbe_call(u32 call_number, const struct real_mode_regs *regs)
 {
     u32 al = regs->eax & 0xFF;
     u32 ah = (regs->eax >> 8) & 0xFF;
 
     if (al != 0x4F || ah) {
-        print_warn("VBE call failed (ret=%u)", regs->eax);
+        print_warn("VBE call 0x%X failed (ret=%u)\n", call_number, regs->eax);
         return false;
     }
 
     return true;
 }
 
-static bool fetch_mode_info(u16 id, struct mode_information* mode_info)
+static bool fetch_mode_info(u16 id, struct mode_information *mode_info)
 {
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0274.htm
     struct real_mode_addr rm_addr;
     struct real_mode_regs regs = {
         .eax = 0x4F01,
-        .ecx = id,
-        .edi = rm_addr.offset,
-        .es = rm_addr.segment
+        .ecx = id
     };
-    memzero(mode_info, sizeof(*mode_info));
+
     as_real_mode_addr((u32)mode_info, &rm_addr);
+    regs.edi = rm_addr.offset;
+    regs.es = rm_addr.segment;
 
     bios_call(0x10, &regs, &regs);
-    return check_vbe_call(&regs);
+    return check_vbe_call(0x4F01, &regs);
 }
 
 // Apparently these are big endian strings
@@ -300,20 +306,20 @@ static bool fetch_vga_info(struct super_vga_info* vga_info)
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0273.htm
     struct real_mode_addr rm_addr;
     struct real_mode_regs regs = {
-        .eax = 0x4F00,
-        .edi = rm_addr.offset,
-        .es = rm_addr.segment
+        .eax = 0x4F00
     };
     vga_info->signature = ASCII_VBE2;
     as_real_mode_addr((u32)vga_info, &rm_addr);
+    regs.edi = rm_addr.offset;
+    regs.es = rm_addr.segment;
 
     bios_call(0x10, &regs, &regs);
 
-    if (!check_vbe_call(&regs))
+    if (!check_vbe_call(0x4F00, &regs))
         return false;
 
     if (vga_info->signature != ASCII_VESA) {
-        print_warn("VESA signature mismatch: got 0x%X vs 0x41534556\nk", vga_info->signature);
+        print_warn("VESA signature mismatch: got 0x%08X vs 0x41534556\n", vga_info->signature);
         return false;
     }
 
@@ -353,7 +359,7 @@ static bool validate_video_mode(struct mode_information *m, bool use_linear)
 static void fetch_all_video_modes()
 {
     struct super_vga_info vga_info = { 0 };
-    struct mode_information info = { 0 };
+    struct mode_information info;
     const char *oem_string;
     u8 vesa_major, vesa_minor;
     volatile u16 *video_modes_list;
@@ -365,15 +371,17 @@ static void fetch_all_video_modes()
     vesa_minor = vga_info.vesa_version & 0xFF;
     oem_string = from_real_mode_addr(vga_info.oem_name_segment, vga_info.oem_name_offset);
 
-    print_info("VESA version %c.%c\n", vesa_major, vesa_minor);
+    print_info("VESA version %u.%u\n", vesa_major, vesa_minor);
     print_info("OEM name \"%s\"\n", oem_string);
 
-    video_modes_list = from_real_mode_addr(vga_info.supported_modes_list_segment, vga_info.supported_modes_list_offset);
+    video_modes_list = from_real_mode_addr(vga_info.supported_modes_list_segment,
+                                           vga_info.supported_modes_list_offset);
 
     while (*video_modes_list != 0xFFFF) {
         u16 mode_id = *video_modes_list++;
         u32 buffer_idx;
 
+        memzero(&info, sizeof(info));
         if (!fetch_mode_info(mode_id, &info))
             return;
 
@@ -398,9 +406,10 @@ static void fetch_all_video_modes()
 void fetch_native_resolution()
 {
     struct edid e = { 0 };
-    u8* e_bytes = (u8*)&e;
-    struct timing_descriptor* td;
+    u8 *e_bytes = (u8*)&e;
+    struct timing_descriptor *td;
     u8 edid_checksum = 0;
+    size_t i;
 
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0308.htm
     struct real_mode_regs regs = {
@@ -410,12 +419,12 @@ void fetch_native_resolution()
     };
     bios_call(0x10, &regs, &regs);
 
-    if (!check_vbe_call(&regs)) {
+    if (!check_vbe_call(0x4F15, &regs)) {
         print_warn("read EDID call unsupported\n");
         return;
     }
 
-    for (size_t i = 0; i < sizeof(struct edid); ++i)
+    for (i = 0; i < sizeof(struct edid); ++i)
         edid_checksum += e_bytes[i];
 
     if (edid_checksum != 0) {
@@ -430,6 +439,8 @@ void fetch_native_resolution()
 
     g_native_width = td->horizontal_active_pixels_lo;
     g_native_width |= td->horizontal_active_pixels_hi << 8;
+
+    print_info("detected native resoultion %zux%zu\n", g_native_width, g_native_height);
 }
 
 static struct video_mode *list_modes(size_t *count)
@@ -458,10 +469,10 @@ static bool do_set_mode(u16 id)
         .ebx = id | LINEAR_FRAMEBUFFER_BIT
     };
 
-    print_info("setting video mode %hu", id);
+    print_info("setting video mode %hu\n", id);
     bios_call(0x10, &regs, &regs);
 
-    return check_vbe_call(&regs);
+    return check_vbe_call(0x4F02, &regs);
 }
 
 static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
@@ -485,7 +496,7 @@ static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
         out_framebuffer->format = FORMAT_RGBA;
     } else {
         out_framebuffer->format = FORMAT_INVALID;
-        print_warn("Set video mode with unsupported format (%c bpp)", info.bits_per_pixel);
+        print_warn("Set video mode with unsupported format (%d bpp)\n", info.bits_per_pixel);
     }
 
     g_legacy_tty_available = false;
@@ -510,6 +521,8 @@ struct video_services *video_services_init()
         fetch_all_video_modes();
         fetch_native_resolution();
     }
+
+    return &bios_video_services;
 }
 
 
