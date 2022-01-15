@@ -18,3 +18,5 @@
 #define container_of(ptr, type, member) DO_CONTAINER_OF(ptr, UNIQUE(uptr), type, member)
 
 #define CEILING_DIVIDE(x, y) (!!(x) + (((x) - !!(x)) / (y)))
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
