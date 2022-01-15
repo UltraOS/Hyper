@@ -7,7 +7,9 @@ static inline int vscnprintf(char *restrict buffer, size_t capacity, const char 
 {
     int would_have_been_written = vsnprintf(buffer, capacity, fmt, vlist);
 
-    if (would_have_been_written < capacity)
+    if (would_have_been_written < 0)
+        return would_have_been_written;
+    if ((size_t)would_have_been_written < capacity)
         return would_have_been_written;
 
     return capacity ? capacity - 1 : 0;
