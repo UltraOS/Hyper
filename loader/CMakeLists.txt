@@ -6,13 +6,11 @@ project(Loader)
 enable_language(ASM_NASM)
 enable_language(C)
 
-if (PLATFORM MATCHES "BIOS")
+if (PLATFORM MATCHES "bios")
     set(CMAKE_ASM_NASM_FLAGS "-felf32")
-    set(PLATFORM_FOLDER "bios")
     set(EXECUTABLE_NAME "hyper")
-elseif (PLATFORM MATCHES "UEFI")
+elseif (PLATFORM MATCHES "uefi")
     set(CMAKE_ASM_NASM_FLAGS "-fwin64")
-    set(PLATFORM_FOLDER "UEFI")
     set(ADDITIONAL_FLAGS "-fno-stack-protector")
     set(EXECUTABLE_NAME "BOOTX64.EFI")
 else ()
@@ -40,9 +38,9 @@ FILE(GLOB C_FILES "${PROJECT_SOURCE_DIR}/*c"                    "${PROJECT_SOURC
                   "${PROJECT_SOURCE_DIR}/filesystem/*c"         "${PROJECT_SOURCE_DIR}/filesystem/*h"
                   "${PROJECT_SOURCE_DIR}/filesystem/FAT32/*c"   "${PROJECT_SOURCE_DIR}/filesystem/fat32/*h"
                   "${PROJECT_SOURCE_DIR}/protocols/*c"          "${PROJECT_SOURCE_DIR}/protocols/*h"
-                  "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*c" "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*h")
+                  "${PROJECT_SOURCE_DIR}/${PLATFORM}/*c"        "${PROJECT_SOURCE_DIR}/${PLATFORM}/*h")
 
-FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/*asm")
+FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM}/*asm")
 
 set(LOADER_SOURCES ${C_FILES} ${ASM_FILES})
 
@@ -50,8 +48,8 @@ add_executable(${EXECUTABLE_NAME} ${LOADER_SOURCES})
 
 target_include_directories(${EXECUTABLE_NAME} PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/..)
 
-if (PLATFORM MATCHES "BIOS")
-    set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-T ${PROJECT_SOURCE_DIR}/${PLATFORM_FOLDER}/linker.ld -Wl,--oformat,binary")
+if (PLATFORM MATCHES "bios")
+    set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-T ${PROJECT_SOURCE_DIR}/${PLATFORM}/linker.ld -Wl,--oformat,binary")
     target_link_libraries(${EXECUTABLE_NAME} gcc)
 else ()
     set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-Wl,-dll -Wl,--subsystem,10 -e EfiMain -s -Wl,-Bsymbolic -shared")

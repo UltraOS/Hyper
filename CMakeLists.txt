@@ -1,18 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
 
+string(TOLOWER ${PLATFORM} PLATFORM)
+
 if (NOT PLATFORM)
-    set(PLATFORM "BIOS")
-elseif ((NOT PLATFORM MATCHES "BIOS") AND (NOT PLATFORM MATCHES "UEFI"))
+    set(PLATFORM "bios")
+elseif ((NOT PLATFORM MATCHES "bios") AND (NOT PLATFORM MATCHES "uefi"))
     message(FATAL_ERROR "Unknown platform ${PLATFORM}")
 endif ()
 
-if (PLATFORM MATCHES "UEFI")
+if (PLATFORM MATCHES "uefi")
     set(COMPILER_PREFIX "mingw64")
 else ()
     set(COMPILER_PREFIX "i686-elf")
 endif ()
-
-string(TOLOWER ${PLATFORM} PLATFORM_FOLDER)
 
 if (NOT WIN32)
     execute_process(
@@ -26,7 +26,7 @@ if (NOT WIN32)
     # dirty hack because it tries to compile with -lc and crt0.o
     set(CMAKE_C_COMPILER_WORKS 1)
 
-    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${PLATFORM_FOLDER})
+    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${PLATFORM})
     set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
     set(PATH_TO_FILT "${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-c++filt")
     set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-)
@@ -45,7 +45,7 @@ project(Hyper C ASM)
 
 set(ENV{HYPER_PLATFORM} ${PLATFORM})
 
-if (PLATFORM MATCHES "BIOS")
+if (PLATFORM MATCHES "bios")
     add_subdirectory(bios)
 endif ()
 

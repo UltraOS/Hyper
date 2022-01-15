@@ -22,18 +22,13 @@ on_error()
     exit 1
 }
 
-platform="bios"
+platform=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+platform=${platform:-"bios"}
 
-if [ "$1" ]
-  then
-    if [ $1 == "BIOS" ]; then
-      platform="bios"
-    elif [ $1 = "UEFI" ]; then
-      platform="uefi"
-    else
+if [ $platform != "bios" ] && [ $platform != "uefi" ]
+then
       echo "Unknown platform $1"
       on_error
-    fi
 fi
 
 compiler_prefix="i686-elf"
@@ -52,8 +47,30 @@ else
   echo "Building the cross-compiler for $compiler_prefix ($platform)..."
 fi
 
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  sudo apt update
+if [[ "$OSTYPE" == "linux-gnu"* ]]
+then
+  declare -A package_managers;
+  package_managers[/etc/arch-release]="pacman"
+  package_managers[/etc/debian_version]="apt"
+
+  for f in ${!package_managers[@]}
+  do
+      if [[ -f $f ]];
+      then
+          package_manager=${package_managers[$f]}
+      fi
+  done
+
+  if [ -z "$package_manager" ]
+  then
+    echo "Unknown package manager"
+    on_error
+  fi
+
+  if [ $package_manager == "apt" ]
+  then
+    sudo apt update
+  fi
 
   declare -a dependencies=(
               "bison"
@@ -65,7 +82,8 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
               "libisl-dev"
               "build-essential"
           )
-elif [[ "$OSTYPE" == "darwin"* ]]; then
+elif [[ "$OSTYPE" == "darwin"* ]]
+then
   declare -a dependencies=(
               "bison"
               "flex"
@@ -81,24 +99,37 @@ fi
 
 for dependency in "${dependencies[@]}"
 do
-   echo -n $dependency
-   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-      is_dependency_installed=$(dpkg-query -l | grep $dependency)
-   elif [[ "$OSTYPE" == "darwin"* ]]; then
-      is_dependency_installed=$(brew list $dependency)
-   fi
-
-   if [ -z "$is_dependency_installed" ]
+  echo -n $dependency
+  if [[ "$OSTYPE" == "linux-gnu"* ]]
+  then
+    if [ $package_manager == "apt" ]
     then
-      echo " - not installed"
-      if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        sudo apt install -y $dependency || on_error
-      elif [[ "$OSTYPE" == "darwin"* ]]; then
-        brew install $dependency || on_error
-      fi
+      is_dependency_installed=$(dpkg-query -l | grep $dependency)
     else
-      echo " - installed"
+      is_dependency_installed=$(sudo pacman -Qs --color always "$dependency" | grep "local" | grep "$dependency ")
     fi
+  elif [[ "$OSTYPE" == "darwin"* ]]
+  then
+    is_dependency_installed=$(brew list $dependency)
+  fi
+
+  if [ -z "$is_dependency_installed" ]
+  then
+    echo " - not installed"
+    if [[ "$OSTYPE" == "linux-gnu"* ]]
+    then
+      if [package_manager == "apt"]
+      then
+        sudo apt install -y $dependency || on_error
+      else
+        sudo pacman -Sy $dependency || on_error
+      fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+      brew install $dependency || on_error
+    fi
+  else
+    echo " - installed"
+  fi
 done
 
 gcc_version="gcc-11.2.0"
@@ -188,7 +219,7 @@ fi
 make all-gcc               -j$cores || on_error
 make install-gcc                    || on_error
 
-if [ $platform = "BIOS" ]
+if [ $platform = "bios" ]
 then
   make all-target-libgcc     -j$cores || on_error
   make install-target-libgcc          || on_error

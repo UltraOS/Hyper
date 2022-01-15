@@ -21,18 +21,13 @@ on_error()
     exit 1
 }
 
-platform="bios"
+platform=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+platform=${platform:-"bios"}
 
-if [ "$1" ]
-  then
-    if [ $1 == "BIOS" ]; then
-      platform="bios"
-    elif [ $1 = "UEFI" ]; then
-      platform="uefi"
-    else
+if [ $platform != "bios" ] && [ $platform != "uefi" ]
+then
       echo "Unknown platform $1"
       on_error
-    fi
 fi
 
 pushd $true_path
