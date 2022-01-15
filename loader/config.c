@@ -202,7 +202,8 @@ bool config_emplace_entry(struct config *cfg, struct config_entry *entry, size_t
         if (!new_buffer)
             return false;
 
-        memcpy(new_buffer, cfg->buffer, sizeof(struct config_entry) * cfg->size);
+        if (cfg->size)
+            memcpy(new_buffer, cfg->buffer, sizeof(struct config_entry) * cfg->size);
         free_bytes(cfg->buffer, old_capacity * sizeof(struct config_entry));
         cfg->buffer = new_buffer;
     }
@@ -210,7 +211,7 @@ bool config_emplace_entry(struct config *cfg, struct config_entry *entry, size_t
     *offset = cfg->size++;
 
     if (entry->t == CONFIG_ENTRY_VALUE)
-        entry->as_value.offset_within_config = *offset;
+        entry->as_value.cfg_off = *offset;
 
     cfg->buffer[*offset] = *entry;
     return true;
@@ -225,7 +226,7 @@ static bool finalize_key_value(struct config *cfg, struct parse_state *s, bool i
     if (is_object) {
         s->current.as_value = (struct value) {
             .type = VALUE_OBJECT,
-            .offset_within_config = 0
+            .cfg_off = 0
         };
     } else {
         value_from_state(s, &s->current.as_value);
@@ -297,7 +298,7 @@ static void consume_character(struct parse_state *s, const char* c)
     s->consumed_at_least_one = true;
 }
 
-bool config_parse(struct string_view text, struct config *cfg)
+bool cfg_parse(struct string_view text, struct config *cfg)
 {
     struct parse_state *s = allocate_bytes(sizeof(struct parse_state));
     if (!s) {
@@ -565,7 +566,7 @@ bool config_parse(struct string_view text, struct config *cfg)
 
 #define LINE_DELIMETER " | "
 
-void config_pretty_print_error(const struct config_error *err, struct string_view config_as_view)
+void cfg_pretty_print_error(const struct config_error *err, struct string_view config_as_view)
 {
     size_t first_char_of_line;
     ssize_t newline_loc;
@@ -575,7 +576,7 @@ void config_pretty_print_error(const struct config_error *err, struct string_vie
     if (sv_empty(err->message))
         return;
 
-    print_err("Failed to parse config, error at line %zu", err->line);
+    print_err("Failed to parse config, error at line %zu\n", err->line);
 
     first_char_of_line = err->global_offset - err->offset;
     sv_offset_by(&config_as_view, first_char_of_line);
@@ -586,17 +587,17 @@ void config_pretty_print_error(const struct config_error *err, struct string_vie
 
     len = snprintf(line_as_string, sizeof(line_as_string), "%zu", err->line);
 
-    print("%s%s%v", line_as_string, LINE_DELIMETER, config_as_view);
+    print_err("%s%s%pSV\n", line_as_string, LINE_DELIMETER, &config_as_view);
 
     for (size_t i = 0; i < len; ++i)
-        print(" ");
+        print_err(" ");
 
-    print(LINE_DELIMETER);
+    print_err(LINE_DELIMETER);
 
     for (size_t i = 1; i < err->offset; ++i)
-        print(" ");
+        print_err(" ");
 
-    print_err("^--- %v\n", err->message);
+    print_err("^--- %pSV\n", &err->message);
 }
 
 struct find_result {
@@ -615,7 +616,7 @@ static void config_find(struct config *cfg, size_t offset, struct string_view ke
         struct config_entry *entry = &cfg->buffer[offset];
 
         if (entry->t != CONFIG_ENTRY_VALUE)
-            continue;
+            break;
 
         if (sv_equals(entry->key, key)) {
             res->last_occurence = offset;
@@ -636,186 +637,246 @@ static void config_find(struct config *cfg, size_t offset, struct string_view ke
     }
 }
 
-static void config_get_typed_entry_at_offset(struct config *cfg, enum config_entry_type expected_type,
-                                             size_t offset, struct config_entry **out)
+static void cfg_get_typed_entry_at_offset(struct config *cfg, enum config_entry_type expected_type,
+                                          size_t offset, struct config_entry **out)
 {
     BUG_ON(!offset || offset > cfg->size);
-    *out = &cfg->buffer[offset - 1];
+    *out = &cfg->buffer[offset];
     BUG_ON((*out)->t != expected_type);
 }
 
-static void config_get_value_at_offset(struct config *cfg, size_t offset, struct config_entry **out)
+static void cfg_get_value_at_offset(struct config *cfg, size_t offset, struct config_entry **out)
 {
-    config_get_typed_entry_at_offset(cfg, CONFIG_ENTRY_VALUE, offset, out);
+    cfg_get_typed_entry_at_offset(cfg, CONFIG_ENTRY_VALUE, offset, out);
 }
 
-static void config_get_loadable_entry_at_offset(struct config *cfg, size_t offset, struct config_entry **out)
+static void cfg_get_loadable_entry_at_offset(struct config *cfg, size_t offset, struct config_entry **out)
 {
-    config_get_typed_entry_at_offset(cfg, CONFIG_ENTRY_LOADABLE_ENTRY, offset, out);
+    cfg_get_typed_entry_at_offset(cfg, CONFIG_ENTRY_LOADABLE_ENTRY, offset, out);
 }
 
-static bool config_get_starting_at_offset(struct config *cfg, size_t offset, struct string_view key,
-                                          bool must_be_unique, struct value *val)
+bool cfg_get_loadable_entry(struct config *cfg, struct string_view key, struct loadable_entry *val)
 {
-    struct find_result res;
-    config_find(cfg, offset, key, must_be_unique ? 2 : 1, &res);
-
-    if (res.count == 0)
+    size_t offset = cfg->first_loadable_entry_offset;
+    if (!offset--)
         return false;
 
-    if (res.count > 1)
-        panic("Invalid config: key %v must be unique!", key);
+    for (;;) {
+        struct config_entry *e;
+        cfg_get_loadable_entry_at_offset(cfg, offset, &e);
 
-    *val = cfg->buffer[res.first_occurence].as_value;
-    return true;
+        if (sv_equals(e->key, key)) {
+            val->cfg_off = offset;
+            val->name = e->key;
+            return true;
+        }
+
+        if (e->as_offset_to_next_loadable_entry == 0)
+            return false;
+
+        offset += e->as_offset_to_next_loadable_entry;
+    }
 }
 
-bool config_get_global(struct config *cfg, struct string_view key, bool must_be_unique, struct value *val)
+bool cfg_first_loadable_entry(struct config* cfg, struct loadable_entry *entry)
 {
-    return config_get_starting_at_offset(cfg, 0, key, must_be_unique, val);
-}
+    //print("first le %zu\n", cfg->first_loadable_entry_offset);
+    //print("cfg dump\n");
+    //for (size_t i = 0; i < cfg->size; ++i)
+    //    print("off: %zu key: %pSV type: %d", i, &cfg->buffer[i].key, cfg->buffer[i].t);
 
-bool value_get_child(struct config *cfg, struct value *val, struct string_view key,
-                     bool must_be_unique, struct value *out)
-{
-    return config_get_starting_at_offset(cfg, val->offset_within_config, key, must_be_unique, out);
-}
-
-bool loadable_entry_get_child(struct config *cfg, struct loadable_entry *entry, struct string_view key,
-                              struct value *out, bool must_be_unique)
-{
-    return config_get_starting_at_offset(cfg, entry->offset_within_config, key, must_be_unique, out);
-}
-
-static void first_child_at_offset(struct config *cfg, size_t offset, struct key_value *out)
-{
-    struct config_entry *entry;
-    BUG_ON((offset + 1) >= cfg->size);
-
-    entry = &cfg->buffer[offset + 1];
-    BUG_ON(entry->t != CONFIG_ENTRY_VALUE);
-
-    out->key = entry->key;
-    out->val = entry->as_value;
-}
-
-void value_get_first_child(struct config *cfg, struct value *val, struct key_value *out)
-{
-    first_child_at_offset(cfg, val->offset_within_config, out);
-}
-
-void loadable_entry_get_first_child(struct config *cfg, struct loadable_entry *entry, struct value *out)
-{
-    first_child_at_offset(cfg, entry->offset_within_config, out);
-}
-
-bool config_contains_global(struct config *cfg, struct string_view key)
-{
-    struct find_result res;
-    config_find(cfg, 0, key, 1, &res);
-
-    return res.count > 0;
-}
-
-bool config_value_contains_child(struct config *cfg, struct value *val, struct string_view key)
-{
-    struct find_result res;
-    config_find(cfg, val->offset_within_config, key, 1, &res);
-
-    return res.count > 0;
-}
-
-bool loadable_entry_contains_child(struct config *cfg, struct loadable_entry *entry, struct string_view key)
-{
-    struct find_result res;
-    config_find(cfg, entry->offset_within_config, key, 1, &res);
-
-    return res.count > 0;
-}
-
-bool config_first_loadable_entry(struct config* cfg, struct loadable_entry *entry)
-{
     if (cfg->first_loadable_entry_offset == 0)
         return false;
 
-    entry->offset_within_config = cfg->first_loadable_entry_offset - 1;
-    entry->name = cfg->buffer[entry->offset_within_config].key;
+    entry->cfg_off = cfg->first_loadable_entry_offset - 1;
+    entry->name = cfg->buffer[entry->cfg_off].key;
     return true;
 }
 
-bool config_next_loadable_entry(struct config *cfg, struct loadable_entry *entry)
+static bool is_type_set(enum value_type value, enum value_type type)
 {
-    struct config_entry *ce;
-    config_get_loadable_entry_at_offset(cfg, entry->offset_within_config, &ce);
-
-    if (ce->as_offset_to_next_loadable_entry == 0)
-        return false;
-
-    entry->offset_within_config = entry->offset_within_config + ce->as_offset_to_next_loadable_entry;
-    entry->name = cfg->buffer[entry->offset_within_config].key;
+    return (value & type) == type;
 }
 
-static bool config_get_next_entry(struct config *cfg, size_t entry_offset, struct config_entry **entry, struct string_view *key)
+static bool is_one_of_types(enum value_type mask, enum value_type type)
 {
-    for (;;) {
-        if ((*entry)->offset_to_next_within_same_scope == 0)
-            return false;
+    return is_type_set(mask, VALUE_ANY) || is_type_set(mask, type);
+}
 
-        entry_offset += (*entry)->offset_to_next_within_same_scope;
-        *entry = &cfg->buffer[entry_offset];
+NORETURN
+static void oops_on_non_unique_key(struct string_view key)
+{
+    oops("expected key %pSV to be unique!", &key);
+}
 
-        if (!key || !sv_equals((*entry)->key, *key))
+NORETURN
+static void oops_on_unexpected_type(struct string_view key, enum value_type expected_mask, enum value_type got)
+{
+    struct string_view tstr_expected, tstr_got = value_type_as_str(got);
+
+    size_t types = __builtin_popcount(expected_mask);
+    size_t bit;
+
+    if (types == 1) {
+        tstr_expected = value_type_as_str(expected_mask);
+
+        oops("unexpected type for \"%pSV\"! expected: %pSV, got: %pSV\n",
+             &key, &tstr_expected, &tstr_got);
+    }
+
+    print_err("Oops!\nunexpected type for \"%pSV\"! expected one of: [", &key);
+
+    for (bit = 1; bit < VALUE_ANY; bit <<= 1) {
+        if (!is_type_set(expected_mask, bit))
             continue;
 
+        tstr_expected = value_type_as_str(bit);
+        print_err("%pSV", &tstr_expected);
+        if (--types == 0)
+            break;
+
+        print_err(", ");
+    }
+
+    print_err("] got: %pSV\n", &tstr_got);
+    for (;;);
+}
+
+static bool cfg_get_next_entry(struct config *cfg, size_t entry_offset, struct config_entry *this_entry,
+                               struct config_entry **out_entry, struct string_view *key)
+{
+    for (;;) {
+        if (this_entry->offset_to_next_within_same_scope == 0)
+            return false;
+
+        entry_offset += this_entry->offset_to_next_within_same_scope;
+        this_entry = &cfg->buffer[entry_offset];
+
+        if (key && !sv_equals(this_entry->key, *key))
+            continue;
+
+        *out_entry = this_entry;
         return true;
     }
 }
 
-bool config_next(struct config *cfg, struct key_value *out)
+bool cfg_get_next(struct config *cfg, struct value *val, bool oops_on_non_matching_type)
 {
     struct config_entry *entry;
-    size_t offset = out->val.offset_within_config;
-    config_get_value_at_offset(cfg, offset, &entry);
+    enum value_type expected_type;
+
+    cfg_get_value_at_offset(cfg, val->cfg_off, &entry);
+    expected_type = entry->as_value.type;
 
     for (;;) {
-        if (!config_get_next_entry(cfg, offset, &entry, NULL))
+        if (!cfg_get_next_entry(cfg, val->cfg_off, entry, &entry, &entry->key))
             return false;
 
-        if (entry->t == CONFIG_ENTRY_LOADABLE_ENTRY)
+        if (expected_type != entry->as_value.type) {
+            if (oops_on_non_matching_type)
+                oops_on_unexpected_type(entry->key, expected_type, entry->as_value.type);
             continue;
-
-        out->key = entry->key;
-        out->val = entry->as_value;
-        return true;
+        }
     }
+
+    *val = entry->as_value;
+    return true;
 }
 
-bool config_next_value_of_key(struct config *cfg, struct string_view key, struct value *out)
+bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool oops_on_non_matching_type)
 {
     struct config_entry *entry;
-    size_t offset = out->offset_within_config;
-    config_get_value_at_offset(cfg, offset, &entry);
+    cfg_get_value_at_offset(cfg, val->cfg_off, &entry);
 
     for (;;) {
-        if (!config_get_next_entry(cfg, offset, &entry, NULL))
+        if (!cfg_get_next_entry(cfg, val->cfg_off, entry, &entry, &entry->key))
             return false;
 
-        if (entry->t == CONFIG_ENTRY_LOADABLE_ENTRY)
+        if (!is_type_set(entry->as_value.type, mask)) {
+            if (oops_on_non_matching_type)
+                oops_on_unexpected_type(entry->key, mask, entry->as_value.type);
             continue;
-
-        *out = entry->as_value;
-        return true;
+        }
     }
+
+    *val = entry->as_value;
+    return true;
 }
 
-bool config_last_value_of_key(struct config *cfg, struct string_view key, struct value *out)
+static bool cfg_find_and_extract(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key,
+                                 enum value_type type_mask, struct value *val)
 {
     struct find_result res;
-    config_find(cfg, out->offset_within_config + 1, key, 0, &res);
+    struct config_entry *entry;
+    config_find(cfg, offset + 1, key, 2, &res);
+
+    if (res.count > 1 && must_be_unique)
+        oops_on_non_unique_key(key);
 
     if (res.count == 0)
         return false;
 
-    *out = cfg->buffer[res.last_occurence].as_value;
+    cfg_get_value_at_offset(cfg, res.first_occurence, &entry);
+    if (!is_one_of_types(type_mask, entry->as_value.type))
+        oops_on_unexpected_type(key, type_mask, entry->as_value.type);
+
+    *val = entry->as_value;
     return true;
+}
+
+bool _cfg_get_bool(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, bool *out)
+{
+    struct value val;
+    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_BOOLEAN, &val))
+        return false;
+
+    *out = val.as_bool;
+    return true;
+}
+
+bool _cfg_get_unsigned(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, u64 *out)
+{
+    struct value val;
+    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_UNSIGNED, &val))
+        return false;
+
+    *out = val.as_unsigned;
+    return true;
+}
+
+bool _cfg_get_signed(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, i64 *out)
+{
+    struct value val;
+    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_SIGNED, &val))
+        return false;
+
+    *out = val.as_signed;
+    return true;
+}
+
+bool _cfg_get_string(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key,
+                     struct string_view *out)
+{
+    struct value val;
+    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_STRING, &val))
+        return false;
+
+    *out = val.as_string;
+    return true;
+}
+
+bool _cfg_get_object(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, struct value *val)
+{
+    return cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_OBJECT, val);
+}
+
+bool _cfg_get_value(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, struct value *val)
+{
+    return cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_ANY, val);
+}
+
+bool _cfg_get_one_of(struct config *cfg, size_t offset, bool must_be_unique,
+                     struct string_view key, enum value_type mask, struct value *val)
+{
+    return cfg_find_and_extract(cfg, offset, must_be_unique, key, mask, val);
 }

@@ -4,19 +4,20 @@
 
 struct loadable_entry {
     struct string_view name;
-    size_t offset_within_config;
+    size_t cfg_off;
 };
 
 enum value_type {
-    VALUE_NONE,
-    VALUE_BOOLEAN,
-    VALUE_UNSIGNED,
-    VALUE_SIGNED,
-    VALUE_STRING,
-    VALUE_OBJECT,
+    VALUE_NONE     = 1 << 0,
+    VALUE_BOOLEAN  = 1 << 1,
+    VALUE_UNSIGNED = 1 << 2,
+    VALUE_SIGNED   = 1 << 3,
+    VALUE_STRING   = 1 << 4,
+    VALUE_OBJECT   = 1 << 5,
+    VALUE_ANY      = 1 << 6
 };
 
-static inline struct string_view type_as_str(enum value_type t)
+static inline struct string_view value_type_as_str(enum value_type t)
 {
     switch (t) {
         case VALUE_NONE:
@@ -24,9 +25,9 @@ static inline struct string_view type_as_str(enum value_type t)
         case VALUE_BOOLEAN:
             return SV("Boolean");
         case VALUE_UNSIGNED:
-            return SV("Unsigned integer");
+            return SV("Unsigned Integer");
         case VALUE_SIGNED:
-            return SV("Signed integer");
+            return SV("Signed Integer");
         case VALUE_STRING:
             return SV("String");
         case VALUE_OBJECT:
@@ -38,7 +39,7 @@ static inline struct string_view type_as_str(enum value_type t)
 
 struct value {
     u16 type;
-    u16 offset_within_config;
+    u16 cfg_off;
 
     union {
         bool as_bool;
@@ -46,11 +47,6 @@ struct value {
         i64 as_signed;
         struct string_view as_string;
     };
-};
-
-struct key_value {
-    struct string_view key;
-    struct value val;
 };
 
 static inline bool value_is_null(struct value *val)
@@ -120,27 +116,57 @@ struct config {
     size_t size;
 };
 
-bool config_parse(struct string_view text, struct config *cfg);
-void config_pretty_print_error(const struct config_error *err, struct string_view config_as_view);
+bool cfg_parse(struct string_view text, struct config *cfg);
+void cfg_pretty_print_error(const struct config_error *err, struct string_view config_as_view);
 
-bool config_get_global(struct config *cfg, struct string_view key, bool must_be_unique, struct value *val);
+bool cfg_get_loadable_entry(struct config *cfg, struct string_view key, struct loadable_entry *val);
+bool cfg_first_loadable_entry(struct config* cfg, struct loadable_entry *entry);
 
-bool value_get_child(struct config *cfg, struct value *val, struct string_view key,
-                     bool must_be_unique, struct value *out);
+bool _cfg_get_bool(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, bool *val);
+bool _cfg_get_unsigned(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, u64 *val);
+bool _cfg_get_signed(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, i64 *val);
+bool _cfg_get_string(struct config *cfg, size_t offset, bool must_be_unique,
+                     struct string_view key, struct string_view *val);
+bool _cfg_get_object(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, struct value *val);
+bool _cfg_get_value(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, struct value *val);
+bool _cfg_get_one_of(struct config *cfg, size_t offset, bool must_be_unique,
+                     struct string_view key, enum value_type mask, struct value *val);
 
-bool loadable_entry_get_child(struct config *cfg, struct loadable_entry *entry, struct string_view key,
-                              struct value *out, bool must_be_unique);
+bool cfg_get_next(struct config *cfg, struct value *val, bool oops_on_non_matching_type);
+bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool oops_on_non_matching_type);
 
-void value_get_first_child(struct config *cfg, struct value *val, struct key_value *out);
-void loadable_entry_get_first_child(struct config *cfg, struct loadable_entry *entry, struct value *out);
+#define cfg_get_bool(cfg, obj, key, out_ptr) _cfg_get_bool(cfg, obj->cfg_off, true, key, out_ptr)
+#define cfg_get_signed(cfg, obj, key, out_ptr) _cfg_get_signed(cfg, obj->cfg_off, true, key, out_ptr)
+#define cfg_get_unsigned(cfg, obj, key, out_ptr) _cfg_get_unsigned(cfg, obj->cfg_off, true, key, out_ptr)
+#define cfg_get_string(cfg, obj, key, out_ptr) _cfg_get_string(cfg, obj->cfg_off, true, key, out_ptr)
+#define cfg_get_object(cfg, obj, key, out_ptr) _cfg_get_object(cfg, obj->cfg_off, true, key, out_ptr)
+#define cfg_get_one_of(cfg, obj, key, type_mask, out_ptr) _cfg_get_one_of(cfg, obj->cfg_off, true, key, (type_mask), out_ptr)
 
-bool config_contains_global(struct config *cfg, struct string_view key);
-bool config_value_contains_child(struct config *cfg, struct value *val, struct string_view key);
-bool loadable_entry_contains_child(struct config *cfg, struct loadable_entry *entry, struct string_view key);
+#define cfg_get_first_bool(cfg, obj, key, out_ptr) _cfg_get_bool(cfg, obj->cfg_off, false, key, out_ptr)
+#define cfg_get_first_signed(cfg, obj, key, out_ptr) _cfg_get_signed(cfg, obj->cfg_off, false, key, out_ptr)
+#define cfg_get_first_unsigned(cfg, obj, key, out_ptr) _cfg_get_unsigned(cfg, obj->cfg_off, false, key, out_ptr)
+#define cfg_get_first_string(cfg, obj, key, out_ptr) _cfg_get_string(cfg, obj->cfg_off, false, key, out_ptr)
+#define cfg_get_first_object(cfg, obj, key, out_ptr) _cfg_get_object(cfg, obj->cfg_off, false, key, out_ptr)
+#define cfg_get_first_one_of(cfg, obj, key, type_mask, out_ptr) _cfg_get_one_of(cfg, obj->cfg_off, false, key, (type_mask), out_ptr)
 
-bool config_first_loadable_entry(struct config* cfg, struct loadable_entry *entry);
-bool config_next_loadable_entry(struct config *cfg, struct loadable_entry *entry);
+#define cfg_get_global_bool(cfg, key, out_ptr) _cfg_get_bool(cfg, 0, true, key, out_ptr)
+#define cfg_get_global_signed(cfg, key, out_ptr) _cfg_get_unsigned(cfg, 0, true, key, out_ptr)
+#define cfg_get_global_unsigned(cfg, key, out_ptr) _cfg_get_signed(cfg, 0, true, key, out_ptr)
+#define cfg_get_global_string(cfg, key, out_ptr) _cfg_get_string(cfg, 0, true, key, out_ptr)
+#define cfg_get_global_object(cfg, key, out_ptr) _cfg_get_object(cfg, 0, true, key, out_ptr)
 
-bool config_next(struct config *cfg, struct key_value *val);
-bool config_next_value_of_key(struct config *cfg, struct string_view key, struct value *val);
-bool config_last_value_of_key(struct config *cfg, struct string_view key, struct value *val);
+#define CFG_MANDATORY_GET(type, cfg, obj, key, out_ptr)                              \
+    do {                                                                             \
+        if (!_cfg_get_##type(cfg, (obj)->cfg_off, true, (key), out_ptr)) {           \
+            struct string_view _key_str = (key);                                     \
+            oops("couldn't find mandatory key %pSV in the config file!", &_key_str); \
+        }                                                                            \
+    } while (0)
+
+#define CFG_MANDATORY_GET_ONE_OF(type_mask, cfg, obj, key, out_ptr)                     \
+    do {                                                                                \
+        if (!_cfg_get_one_of(cfg, (obj)->cfg_off, true, (key), (type_mask), out_ptr)) { \
+            struct string_view _key_str = (key);                                        \
+            oops("couldn't find mandatory key %pSV in the config file!", &_key_str);    \
+        }                                                                               \
+    } while (0)
