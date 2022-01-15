@@ -44,13 +44,22 @@ static void* do_allocate_with_type_at(u64 address, size_t count, u32 type, bool 
     BUG_ON(!memory_backend);
 
     if (!address) {
-        result = (void*)memory_backend->allocate_pages(count, 4ull * GB, type, true);
+        result = (void*)((ptr_t)memory_backend->allocate_pages(count, 4ull * GB, type, true));
     } else {
-        result = (void*)memory_backend->allocate_pages_at(address, count, type);
+        result = (void*)((ptr_t)memory_backend->allocate_pages_at(address, count, type));
     }
 
-    if (result)
+    if (result) {
+#ifdef MEM_DEBUG_SPRAY
+        size_t i;
+        u32 *mem = result;
+
+        for (i = 0 ; i < ((count * PAGE_SIZE) / 4); ++i)
+            mem[i] = 0xDEADBEEF;
+#endif
+
         return result;
+    }
 
     if (critical)
         on_failed_critical_allocation(address, count, type);
@@ -109,7 +118,7 @@ void* allocate_critical_bytes(size_t count)
 void free_pages(void* address, size_t count)
 {
     BUG_ON(!memory_backend);
-    memory_backend->free_pages(address, count);
+    memory_backend->free_pages((ptr_t)address, count);
 }
 
 void free_bytes(void* address, size_t count)
