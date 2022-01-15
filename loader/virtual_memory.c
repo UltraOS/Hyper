@@ -10,7 +10,7 @@
 
 #define ENTRIES_PER_TABLE 512
 
-static u64* table_at(u64* table, size_t index)
+static u64 *table_at(u64 *table, size_t index)
 {
     u64 entry;
     u64 *page;
@@ -21,24 +21,20 @@ static u64* table_at(u64* table, size_t index)
     if (entry & PAGE_PRESENT) {
         BUG_ON(entry & PAGE_HUGE);
         entry &= ~0xFFF;
-        return (u64*)entry;
+        return (u64*)((ptr_t)entry);
     }
 
-    page = allocator::allocate_pages(1));
+    page = allocate_pages(1);
     if (!page)
         return NULL;
 
-    table[index] = (u64)page | PAGE_READWRITE | PAGE_PRESENT;
+    table[index] = (u64)((ptr_t)page) | PAGE_READWRITE | PAGE_PRESENT;
     return page;
 }
 
 static bool do_map_page(struct page_table *pt, u64 virtual_base, u64 physical_base, bool huge)
 {
-    u64* lvl4;
-    u64* lvl3;
-    u64* lvl2;
-    u64* lvl1;
-
+    u64 *lvl4, *lvl3, *lvl2, *lvl1;
     size_t lvl5_index = (virtual_base >> 48) & (ENTRIES_PER_TABLE - 1);
     size_t lvl4_index = (virtual_base >> 39) & (ENTRIES_PER_TABLE - 1);
     size_t lvl3_index = (virtual_base >> 30) & (ENTRIES_PER_TABLE - 1);
@@ -115,7 +111,8 @@ bool map_huge_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, 
     return true;
 }
 
-[[noreturn]] static void on_critical_mapping_failed(u64 virtual_base, u64 physical_base, size_t pages, bool huge)
+NORETURN
+static void on_critical_mapping_failed(u64 virtual_base, u64 physical_base, size_t pages, bool huge)
 {
     panic("Out of memory while attempting to map %zu critical pages at 0x%llX (physical 0x%llX) huge: %d",
           pages, virtual_base, physical_base, huge);
@@ -143,6 +140,4 @@ void map_critical_huge_pages(struct page_table *pt, u64 virtual_base, u64 physic
 {
     if (!map_huge_pages(pt, virtual_base, physical_base, pages))
         on_critical_mapping_failed(virtual_base, physical_base, pages, true);
-}
-
 }
