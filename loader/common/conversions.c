@@ -3,6 +3,9 @@
 
 static int get_base(struct string_view *str)
 {
+    if (unlikely(sv_empty(*str)))
+        return -1;
+
     if (sv_starts_with(*str, SV("0x"))) {
         sv_offset_by(str, 2);
         return 16;
@@ -17,6 +20,9 @@ static int get_base(struct string_view *str)
         sv_offset_by(str, 1);
         return 8;
     }
+
+    if (str->text[0] >= '1' && str->text[0] <= '9')
+        return 10;
 
     return -1;
 }
@@ -43,6 +49,7 @@ static bool do_str_to_u64_with_base(struct string_view str, u64 *res, unsigned i
         number = next;
     }
 
+    *res = number;
     return true;
 }
 
@@ -83,7 +90,7 @@ static bool do_str_to_i64(struct string_view str, i64 *res)
 
         if (!do_str_to_u64_strict(str, &ures))
             return false;
-        if (ures != (i64)res)
+        if (ures > (u64)INT64_MAX)
             return false;
     }
 
@@ -114,7 +121,7 @@ bool str_to_l(struct string_view str, long *res)
         *res = (long)ires;
         return true;
     } else {
-        return do_str_to_i64(str, res);
+        return do_str_to_i64(str, (i64*)res);
     }
 }
 
@@ -131,7 +138,7 @@ bool str_to_ul(struct string_view str, unsigned long *res)
         *res = (unsigned long)ires;
         return true;
     } else {
-        return do_str_to_u64(str, res);
+        return do_str_to_u64(str, (u64*)res);
     }
 }
 
@@ -236,18 +243,15 @@ bool str_to_u16(struct string_view str, u16 *res)
 
 bool str_to_i8(struct string_view str, i8 *res)
 {
-    if ((char)-1 < 0) {
-        i64 ires;
-        if (!do_str_to_i64(str, &ires))
-            return false;
-        if ((char)ires != ires)
-            return false;
+    i64 ires;
+    if (!do_str_to_i64(str, &ires))
+        return false;
 
-        *res = (char)ires;
-        return true;
-    } else {
-        return str_to_uc(str, res);
-    }
+    if ((char)ires != ires)
+        return false;
+
+    *res = (char)ires;
+    return true;
 }
 
 bool str_to_u8(struct string_view str, u8 *res)
