@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdarg.h>
 #include "services.h"
 
 // Inspired by linux kern_levels
@@ -30,9 +31,9 @@ void print(const char *msg, ...);
 #define MSG_FMT(msg) msg
 #endif
 
-#define print_info(msg, ...) print(LOG_INFO MSG_FMT(msg), ##__VA_ARGS__)
-#define print_warn(msg, ...) print(LOG_WARN MSG_FMT(msg), ##__VA_ARGS__)
-#define print_err(msg, ...)  print(LOG_ERR MSG_FMT(msg), ##__VA_ARGS__)
+#define print_info(msg, ...) print((LOG_INFO MSG_FMT(msg)), ##__VA_ARGS__)
+#define print_warn(msg, ...) print((LOG_WARN MSG_FMT(msg)), ##__VA_ARGS__)
+#define print_err(msg, ...)  print((LOG_ERR MSG_FMT(msg)), ##__VA_ARGS__)
 
 
 
