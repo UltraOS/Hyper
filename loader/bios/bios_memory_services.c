@@ -11,37 +11,37 @@
 #define MSG_FMT(msg) "BIOS-MM: " msg
 
 #define BUFFER_CAPACITY (PAGE_SIZE / sizeof(struct physical_range))
-static struct physical_range g_entries_buffer[BUFFER_CAPACITY];
-static size_t g_map_key = 0xDEADBEEF;
-static size_t g_entry_count = 0;
-static bool g_released = false;
+static struct physical_range entries_buffer[BUFFER_CAPACITY];
+static size_t map_key = 0xDEADBEEF;
+static size_t entry_count = 0;
+static bool released = false;
 
 static void emplace_range(const struct physical_range *r)
 {
-    if (g_entry_count >= BUFFER_CAPACITY)
+    if (entry_count >= BUFFER_CAPACITY)
         oops("out memory map of slot capacity");
 
-    g_entries_buffer[g_entry_count++] = *r;
+    entries_buffer[entry_count++] = *r;
 }
 
 static void emplace_range_at(size_t index, const struct physical_range *r)
 {
     size_t bytes_to_move;
-    BUG_ON(index > g_entry_count);
+    BUG_ON(index > entry_count);
 
-    if (index == g_entry_count) {
+    if (index == entry_count) {
         emplace_range(r);
         return;
     }
 
-    if (g_entry_count >= BUFFER_CAPACITY)
+    if (entry_count >= BUFFER_CAPACITY)
         oops("out of memory map slot capacity");
 
-    bytes_to_move = (g_entry_count - index) * sizeof(struct physical_range);
-    ++g_entry_count;
-    memmove(&g_entries_buffer[index + 1], &g_entries_buffer[index], bytes_to_move);
+    bytes_to_move = (entry_count - index) * sizeof(struct physical_range);
+    ++entry_count;
+    memmove(&entries_buffer[index + 1], &entries_buffer[index], bytes_to_move);
 
-    g_entries_buffer[index] = *r;
+    entries_buffer[index] = *r;
 }
 
 // 'SMAP'
@@ -140,17 +140,17 @@ static void load_e820()
 static void erase_range_at(size_t index)
 {
     size_t bytes_to_move;
-    BUG_ON(index >= g_entry_count);
+    BUG_ON(index >= entry_count);
 
-    if (index == g_entry_count - 1) {
-        --g_entry_count;
+    if (index == entry_count - 1) {
+        --entry_count;
         return;
     }
 
-    bytes_to_move = (g_entry_count - index - 1) * sizeof(struct physical_range);
-    memmove(&g_entries_buffer[index], &g_entries_buffer[index + 1], bytes_to_move);
+    bytes_to_move = (entry_count - index - 1) * sizeof(struct physical_range);
+    memmove(&entries_buffer[index], &entries_buffer[index + 1], bytes_to_move);
 
-    --g_entry_count;
+    --entry_count;
 }
 
 static bool trivially_mergeable(const struct physical_range *lhs, const struct physical_range *rhs)
@@ -162,9 +162,9 @@ static void correct_overlapping_ranges(size_t first_index)
 {
     size_t i;
 
-    for (i = first_index; i < g_entry_count - 1; ++i) {
-        struct physical_range *cur = &g_entries_buffer[i];
-        struct physical_range *next = &g_entries_buffer[i + 1];
+    for (i = first_index; i < entry_count - 1; ++i) {
+        struct physical_range *cur = &entries_buffer[i];
+        struct physical_range *next = &entries_buffer[i + 1];
         bool tm = trivially_mergeable(cur, next);
 
         while (range_overlaps(&cur->r, &next->r) || tm) {
@@ -195,7 +195,7 @@ static void correct_overlapping_ranges(size_t first_index)
                     break;
                 }
 
-                g_entries_buffer[j++] = sr.ranges[k];
+                entries_buffer[j++] = sr.ranges[k];
             }
 
             BUG_ON(j == i);
@@ -211,10 +211,10 @@ static void correct_overlapping_ranges(size_t first_index)
                 --i;
 
         next_range:
-            if (i >= g_entry_count - 1)
+            if (i >= entry_count - 1)
                 return;
 
-            cur = &g_entries_buffer[i];
+            cur = &entries_buffer[i];
             next = cur + 1;
             tm = trivially_mergeable(cur, next);
         }
@@ -226,7 +226,7 @@ static void allocate_out_of(const struct physical_range *allocated_range, size_t
     struct shatter_result sr;
     size_t i, current_index = index_of_original;
 
-    physical_ranges_shatter(&g_entries_buffer[index_of_original], allocated_range, &sr, invert_priority);
+    physical_ranges_shatter(&entries_buffer[index_of_original], allocated_range, &sr, invert_priority);
 
     for (i = 0; i < 3; i++) {
         if (range_is_empty(&sr.ranges[i].r))
@@ -236,7 +236,7 @@ static void allocate_out_of(const struct physical_range *allocated_range, size_t
             continue;
 
         if (current_index == index_of_original) {
-            g_entries_buffer[current_index++] = sr.ranges[i];
+            entries_buffer[current_index++] = sr.ranges[i];
         } else {
             emplace_range_at(current_index++, &sr.ranges[i]);
         }
@@ -250,19 +250,19 @@ static u64 allocate_top_down(size_t page_count, u64 upper_limit, u32 type)
 {
     u64 bytes_to_allocate = page_count * PAGE_SIZE;
     struct physical_range allocated_range = { 0 };
-    size_t i = g_entry_count;
+    size_t i = entry_count;
     u64 range_end;
 
     if (bytes_to_allocate <= page_count)
         oops("invalid allocation size of %zu pages", page_count);
 
-    if (g_released)
+    if (released)
         oops("use-after-release: allocate_top_down()");
 
-    g_map_key++;
+    map_key++;
 
     while (i-- > 0) {
-        struct physical_range *this_range = &g_entries_buffer[i];
+        struct physical_range *this_range = &entries_buffer[i];
 
         if (this_range->r.begin >= upper_limit)
             continue;
@@ -301,14 +301,14 @@ static void fail_on_allocation(size_t page_count, u64 lower_limit, u64 upper_lim
 static ssize_t first_range_that_contains(u64 value, bool allow_one_above)
 {
     ssize_t left = 0;
-    ssize_t right = g_entry_count;
+    ssize_t right = entry_count;
 
     while (left <= right) {
         ssize_t middle = left + ((right - left) / 2);
 
-        if (g_entries_buffer[middle].r.begin < value) {
+        if (entries_buffer[middle].r.begin < value) {
             left = middle + 1;
-        } else if (value < g_entries_buffer[middle].r.begin) {
+        } else if (value < entries_buffer[middle].r.begin) {
             right = middle - 1;
         } else {
             return middle;
@@ -317,14 +317,14 @@ static ssize_t first_range_that_contains(u64 value, bool allow_one_above)
 
     // Left is always lower bound, right is always lower bound - 1
     if (right >= 0) {
-        struct range *r = &g_entries_buffer[right].r;
+        struct range *r = &entries_buffer[right].r;
 
         if (r->begin < value && value < r->end)
             return right;
     }
 
     // Don't return out of bounds range, even if it's lower bound
-    if (left == (ssize_t)g_entry_count)
+    if (left == (ssize_t)entry_count)
         left = -1;
 
     // Either return the lower bound range (aka one after "value") or none
@@ -342,10 +342,10 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
     if (bytes_to_allocate <= page_count)
         oops("invalid allocation size of %zu pages", page_count);
 
-    if (g_released)
+    if (released)
         oops("use-after-release: allocate_within()");
 
-    g_map_key++;
+    map_key++;
 
     // invalid input
     if (lower_limit >= upper_limit)
@@ -363,11 +363,11 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
     if (range_index < 0)
         return 0;
 
-    for (; range_index < (ssize_t)g_entry_count; ++range_index) {
-        picked_range = &g_entries_buffer[range_index].r;
+    for (; range_index < (ssize_t)entry_count; ++range_index) {
+        picked_range = &entries_buffer[range_index].r;
         bool is_bad_range;
 
-        if (physical_range_is_free(&g_entries_buffer[range_index])) {
+        if (physical_range_is_free(&entries_buffer[range_index])) {
             u64 available_gap = MIN(picked_range->end, upper_limit) - MAX(picked_range->begin, lower_limit);
             is_bad_range = available_gap < bytes_to_allocate;
         } else {
@@ -387,7 +387,7 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
         break;
     }
 
-    if (range_index == (ssize_t)g_entry_count)
+    if (range_index == (ssize_t)entry_count)
         return 0;
 
     BUG_ON(picked_range == NULL);
@@ -427,16 +427,16 @@ static void free_pages(u64 address, size_t count)
         .type = MEMORY_TYPE_FREE
     };
 
-    if (g_released)
+    if (released)
         oops("use-after-release: free_pages()");
 
-    g_map_key++;
+    map_key++;
 
     range_index = first_range_that_contains(address, false);
     if (range_index < 0)
         on_invalid_free(address, count);
 
-    if (!range_contains(&g_entries_buffer[range_index].r, &freed_range.r))
+    if (!range_contains(&entries_buffer[range_index].r, &freed_range.r))
         on_invalid_free(address, count);
 
     allocate_out_of(&freed_range, range_index, true);
@@ -444,9 +444,9 @@ static void free_pages(u64 address, size_t count)
 
 static size_t copy_map(struct memory_map_entry *into_buffer, size_t capacity_in_bytes, size_t *out_key)
 {
-    size_t bytes_total = g_entry_count * sizeof(struct physical_range);
+    size_t bytes_total = entry_count * sizeof(struct physical_range);
 
-    if (g_released)
+    if (released)
         oops("use-after-release: copy_map()");
 
     if (capacity_in_bytes < bytes_total) {
@@ -454,21 +454,21 @@ static size_t copy_map(struct memory_map_entry *into_buffer, size_t capacity_in_
         return bytes_total;
     }
 
-    memcpy(into_buffer, g_entries_buffer, bytes_total);
-    *out_key = g_map_key;
+    memcpy(into_buffer, entries_buffer, bytes_total);
+    *out_key = map_key;
 
     return bytes_total;
 }
 
 static bool handover(size_t key)
 {
-    if (g_released)
+    if (released)
         oops("use-after-release: handover()");
 
-    if (key != g_map_key)
+    if (key != map_key)
         return false;
 
-    g_released = true;
+    released = true;
     return true;
 }
 
@@ -482,13 +482,13 @@ static void initialize_memory_map()
      * whereas quicksort would run at O(N^2). Even if it's unsorted, most E820 memory maps
      * only contain like 10-20 entries, so it's not a big deal.
      */
-    for (size_t i = 0; i < g_entry_count; ++i) {
+    for (size_t i = 0; i < entry_count; ++i) {
         size_t j = i;
 
-        while (j > 0 && g_entries_buffer[j].r.begin < g_entries_buffer[j - 1].r.begin) {
-            struct physical_range tmp = g_entries_buffer[j];
-            g_entries_buffer[j] = g_entries_buffer[j - 1];
-            g_entries_buffer[j - 1] = tmp;
+        while (j > 0 && entries_buffer[j].r.begin < entries_buffer[j - 1].r.begin) {
+            struct physical_range tmp = entries_buffer[j];
+            entries_buffer[j] = entries_buffer[j - 1];
+            entries_buffer[j - 1] = tmp;
             --j;
         }
     }
@@ -504,9 +504,9 @@ static struct memory_services bios_ms = {
     .handover = handover
 };
 
-struct memory_services* memory_services_init()
+struct memory_services *memory_services_init()
 {
-    if (!g_entry_count)
+    if (!entry_count)
         initialize_memory_map();
 
     return &bios_ms;

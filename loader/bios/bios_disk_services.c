@@ -8,11 +8,11 @@
 #define MSG_FMT(msg) "BIOS-IO: " msg
 
 #define DISK_BUFFER_CAPACITY 128
-static struct disk g_disks_buffer[DISK_BUFFER_CAPACITY];
-static size_t g_disk_count = 0;
+static struct disk disks_buffer[DISK_BUFFER_CAPACITY];
+static size_t disk_count = 0;
 
 #define TRANSFER_BUFFER_CAPACITY 4096
-static u8 g_transfer_buffer[TRANSFER_BUFFER_CAPACITY];
+static u8 transfer_buffer[TRANSFER_BUFFER_CAPACITY];
 
 #define FIRST_DRIVE_INDEX 0x80
 #define LAST_DRIVE_INDEX 0xFF
@@ -91,7 +91,7 @@ static void fetch_all_disks()
         print_info("detected drive: %X -> sectors: %llu, bytes per sector: %hu\n",
                    drive_index, drive_params.total_sector_count, drive_params.bytes_per_sector);
 
-        g_disks_buffer[g_disk_count++] = (struct disk) {
+        disks_buffer[disk_count++] = (struct disk) {
             .bytes_per_sector = drive_params.bytes_per_sector,
             .sectors = drive_params.total_sector_count,
             .handle = (void*)((ptr_t)drive_index)
@@ -111,9 +111,9 @@ static struct disk *disk_from_handle(void *handle)
     size_t i;
     BUG_ON(drive_id < FIRST_DRIVE_INDEX || drive_id >= LAST_DRIVE_INDEX);
 
-    for (i = 0; i < g_disk_count; ++i) {
-        if (g_disks_buffer[i].handle == handle)
-            return &g_disks_buffer[i];
+    for (i = 0; i < disk_count; ++i) {
+        if (disks_buffer[i].handle == handle)
+            return &disks_buffer[i];
     }
 
     return NULL;
@@ -147,7 +147,7 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
     u64 current_sector = offset / d->bytes_per_sector;
     size_t sectors_to_read = bytes / d->bytes_per_sector;
 
-    as_real_mode_addr((u32)g_transfer_buffer, &tb_addr);
+    as_real_mode_addr((u32)transfer_buffer, &tb_addr);
     BUG_ON(bytes == 0);
 
     if (d->sectors <= last_read_sector)
@@ -177,7 +177,7 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
             return false;
 
         bytes_to_copy = MIN(bytes_for_this_read, bytes);
-        memcpy(byte_buffer, &g_transfer_buffer[offset], bytes_to_copy);
+        memcpy(byte_buffer, &transfer_buffer[offset], bytes_to_copy);
 
         bytes -= bytes_to_copy;
         if (bytes == 0)
@@ -191,8 +191,8 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
 
 static struct disk* list_disks(size_t *count)
 {
-    *count = g_disk_count;
-    return g_disks_buffer;
+    *count = disk_count;
+    return disks_buffer;
 }
 
 static bool read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
@@ -219,7 +219,7 @@ static struct disk_services bios_disk_services = {
 
 struct disk_services *disk_services_init()
 {
-    if (!g_disk_count)
+    if (!disk_count)
         fetch_all_disks();
 
     return &bios_disk_services;

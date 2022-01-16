@@ -153,21 +153,21 @@ struct PACKED edid {
 };
 BUILD_BUG_ON(sizeof(struct edid) != 128);
 
-static size_t g_native_width = 1024;
-static size_t g_native_height = 768;
+static size_t native_width = 1024;
+static size_t native_height = 768;
 
 #define MODE_BUFFER_CAPACITY 256
-static struct video_mode g_video_modes[MODE_BUFFER_CAPACITY];
-static size_t g_video_mode_count = 0;
+static struct video_mode video_modes[MODE_BUFFER_CAPACITY];
+static size_t video_mode_count = 0;
 
 // ---- legacy TTY ----
 #define VGA_ADDRESS 0xB8000
 #define TTY_COLUMNS 80
 #define TTY_ROWS 25
 
-static size_t g_tty_x = 0;
-static size_t g_tty_y = 0;
-static bool g_legacy_tty_available = false;
+static size_t tty_x = 0;
+static size_t tty_y = 0;
+static bool legacy_tty_available = false;
 
 static void initialize_legacy_tty()
 {
@@ -184,7 +184,7 @@ static void initialize_legacy_tty()
     };
     bios_call(0x10, &regs, &regs);
 
-    g_legacy_tty_available = true;
+    legacy_tty_available = true;
 }
 
 static u16 color_as_attribute(enum color c)
@@ -230,7 +230,7 @@ static bool tty_write(const char *text, size_t count, enum color col)
     bool no_write;
     char c;
 
-    if (!g_legacy_tty_available)
+    if (!legacy_tty_available)
         return false;
 
     for (size_t i = 0; i < count; ++i) {
@@ -238,30 +238,30 @@ static bool tty_write(const char *text, size_t count, enum color col)
         no_write = false;
 
         if (c == '\n') {
-            g_tty_y++;
-            g_tty_x = 0;
+            tty_y++;
+            tty_x = 0;
             no_write = true;
         }
 
         if (c == '\t') {
-            g_tty_x += 4;
+            tty_x += 4;
             no_write = true;
         }
 
-        if (g_tty_x >= TTY_COLUMNS) {
-            g_tty_x = 0;
-            g_tty_y++;
+        if (tty_x >= TTY_COLUMNS) {
+            tty_x = 0;
+            tty_y++;
         }
 
-        if (g_tty_y >= TTY_ROWS) {
-            g_tty_y = TTY_ROWS - 1;
+        if (tty_y >= TTY_ROWS) {
+            tty_y = TTY_ROWS - 1;
             tty_scroll();
         }
 
         if (no_write)
             continue;
 
-        vga_memory[g_tty_y * TTY_COLUMNS + g_tty_x++] = color_as_attribute(col) | c;
+        vga_memory[tty_y * TTY_COLUMNS + tty_x++] = color_as_attribute(col) | c;
     }
 
     return true;
@@ -388,13 +388,13 @@ static void fetch_all_video_modes()
         if (!validate_video_mode(&info, vesa_major >= 3))
             continue;
 
-        buffer_idx = g_video_mode_count++;
+        buffer_idx = video_mode_count++;
         if (buffer_idx >= MODE_BUFFER_CAPACITY) {
             print_warn("Exceeded video mode storage capacity, skipping the rest\n");
             return;
         }
 
-        g_video_modes[buffer_idx] = (struct video_mode) {
+        video_modes[buffer_idx] = (struct video_mode) {
             .width = info.width,
             .height = info.height,
             .bpp = info.bits_per_pixel,
@@ -434,28 +434,28 @@ void fetch_native_resolution()
 
     td = &e.detailed_timing_descriptors[0];
 
-    g_native_height = td->vertical_active_lines_lo;
-    g_native_height |= td->vertical_active_lines_hi << 8;
+    native_height = td->vertical_active_lines_lo;
+    native_height |= td->vertical_active_lines_hi << 8;
 
-    g_native_width = td->horizontal_active_pixels_lo;
-    g_native_width |= td->horizontal_active_pixels_hi << 8;
+    native_width = td->horizontal_active_pixels_lo;
+    native_width |= td->horizontal_active_pixels_hi << 8;
 
-    print_info("detected native resoultion %zux%zu\n", g_native_width, g_native_height);
+    print_info("detected native resoultion %zux%zu\n", native_width, native_height);
 }
 
 static struct video_mode *list_modes(size_t *count)
 {
-    *count = g_video_mode_count;
-    return g_video_modes;
+    *count = video_mode_count;
+    return video_modes;
 }
 
 static bool query_resolution(struct resolution *out_resolution)
 {
-    if (g_native_width == 0 || g_native_height == 0)
+    if (native_width == 0 || native_height == 0)
         return false;
 
-    out_resolution->width = g_native_width;
-    out_resolution->height = g_native_height;
+    out_resolution->width = native_width;
+    out_resolution->height = native_height;
     return true;
 }
 
@@ -499,7 +499,7 @@ static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
         print_warn("Set video mode with unsupported format (%d bpp)\n", info.bits_per_pixel);
     }
 
-    g_legacy_tty_available = false;
+    legacy_tty_available = false;
     return true;
 }
 
@@ -512,12 +512,12 @@ static struct video_services bios_video_services = {
 
 struct video_services *video_services_init()
 {
-    if (!g_legacy_tty_available)
+    if (!legacy_tty_available)
         initialize_legacy_tty();
 
     logger_set_backend(&bios_video_services);
 
-    if (g_video_mode_count == 0) {
+    if (video_mode_count == 0) {
         fetch_all_video_modes();
         fetch_native_resolution();
     }
