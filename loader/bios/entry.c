@@ -23,8 +23,7 @@ void bios_entry()
 
     s.vs = video_services_init();
 
-    if (!a20_enabled)
-        panic("Failed to enable A20! Please report this issue.");
+    BUG_ON(!a20_enabled);
 
     s.ms = memory_services_init();
     s.ds = disk_services_init();
