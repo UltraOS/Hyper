@@ -3,8 +3,8 @@
 #include "common/string.h"
 #include "common/log.h"
 
-#undef FMT_MSG
-#define FMT_MSG(msg) "BIOS-ACPI: " msg
+#undef MSG_FMT
+#define MSG_FMT(msg) "BIOS-ACPI: " msg
 
 #define RSDP_SIGNATURE "RSD PTR "
 #define RSDP_SIGNATURE_LEN 8
