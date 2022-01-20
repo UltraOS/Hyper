@@ -5,6 +5,14 @@
 #include "common/constants.h"
 
 static struct memory_services *memory_backend;
+static u32 default_alloc_type = MEMORY_TYPE_RESERVED;
+
+u32 allocator_set_default_alloc_type(u32 type)
+{
+    u32 prev = default_alloc_type;
+    default_alloc_type = type;
+    return prev;
+}
 
 struct memory_services *allocator_set_backend(struct memory_services *b)
 {
@@ -21,7 +29,7 @@ static void log_allocation_failure(u64 address, size_t count, u32 type, bool war
     char address_as_string[32];
 
     if (address) {
-        snprintf(address_as_string, sizeof(address_as_string), "%llX", address);
+        snprintf(address_as_string, sizeof(address_as_string), "0x%016llX", address);
     } else {
         memcpy(address_as_string, ANY_ADDRESS, strlen(ANY_ADDRESS) + 1);
     }
@@ -80,7 +88,7 @@ void* allocate_pages_with_type(size_t count, u32 type)
 
 void* allocate_pages(size_t count)
 {
-    return allocate_pages_with_type(count, MEMORY_TYPE_LOADER_RECLAIMABLE);
+    return allocate_pages_with_type(count, default_alloc_type);
 }
 
 void* allocate_bytes(size_t count)
@@ -101,12 +109,12 @@ void* allocate_critical_pages_with_type(size_t count, u32 type)
 
 void* allocate_critical_pages_at(u64 address, size_t count)
 {
-    return allocate_critical_pages_with_type_at(address, count, MEMORY_TYPE_LOADER_RECLAIMABLE);
+    return allocate_critical_pages_with_type_at(address, count, default_alloc_type);
 }
 
 void* allocate_critical_pages(size_t count)
 {
-    return allocate_critical_pages_with_type(count, MEMORY_TYPE_LOADER_RECLAIMABLE);
+    return allocate_critical_pages_with_type(count, default_alloc_type);
 }
 
 void* allocate_critical_bytes(size_t count)

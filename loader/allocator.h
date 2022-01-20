@@ -3,6 +3,7 @@
 #include "services.h"
 
 struct memory_services *allocator_set_backend(struct memory_services*);
+u32 allocator_set_default_alloc_type(u32 type);
 
 void* allocate_pages_with_type_at(u64, size_t, u32 type);
 void* allocate_pages_with_type(size_t, u32 type);
