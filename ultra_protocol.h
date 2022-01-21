@@ -2,25 +2,25 @@
 
 #include <stdint.h>
 
-#define ATTRIBUTE_INVALID          0
-#define ATTRIBUTE_PLATFORM_INFO    1
-#define ATTRIBUTE_MEMORY_MAP       2
-#define ATTRIBUTE_MODULE_INFO      3
-#define ATTRIBUTE_COMMAND_LINE     4
-#define ATTRIBUTE_FRAMEBUFFER_INFO 5
-#define ATTRIBUTE_END              6
+#define ULTRA_ATTRIBUTE_INVALID          0
+#define ULTRA_ATTRIBUTE_PLATFORM_INFO    1
+#define ULTRA_ATTRIBUTE_KERNEL_INFO      2
+#define ULTRA_ATTRIBUTE_MEMORY_MAP       3
+#define ULTRA_ATTRIBUTE_MODULE_INFO      4
+#define ULTRA_ATTRIBUTE_COMMAND_LINE     5
+#define ULTRA_ATTRIBUTE_FRAMEBUFFER_INFO 6
 
-struct attribute_header {
+struct ultra_attribute_header {
     uint32_t type;
     uint32_t size_in_bytes;
 };
 
-#define PLATFORM_INVALID 0
-#define PLATFORM_BIOS    1
-#define PLATFORM_UEFI    2
+#define ULTRA_PLATFORM_INVALID 0
+#define ULTRA_PLATFORM_BIOS    1
+#define ULTRA_PLATFORM_UEFI    2
 
-struct platform_info_attribute {
-    struct attribute_header header;
+struct ultra_platform_info_attribute {
+    struct ultra_attribute_header header;
     uint32_t platform_type;
 
     uint16_t loader_major;
@@ -30,9 +30,9 @@ struct platform_info_attribute {
     uint64_t acpi_rsdp_address;
 };
 
-#define PARTITION_TYPE_RAW 1
-#define PARTITION_TYPE_MBR 2
-#define PARTITION_TYPE_GPT 3
+#define ULTRA_PARTITION_TYPE_RAW 1
+#define ULTRA_PARTITION_TYPE_MBR 2
+#define ULTRA_PARTITION_TYPE_GPT 3
 
 struct ultra_guid {
     uint32_t data1;
@@ -41,8 +41,8 @@ struct ultra_guid {
     uint8_t  data4[8];
 };
 
-struct kernel_info_attribute {
-    struct attribute_header header;
+struct ultra_kernel_info_attribute {
+    struct ultra_attribute_header header;
 
     uint64_t physical_base;
     uint64_t virtual_base;
@@ -61,47 +61,45 @@ struct kernel_info_attribute {
     char path_on_disk[256];
 };
 
-#define MEMORY_TYPE_INVALID            0
-#define MEMORY_TYPE_FREE               1
-#define MEMORY_TYPE_RESERVED           2
-#define MEMORY_TYPE_RECLAIMABLE        3
-#define MEMORY_TYPE_NVS                4
-#define MEMORY_TYPE_LOADER_RECLAIMABLE 5
-#define MEMORY_TYPE_MODULE             6
-#define MEMORY_TYPE_KERNEL_STACK       7
-#define MEMORY_TYPE_KERNEL_BINARY      8
+#define ULTRA_MEMORY_TYPE_INVALID            0x00000000
+#define ULTRA_MEMORY_TYPE_FREE               0x00000001
+#define ULTRA_MEMORY_TYPE_RESERVED           0x00000002
+#define ULTRA_MEMORY_TYPE_RECLAIMABLE        0x00000003
+#define ULTRA_MEMORY_TYPE_NVS                0x00000004
+#define ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE 0xFFFF0001
+#define ULTRA_MEMORY_TYPE_MODULE             0xFFFF0002
+#define ULTRA_MEMORY_TYPE_KERNEL_STACK       0xFFFF0003
+#define ULTRA_MEMORY_TYPE_KERNEL_BINARY      0xFFFF0004
 
-struct memory_map_entry {
+struct ultra_memory_map_entry {
     uint64_t physical_address;
     uint64_t size_in_bytes;
     uint64_t type;
 };
-#define MEMORY_MAP_ENTRY_COUNT(header) ((((header).size_in_bytes) - sizeof(AttributeHeader)) / sizeof(MemoryMapEntry))
+#define MEMORY_MAP_ENTRY_COUNT(header) ((((header).size_in_bytes) - sizeof(struct ultra_attribute_header)) / sizeof(struct ultra_memory_map_entry))
 
-struct memory_map_attribute {
-    struct attribute_header header;
-    struct memory_map_entry entries[];
+struct ultra_memory_map_attribute {
+    struct ultra_attribute_header header;
+    struct ultra_memory_map_entry entries[];
 };
 
-struct module_info_attribute {
-    struct attribute_header header;
+struct ultra_module_info_attribute {
+    struct ultra_attribute_header header;
     char name[64];
     uint64_t physical_address;
     uint64_t length;
 };
 
-struct command_line_attribute {
-    struct attribute_header header;
-    uint32_t text_length;
+struct ultra_command_line_attribute {
+    struct ultra_attribute_header header;
     char text[];
 };
-#define COMMAND_LINE_LENGTH(header) (((header).size_in_bytes) - sizeof(AttributeHeader))
 
-#define FORMAT_INVALID 0
-#define FORMAT_RBG     1
-#define FORMAT_RGBA    2
+#define ULTRA_FB_FORMAT_INVALID 0
+#define ULTRA_FB_FORMAT_RBG     1
+#define ULTRA_FB_FORMAT_RGBA    2
 
-struct framebuffer {
+struct ultra_framebuffer {
     uint32_t width;
     uint32_t height;
     uint32_t pitch;
@@ -110,15 +108,15 @@ struct framebuffer {
     uint64_t physical_address;
 };
 
-struct framebuffer_attribute {
-    struct attribute_header header;
-    struct framebuffer fb;
+struct ultra_framebuffer_attribute {
+    struct ultra_attribute_header header;
+    struct ultra_framebuffer fb;
 };
 
-struct boot_context {
-    u64 attribute_count;
-    struct attribute_header attributes[];
+struct ultra_boot_context {
+    uint32_t attribute_count;
+    struct ultra_attribute_header attributes[];
 };
-#define NEXT_ATTRIBUTE(current) ((AttributeHeader*)(((uint8_t*)(current)) + (current)->size_in_bytes))
+#define NEXT_ATTRIBUTE(current) ((struct ultra_attribute_header*)(((uint8_t*)(current)) + (current)->size_in_bytes))
 
 #define ULTRA_MAGIC 0x554c5442
