@@ -1,6 +1,10 @@
 extern enable_a20
 extern bios_entry
 
+STAGE2_LOAD_BASE:   equ 0x00007C00
+STAGE2_STACK_END:   equ STAGE2_LOAD_BASE
+STAGE2_STACK_BEGIN: equ 0x00000500
+
 section .entry
 
 stage2_magic: db "HyperST2"
@@ -10,6 +14,7 @@ dq 0
 
 main:
 BITS 16
+    mov sp, STAGE2_LOAD_BASE
     cld
 
     call enable_a20
@@ -34,6 +39,13 @@ BITS 32
     mov fs, ax
     mov gs, ax
     mov ss, ax
+
+%ifdef STACK_DEBUG_SPRAY
+    mov eax, 0xCAFEBABE
+    mov ecx, (STAGE2_STACK_END - STAGE2_STACK_BEGIN) / 4
+    mov edi, STAGE2_STACK_BEGIN
+    rep stosd
+%endif
 
     call bios_entry
 
