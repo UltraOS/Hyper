@@ -1,5 +1,4 @@
 #include "bios_memory_services.h"
-#include "ultra_protocol.h"
 #include "physical_range.h"
 #include "bios_call.h"
 #include "common/minmax.h"

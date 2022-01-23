@@ -88,7 +88,7 @@ static void fetch_all_disks()
             continue;
         }
 
-        print_info("detected drive: %X -> sectors: %llu, bytes per sector: %hu\n",
+        print_info("detected drive: 0x%X -> sectors: %llu, bytes per sector: %hu\n",
                    drive_index, drive_params.total_sector_count, drive_params.bytes_per_sector);
 
         disks_buffer[disk_count++] = (struct disk) {

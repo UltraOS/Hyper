@@ -159,6 +159,7 @@ static size_t native_height = 768;
 #define MODE_BUFFER_CAPACITY 256
 static struct video_mode video_modes[MODE_BUFFER_CAPACITY];
 static size_t video_mode_count = 0;
+static u8 vesa_detected_major;
 
 // ---- legacy TTY ----
 #define VGA_ADDRESS 0xB8000
@@ -210,20 +211,22 @@ static u16 color_as_attribute(enum color c)
 static void tty_scroll()
 {
     volatile u16 *vga_memory = (volatile u16*)VGA_ADDRESS;
+    size_t x, y;
 
-    for (size_t y = 0; y < (TTY_ROWS - 1); ++y) {
-        for (size_t x = 0; x < TTY_COLUMNS; ++x) {
+    for (y = 0; y < (TTY_ROWS - 1); ++y) {
+        for (x = 0; x < TTY_COLUMNS; ++x) {
             vga_memory[y * TTY_COLUMNS + x] = vga_memory[(y + 1) * TTY_COLUMNS + x];
         }
     }
 
-    for (size_t x = 0; x < TTY_COLUMNS; ++x)
+    for (x = 0; x < TTY_COLUMNS; ++x)
         vga_memory[(TTY_ROWS - 1) * TTY_COLUMNS + x] = ' ';
 }
 
 static bool tty_write(const char *text, size_t count, enum color col)
 {
-    for (size_t i = 0; i < count; ++i)
+    size_t i;
+    for (i = 0; i < count; ++i)
         asm volatile("outb %0, %1" ::"a"(text[i]), "Nd"(0xE9));
 
     volatile u16 *vga_memory = (volatile u16*)VGA_ADDRESS;
@@ -233,7 +236,7 @@ static bool tty_write(const char *text, size_t count, enum color col)
     if (!legacy_tty_available)
         return false;
 
-    for (size_t i = 0; i < count; ++i) {
+    for (i = 0; i < count; ++i) {
         c = text[i];
         no_write = false;
 
@@ -361,17 +364,17 @@ static void fetch_all_video_modes()
     struct super_vga_info vga_info = { 0 };
     struct mode_information info;
     const char *oem_string;
-    u8 vesa_major, vesa_minor;
+    u8 vesa_minor;
     volatile u16 *video_modes_list;
 
     if (!fetch_vga_info(&vga_info))
         return;
 
-    vesa_major = vga_info.vesa_version >> 8;
+    vesa_detected_major = vga_info.vesa_version >> 8;
     vesa_minor = vga_info.vesa_version & 0xFF;
     oem_string = from_real_mode_addr(vga_info.oem_name_segment, vga_info.oem_name_offset);
 
-    print_info("VESA version %u.%u\n", vesa_major, vesa_minor);
+    print_info("VESA version %u.%u\n", vesa_detected_major, vesa_minor);
     print_info("OEM name \"%s\"\n", oem_string);
 
     video_modes_list = from_real_mode_addr(vga_info.supported_modes_list_segment,
@@ -385,7 +388,7 @@ static void fetch_all_video_modes()
         if (!fetch_mode_info(mode_id, &info))
             return;
 
-        if (!validate_video_mode(&info, vesa_major >= 3))
+        if (!validate_video_mode(&info, vesa_detected_major >= 3))
             continue;
 
         buffer_idx = video_mode_count++;
@@ -440,7 +443,7 @@ void fetch_native_resolution()
     native_width = td->horizontal_active_pixels_lo;
     native_width |= td->horizontal_active_pixels_hi << 8;
 
-    print_info("detected native resoultion %zux%zu\n", native_width, native_height);
+    print_info("detected native resolution %zux%zu\n", native_width, native_height);
 }
 
 static struct video_mode *list_modes(size_t *count)
@@ -469,7 +472,7 @@ static bool do_set_mode(u16 id)
         .ebx = id | LINEAR_FRAMEBUFFER_BIT
     };
 
-    print_info("setting video mode %hu\n", id);
+    print_info("setting video mode %hu...\n", id);
     bios_call(0x10, &regs, &regs);
 
     return check_vbe_call(0x4F02, &regs);
@@ -485,18 +488,19 @@ static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
     if (!do_set_mode(id))
         return false;
 
-    out_framebuffer->bpp = info.bits_per_pixel;
-    out_framebuffer->height = info.height;
     out_framebuffer->width = info.width;
+    out_framebuffer->height = info.height;
+    out_framebuffer->pitch = (vesa_detected_major >= 3) ? info.bytes_per_scanline_linear : info.bytes_per_scanline;
+    out_framebuffer->bpp = info.bits_per_pixel;
     out_framebuffer->physical_address = info.framebuffer_address;
 
     if (info.bits_per_pixel == 24) {
-        out_framebuffer->format = FORMAT_RBG;
+        out_framebuffer->format = FB_FORMAT_RBG;
     } else if (info.bits_per_pixel == 32) {
-        out_framebuffer->format = FORMAT_RGBA;
+        out_framebuffer->format = FB_FORMAT_RGBA;
     } else {
-        out_framebuffer->format = FORMAT_INVALID;
-        print_warn("Set video mode with unsupported format (%d bpp)\n", info.bits_per_pixel);
+        out_framebuffer->format = FB_FORMAT_INVALID;
+        print_warn("set video mode with unsupported format (%d bpp)\n", info.bits_per_pixel);
     }
 
     legacy_tty_available = false;

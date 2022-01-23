@@ -2,10 +2,17 @@
 
 #include "common/types.h"
 #include "common/range.h"
-#include "ultra_protocol.h"
+#include "services.h"
 
 struct physical_range {
-    struct range r;
+    union {
+        struct range r;
+        struct {
+            u64 begin;
+            u64 end;
+        };
+    };
+
     u64 type;
 };
 
