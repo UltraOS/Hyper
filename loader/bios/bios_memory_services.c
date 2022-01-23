@@ -54,11 +54,6 @@ struct e820_entry {
     u32 attributes;
 };
 
-#define E820_ADDRESS_RANGE_FREE_MEMORY 1
-#define E820_ADDRESS_RANGE_RESERVED    2
-#define E820_ADDRESS_RANGE_ACPI        3
-#define E820_ADDRESS_RANGE_NVS         4
-
 // https://uefi.org/specs/ACPI/6.4/15_System_Address_Map_Interfaces/int-15h-e820h---query-system-address-map.html
 static void load_e820()
 {
@@ -70,7 +65,6 @@ static void load_e820()
         .edx = ASCII_SMAP,
         .edi = (u32)&entry
     };
-    u64 converted_type = MEMORY_TYPE_INVALID;
     bool first_call = true;
 
     do {
@@ -106,24 +100,9 @@ static void load_e820()
         print_info("range: 0x%016llX -> 0x%016llX, type: 0x%02X\n", entry.address,
                    entry.address + entry.size_in_bytes, entry.type);
 
-        switch (entry.type) {
-            case E820_ADDRESS_RANGE_FREE_MEMORY:
-                converted_type = MEMORY_TYPE_FREE;
-                break;
-            case E820_ADDRESS_RANGE_ACPI:
-                converted_type = MEMORY_TYPE_RECLAIMABLE;
-                break;
-            case E820_ADDRESS_RANGE_NVS:
-                converted_type = MEMORY_TYPE_NVS;
-                break;
-            case E820_ADDRESS_RANGE_RESERVED:
-            default: // we don't care about all other types and consider them reserved
-                converted_type = MEMORY_TYPE_RESERVED;
-        }
-
         range = (struct physical_range) {
             .r = { entry.address, entry.address + entry.size_in_bytes },
-            .type = converted_type
+            .type = entry.type
         };
 
         // Don't try to align reserved physical ranges, we're not going to use them anyways
@@ -223,7 +202,7 @@ static void correct_overlapping_ranges(size_t first_index)
 
 static void allocate_out_of(const struct physical_range *allocated_range, size_t index_of_original, bool invert_priority)
 {
-    struct shatter_result sr;
+    struct shatter_result sr = { 0 };
     size_t i, current_index = index_of_original;
 
     physical_ranges_shatter(&entries_buffer[index_of_original], allocated_range, &sr, invert_priority);
@@ -289,7 +268,7 @@ static u64 allocate_top_down(size_t page_count, u64 upper_limit, u32 type)
     };
     allocate_out_of(&allocated_range, i, false);
 
-    return allocated_range.r.begin;
+    return allocated_range.begin;
 }
 
 static void fail_on_allocation(size_t page_count, u64 lower_limit, u64 upper_limit)
@@ -301,14 +280,14 @@ static void fail_on_allocation(size_t page_count, u64 lower_limit, u64 upper_lim
 static ssize_t first_range_that_contains(u64 value, bool allow_one_above)
 {
     ssize_t left = 0;
-    ssize_t right = entry_count;
+    ssize_t right = entry_count - 1;
 
     while (left <= right) {
         ssize_t middle = left + ((right - left) / 2);
 
-        if (entries_buffer[middle].r.begin < value) {
+        if (entries_buffer[middle].begin < value) {
             left = middle + 1;
-        } else if (value < entries_buffer[middle].r.begin) {
+        } else if (value < entries_buffer[middle].begin) {
             right = middle - 1;
         } else {
             return middle;
@@ -398,7 +377,7 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
     };
     allocate_out_of(&allocated_range, range_index, false);
 
-    return allocated_range.r.begin;
+    return allocated_range.begin;
 }
 
 static u64 allocate_pages(size_t count, u64 upper_limit, u32 type, bool top_down)
@@ -442,22 +421,42 @@ static void free_pages(u64 address, size_t count)
     allocate_out_of(&freed_range, range_index, true);
 }
 
-static size_t copy_map(struct memory_map_entry *into_buffer, size_t capacity_in_bytes, size_t *out_key)
+static size_t copy_map(void *buf, size_t capacity, size_t elem_size,
+                       size_t *out_key, entry_convert_func entry_convert)
 {
-    size_t bytes_total = entry_count * sizeof(struct physical_range);
+    size_t i;
 
     if (released)
         oops("use-after-release: copy_map()");
 
-    if (capacity_in_bytes < bytes_total) {
-        *out_key = 0;
-        return bytes_total;
+    if (capacity == 0)
+        return entry_count;
+
+    BUG_ON(!entry_convert && (elem_size != sizeof(struct memory_map_entry)));
+
+    for (i = 0; i < entry_count; ++i) {
+        struct physical_range *pr = &entries_buffer[i];
+        struct memory_map_entry entry = {
+            .physical_address = pr->begin,
+            .size_in_bytes = range_length(&pr->r),
+            .type = pr->type
+        };
+
+        if (entry_convert) {
+            entry_convert(&entry, buf);
+        } else {
+            memcpy(buf, &entry, sizeof(struct memory_map_entry));
+        }
+
+        buf += elem_size;
+        --capacity;
+
+        if (capacity == 0 && (i != (entry_count - 1)))
+            return entry_count;
     }
 
-    memcpy(into_buffer, entries_buffer, bytes_total);
     *out_key = map_key;
-
-    return bytes_total;
+    return entry_count;
 }
 
 static bool handover(size_t key)
@@ -472,8 +471,14 @@ static bool handover(size_t key)
     return true;
 }
 
+#define STAGE2_BASE_PAGE 0x00007000
+#define STAGE2_END_PAGE  0x00080000
+
 static void initialize_memory_map()
 {
+    size_t i;
+    u64 res;
+
     load_e820();
 
     /*
@@ -482,10 +487,10 @@ static void initialize_memory_map()
      * whereas quicksort would run at O(N^2). Even if it's unsorted, most E820 memory maps
      * only contain like 10-20 entries, so it's not a big deal.
      */
-    for (size_t i = 0; i < entry_count; ++i) {
+    for (i = 0; i < entry_count; ++i) {
         size_t j = i;
 
-        while (j > 0 && entries_buffer[j].r.begin < entries_buffer[j - 1].r.begin) {
+        while (j > 0 && entries_buffer[j].begin < entries_buffer[j - 1].begin) {
             struct physical_range tmp = entries_buffer[j];
             entries_buffer[j] = entries_buffer[j - 1];
             entries_buffer[j - 1] = tmp;
@@ -494,6 +499,12 @@ static void initialize_memory_map()
     }
 
     correct_overlapping_ranges(0);
+
+    // Try to allocate ourselves
+    res = allocate_pages_at(STAGE2_BASE_PAGE, (STAGE2_END_PAGE - STAGE2_BASE_PAGE) / PAGE_SIZE,
+                            MEMORY_TYPE_LOADER_RECLAIMABLE);
+    if (res != STAGE2_BASE_PAGE)
+        print_warn("failed to mark loader base 0x%08X as allocated\n", STAGE2_BASE_PAGE);
 }
 
 static struct memory_services bios_ms = {
