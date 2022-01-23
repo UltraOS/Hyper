@@ -12,7 +12,7 @@ extern u8 a20_enabled;
 extern u8 section_bss_begin;
 extern u8 section_bss_end;
 
-void bios_entry()
+void bios_entry(void)
 {
     struct services s = {
         .provider = SERVICE_PROVIDER_BIOS,

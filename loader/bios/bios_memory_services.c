@@ -183,8 +183,10 @@ static void correct_overlapping_ranges(size_t first_index)
                 erase_range_at(j);
             } // else we emplaced 2 or more ranges
 
-            // walk backwards one step, because the type of range[i] could've changed
-            // therefore there's a small chance we might be able to merge i and i - 1
+            /*
+             * walk backwards one step, because the type of range[i] could've changed
+             * therefore there's a small chance we might be able to merge i and i - 1
+             */
             if (i != 0)
                 --i;
 
