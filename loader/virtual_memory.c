@@ -3,6 +3,7 @@
 
 #include "common/bug.h"
 #include "common/constants.h"
+#include "common/string.h"
 
 #define PAGE_PRESENT   (1 << 0)
 #define PAGE_READWRITE (1 << 1)
@@ -28,6 +29,7 @@ static u64 *table_at(u64 *table, size_t index)
     if (!page)
         return NULL;
 
+    memzero(page, PAGE_SIZE);
     table[index] = (u64)((ptr_t)page) | PAGE_READWRITE | PAGE_PRESENT;
     return page;
 }
@@ -82,12 +84,14 @@ bool map_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
 
 bool map_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
 {
-    for (size_t i = 0; i < pages; ++i) {
+    size_t i;
+
+    for (i = 0; i < pages; ++i) {
         if (!do_map_page(pt, virtual_base, physical_base, false))
             return false;
 
         virtual_base += PAGE_SIZE;
-        virtual_base += PAGE_SIZE;
+        physical_base += PAGE_SIZE;
     }
 
     return true;
@@ -100,12 +104,14 @@ bool map_huge_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
 
 bool map_huge_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
 {
-    for (size_t i = 0; i < pages; ++i) {
+    size_t i;
+
+    for (i = 0; i < pages; ++i) {
         if (!do_map_page(pt, virtual_base, physical_base, true))
             return false;
 
-        virtual_base += HUGE_PAGE_SIZE;
-        virtual_base += HUGE_PAGE_SIZE;
+        virtual_base  += HUGE_PAGE_SIZE;
+        physical_base += HUGE_PAGE_SIZE;
     }
 
     return true;
