@@ -3,6 +3,7 @@
 #include "common/format.h"
 #include "common/string.h"
 #include "common/constants.h"
+#include "common/string_view.h"
 
 static struct memory_services *memory_backend;
 static u32 default_alloc_type = MEMORY_TYPE_RESERVED;
@@ -31,10 +32,11 @@ static void log_allocation_failure(u64 address, size_t count, u32 type, bool war
     if (address) {
         snprintf(address_as_string, sizeof(address_as_string), "0x%016llX", address);
     } else {
-        memcpy(address_as_string, ANY_ADDRESS, strlen(ANY_ADDRESS) + 1);
+        struct string_view any_address_str = SV(ANY_ADDRESS);
+        memcpy(address_as_string, any_address_str.text, any_address_str.size + 1);
     }
 
-    printlvl(lvl, "failed to satisfy an allocation at %s with %zu pages of type %u\n",
+    printlvl(lvl, "failed to satisfy an allocation at %s with %zu pages of type 0x%08X\n",
              address_as_string, count, type);
 }
 
@@ -45,9 +47,9 @@ static void on_failed_critical_allocation(u64 address, size_t count, u32 type)
     for (;;);
 }
 
-static void* do_allocate_with_type_at(u64 address, size_t count, u32 type, bool critical)
+static void *do_allocate_with_type_at(u64 address, size_t count, u32 type, bool critical)
 {
-    void* result;
+    void *result;
 
     BUG_ON(!memory_backend);
 
@@ -72,7 +74,7 @@ static void* do_allocate_with_type_at(u64 address, size_t count, u32 type, bool 
     if (critical)
         on_failed_critical_allocation(address, count, type);
 
-    log_allocation_failure(address, count, type, critical);
+    log_allocation_failure(address, count, type, !critical);
     return result;
 }
 
@@ -81,55 +83,55 @@ void *allocate_pages_with_type_at(u64 address, size_t count, u32 type)
     return do_allocate_with_type_at(address, count, type, false);
 }
 
-void* allocate_pages_with_type(size_t count, u32 type)
+void *allocate_pages_with_type(size_t count, u32 type)
 {
     return allocate_pages_with_type_at(0, count, type);
 }
 
-void* allocate_pages(size_t count)
+void *allocate_pages(size_t count)
 {
     return allocate_pages_with_type(count, default_alloc_type);
 }
 
-void* allocate_bytes(size_t count)
+void *allocate_bytes(size_t count)
 {
     size_t page_count = PAGE_ROUND_UP(count) / PAGE_SIZE;
     return allocate_pages(page_count);
 }
 
-void* allocate_critical_pages_with_type_at(u64 address, size_t count, u32 type)
+void *allocate_critical_pages_with_type_at(u64 address, size_t count, u32 type)
 {
     return do_allocate_with_type_at(address, count, type, true);
 }
 
-void* allocate_critical_pages_with_type(size_t count, u32 type)
+void *allocate_critical_pages_with_type(size_t count, u32 type)
 {
     return allocate_critical_pages_with_type_at(0, count, type);
 }
 
-void* allocate_critical_pages_at(u64 address, size_t count)
+void *allocate_critical_pages_at(u64 address, size_t count)
 {
     return allocate_critical_pages_with_type_at(address, count, default_alloc_type);
 }
 
-void* allocate_critical_pages(size_t count)
+void *allocate_critical_pages(size_t count)
 {
     return allocate_critical_pages_with_type(count, default_alloc_type);
 }
 
-void* allocate_critical_bytes(size_t count)
+void *allocate_critical_bytes(size_t count)
 {
     size_t page_count = PAGE_ROUND_UP(count) / PAGE_SIZE;
     return allocate_critical_pages(page_count);
 }
 
-void free_pages(void* address, size_t count)
+void free_pages(void *address, size_t count)
 {
     BUG_ON(!memory_backend);
     memory_backend->free_pages((ptr_t)address, count);
 }
 
-void free_bytes(void* address, size_t count)
+void free_bytes(void *address, size_t count)
 {
     size_t page_count = PAGE_ROUND_UP(count) / PAGE_SIZE;
     free_pages(address, page_count);
