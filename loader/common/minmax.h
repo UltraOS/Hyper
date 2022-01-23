@@ -10,9 +10,10 @@
         COMPARE(x_name, y_name, op);                 \
     })
 
-#define DO_COMPARE(x, y, op) (__builtin_constant_p(x) && __builtin_constant_p(y)) ?                       \
-                              COMPARE(x, y, op) :                                                         \
-                              RUNTIME_COMPARE(x, y, CONCAT(ux, __COUNTER__), CONCAT(uy, __COUNTER__), op)
+#define DO_COMPARE(x, y, op)  \
+    __builtin_choose_expr(__builtin_constant_p(x) && __builtin_constant_p(y),                         \
+                          COMPARE(x, y, op),                                                          \
+                          RUNTIME_COMPARE(x, y, CONCAT(ux, __COUNTER__), CONCAT(uy, __COUNTER__), op))
 
 #define MIN(x, y) DO_COMPARE(x, y, <)
 #define MAX(x, y) DO_COMPARE(x, y, >)
