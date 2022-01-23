@@ -34,6 +34,7 @@ void loader_entry(struct services *svc)
 
     logger_set_backend(svc->vs);
     allocator_set_backend(svc->ms);
+    allocator_set_default_alloc_type(MEMORY_TYPE_LOADER_RECLAIMABLE);
     filesystem_set_backend(svc->ds);
 
     disks = svc->ds->list_disks(&disk_count);
@@ -42,7 +43,7 @@ void loader_entry(struct services *svc)
 
     cfg_file = find_config_file(&fe);
     if (!cfg_file)
-        oops("Couldn't find ultra.cfg anywhere on disk!");
+        oops("Couldn't find hyper.cfg anywhere on disk!");
 
     set_origin_fs(fe);
 
@@ -91,9 +92,9 @@ void initialize_from_mbr(struct disk_services *srvc, const struct disk *d, u32 d
 {
     struct mbr_partition_entry *partition = mbr_buffer + OFFSET_TO_MBR_PARTITION_LIST;
     bool is_ebr = base_index != 0;
-    size_t max_partitions = is_ebr ? 2 : 4;
+    size_t i, max_partitions = is_ebr ? 2 : 4;
 
-    for (size_t i = 0; i < max_partitions; ++i, ++partition) {
+    for (i = 0; i < max_partitions; ++i, ++partition) {
         size_t real_partition_offset = sector_offset + partition->first_block;
         struct range lba_range = { real_partition_offset, partition->block_count };
         void *partition_page;
@@ -160,12 +161,12 @@ void detect_all_filesystems(struct disk_services *srvc, const struct disk *d, u3
         return;
 
     if (!memcmp(table_page + OFFSET_TO_GPT_SIGNATURE, GPT_SIGNATURE, sizeof(GPT_SIGNATURE) - 1)) {
-        print_warn("GPT-partitioned drive %p skipped", d->handle);
+        print_warn("GPT-partitioned drive %p skipped\n", d->handle);
         return;
     }
 
     if (*(u16*)(table_page + OFFSET_TO_MBR_SIGNATURE) != MBR_SIGNATURE) {
-        print_warn("unpartitioned drive %p skipped", d->handle);
+        print_warn("unpartitioned drive %p skipped\n", d->handle);
         return;
     }
 
@@ -174,13 +175,9 @@ void detect_all_filesystems(struct disk_services *srvc, const struct disk *d, u3
 }
 
 static struct string_view search_paths[] = {
-    SV_CONSTEXPR("/ultra.cfg"),
-    SV_CONSTEXPR("/boot/ultra.cfg"),
-    SV_CONSTEXPR("/boot/ultra/ultra.cfg"),
-    SV_CONSTEXPR("/boot/Ultra/ultra.cfg"),
-    SV_CONSTEXPR("/Boot/ultra.cfg"),
-    SV_CONSTEXPR("/Boot/ultra/ultra.cfg"),
-    SV_CONSTEXPR("/Boot/Ultra/ultra.cfg"),
+    SV_CONSTEXPR("/hyper.cfg"),
+    SV_CONSTEXPR("/boot/hyper.cfg"),
+    SV_CONSTEXPR("/boot/hyper/hyper.cfg"),
 };
 
 struct file *find_config_file(struct fs_entry **out_entry)
@@ -192,7 +189,7 @@ struct file *find_config_file(struct fs_entry **out_entry)
     for (i = 0; i < entry_count; ++i) {
         for (j = 0; j < ARRAY_SIZE(search_paths); ++j) {
             struct filesystem *fs = entries[i].fs;
-            struct file *f = fs->open(fs, search_paths[i]);
+            struct file *f = fs->open(fs, search_paths[j]);
 
             if (!f)
                 continue;
