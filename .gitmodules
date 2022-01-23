@@ -1,0 +1,3 @@
+[submodule "loader/protocols/ultra_protocol"]
+	path = loader/protocols/ultra_protocol
+	url = https://github.com/UltraOS/UltraProtocol
