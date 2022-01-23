@@ -25,7 +25,9 @@ static inline char tolower(char c)
 
 static inline void str_tolower(char* str, size_t size)
 {
-    for (size_t i = 0; i < size; ++i)
+    size_t i;
+
+    for (i = 0; i < size; ++i)
         str[i] = tolower(str[i]);
 }
 
@@ -39,6 +41,8 @@ static inline char toupper(char c)
 
 static inline void str_toupper(char* str, size_t size)
 {
-    for (size_t i = 0; i < size; ++i)
+    size_t i;
+
+    for (i = 0; i < size; ++i)
         str[i] = toupper(str[i]);
 }

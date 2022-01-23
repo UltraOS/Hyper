@@ -3,10 +3,12 @@
 
 bool sv_equals(struct string_view lhs, struct string_view rhs)
 {
+    size_t i;
+
     if (lhs.size != rhs.size)
         return false;
 
-    for (size_t i = 0; i < lhs.size; ++i) {
+    for (i = 0; i < lhs.size; ++i) {
         if (lhs.text[i] != rhs.text[i])
             return false;
     }
@@ -16,10 +18,12 @@ bool sv_equals(struct string_view lhs, struct string_view rhs)
 
 bool sv_equals_caseless(struct string_view lhs, struct string_view rhs)
 {
+    size_t i;
+
     if (lhs.size != rhs.size)
         return false;
 
-    for (size_t i = 0; i < lhs.size; ++i) {
+    for (i = 0; i < lhs.size; ++i) {
         if (tolower(lhs.text[i]) != tolower(rhs.text[i]))
             return false;
     }

@@ -10,10 +10,10 @@ struct string_view {
 };
 
 #define SV_CONSTEXPR(str) (struct string_view) { str, sizeof(str) - 1 }
-#define SV(str)                                     \
-    __builtin_constant_p(str) ?                     \
-    SV_CONSTEXPR(str) :                             \
-    (struct string_view) { str, strlen(str) }
+#define SV(str)                                                      \
+    __builtin_choose_expr(__builtin_constant_p(str),                 \
+                          SV_CONSTEXPR(str),                         \
+                          (struct string_view) { str, strlen(str) })
 
 bool sv_equals(struct string_view lhs, struct string_view rhs);
 bool sv_equals_caseless(struct string_view lhs, struct string_view rhs);
