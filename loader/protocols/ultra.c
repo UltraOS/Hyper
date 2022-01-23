@@ -1,5 +1,5 @@
 #include "ultra.h"
-#include "ultra_protocol.h"
+#include "ultra_protocol/ultra_protocol.h"
 #include "elf/elf.h"
 #include "common/bug.h"
 #include "common/cpuid.h"
@@ -342,6 +342,8 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
         // Add 1 to give some leeway for memory map growth after the next allocation
         memory_map_reserved_size = ms->copy_map(NULL, 0, 0, &key, NULL) + 1;
         bytes_for_this_allocation = bytes_needed + memory_map_reserved_size * sizeof(struct ultra_memory_map_entry);
+
+        // FIXME: this should probably do page granularity allocations
         hi->attribute_array_address = (u32)allocate_critical_bytes(bytes_for_this_allocation);
 
         // Check if memory map had to grow to store the previous allocation
