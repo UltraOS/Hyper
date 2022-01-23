@@ -1,7 +1,6 @@
 #pragma once
 
 #include "common/types.h"
-#include "ultra_protocol.h"
 
 struct disk {
     u64 sectors;
@@ -60,6 +59,19 @@ enum color {
     COLOR_GREEN,
 };
 
+#define FB_FORMAT_INVALID 0
+#define FB_FORMAT_RBG     1
+#define FB_FORMAT_RGBA    2
+
+struct framebuffer {
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;
+    uint16_t bpp;
+    uint16_t format;
+    uint64_t physical_address;
+};
+
 struct video_services {
     /*
      * Lists all available video modes.
@@ -93,6 +105,36 @@ struct video_services {
     bool (*tty_write)(const char *text, size_t count, enum color c);
 };
 
+// These are consistent with the ACPI specification
+#define MEMORY_TYPE_INVALID            0x00000000
+#define MEMORY_TYPE_FREE               0x00000001
+#define MEMORY_TYPE_RESERVED           0x00000002
+#define MEMORY_TYPE_ACPI_RECLAIMABLE   0x00000003
+#define MEMORY_TYPE_NVS                0x00000004
+#define MEMORY_TYPE_UNUSABLE           0x00000005
+#define MEMORY_TYPE_DISABLED           0x00000006
+#define MEMORY_TYPE_PERSISTENT         0x00000007
+
+/*
+ * All memory allocated by the loader is marked with this by default,
+ * the real underlying type is of course MEMORY_TYPE_FREE.
+ */
+#define MEMORY_TYPE_LOADER_RECLAIMABLE 0xFFFF0001
+
+struct memory_map_entry {
+    uint64_t physical_address;
+    uint64_t size_in_bytes;
+    uint64_t type;
+};
+
+/*
+ * Converts memory_map_entry to the native protocol memory map entry format.
+ * entry -> current entry to be converted.
+ * buf -> pointer to the caller buffer where the entry should be written.
+ *        buf is guaranteed to have enough capacity for the entry.
+ */
+typedef void (*entry_convert_func) (struct memory_map_entry *entry, void *buf);
+
 struct memory_services {
     /*
      * Allocates count pages starting at address with type.
@@ -121,15 +163,20 @@ struct memory_services {
 
     /*
      * Copies protocol-formatted memory map entries into buffer.
-     * into_buffer -> pointer to the first byte of the buffer that receives memory map entries
-     * (allowed to be nullptr if capacity is passed as 0).
-     * capacity_in_bytes -> capacity of the buffer.
-     * key -> set by the service provider and is a unique id of the current state of the map
-     * that changes with every allocate/free call. Only set if capacity_in_bytes
-     * was enough to receive the entire map.
-     * Returns the number of bytes that would've been copied if buffer had enough capacity.
+     * buf -> pointer to the first byte of the buffer that receives memory map entries
+     *        (allowed to be nullptr if capacity is passed as 0).
+     * capacity -> number of elem_size elements that fit in the buffer.
+     * elem_size -> size in bytes of the native memory map entry that will be written to 'buf'
+     * out_key -> set by the service provider and is a unique id of the current state of the map
+     *            that changes with every allocate/free call. Only set if capacity
+     *            was enough to receive the entire map.
+     * entry_convert -> a callback to use to convert each memory map entry to the native protocol format.
+     *                  Can be NULL, in which case the memory_map_entry struct is copied verbatim
+     *                  elem_size must be equal to sizeof(struct memory_map_entry) for this case.
+     * Returns the number of entries that would've been copied if buffer had enough capacity.
      */
-    size_t (*copy_map)(struct memory_map_entry* into_buffer, size_t capacity_in_bytes, size_t* out_key);
+    size_t (*copy_map)(void *buf, size_t capacity, size_t elem_size,
+                       size_t *out_key, entry_convert_func entry_convert);
 
     /*
      * Disables the service and makes caller the owner of the entire map.
