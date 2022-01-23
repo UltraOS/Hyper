@@ -1,9 +1,10 @@
-EBDA_BEGIN = 0x00080000;
-REAL_MODE_SEGMENT0_END = 0x10000;
+EBDA_BEGIN             = 0x00080000;
+STAGE2_LOAD_BASE       = 0x00007E00;
+REAL_MODE_SEGMENT0_END = 0x00010000;
 
 SECTIONS
 {
-    . = 0x7E00;
+    . = STAGE2_LOAD_BASE;
 
     .entry : {
         *(.entry*)
@@ -27,6 +28,8 @@ SECTIONS
     .data : {
         *(.data .data.*)
     }
+
+    ASSERT((. - STAGE2_LOAD_BASE) < 64K, "Looks like stage2 is now bigger than 128 sectors, please correct the STAGE2_SECTORS_TO_LOAD constant in the MBR")
 
     .bss : {
         section_bss_begin = .;
