@@ -81,6 +81,7 @@ const struct fs_entry *fs_by_full_path(const struct full_path *path)
 {
     bool by_disk_index = false, by_partition_index = false, raw_partition = false;
     u32 disk_index = 0, partition_index = 0;
+    size_t i;
 
     if (path->disk_id_type == DISK_IDENTIFIER_INVALID ||
         path->partition_id_type == PARTITION_IDENTIFIER_INVALID)
@@ -106,7 +107,7 @@ const struct fs_entry *fs_by_full_path(const struct full_path *path)
         raw_partition = true;
     }
 
-    for (size_t i = 0; i < entry_buffer_size; ++i) {
+    for (i = 0; i < entry_buffer_size; ++i) {
         struct fs_entry *entry = &entry_buffer[i];
 
         if (by_disk_index) {

@@ -25,7 +25,7 @@ struct contiguous_file_range {
 static struct contiguous_file_range *find_range(struct contiguous_file_range *ranges, size_t count, size_t offset)
 {
     size_t left = 0;
-    size_t right = count;
+    size_t right = count - 1;
 
     while (left <= right) {
         size_t middle = left + ((right - left) / 2);
@@ -356,7 +356,9 @@ static void process_normal_entry(struct fat_directory_entry *entry, struct fat_d
 
 static size_t ucs2_to_ascii(const u8 *ucs2, size_t count, char **out)
 {
-    for (size_t i = 0; i < (count * BYTES_PER_UCS2_CHAR); i += BYTES_PER_UCS2_CHAR) {
+    size_t i;
+
+    for (i = 0; i < (count * BYTES_PER_UCS2_CHAR); i += BYTES_PER_UCS2_CHAR) {
         u16 ucs2_char = ucs2[i] | ((u16)ucs2[i + 1] << 8);
 
         char ascii;

@@ -35,7 +35,7 @@ bool split_prefix_and_path(struct string_view str, struct string_view *prefix, s
     return true;
 }
 
-bool next_path_node(struct string_view* path, struct string_view* node)
+bool next_path_node(struct string_view *path, struct string_view *node)
 {
     struct string_view sep = SV("/");
     ssize_t path_end;
@@ -49,7 +49,7 @@ bool next_path_node(struct string_view* path, struct string_view* node)
 
     path_end = sv_find(*node, sep, 0);
     if (path_end != -1) {
-        const char* end = &node->text[path_end];
+        const char *end = &node->text[path_end];
         path->size -= end - path->text;
         path->text = end;
         node->size = path_end;
@@ -93,6 +93,8 @@ static bool extract_numeric_prefix(struct string_view *str, struct string_view *
 
 bool parse_guid(struct string_view *str, struct guid *guid)
 {
+    size_t i;
+
     if (str->size != CHARS_PER_GUID)
         return false;
 
@@ -108,7 +110,7 @@ bool parse_guid(struct string_view *str, struct guid *guid)
         return false;
     sv_offset_by(str, 2 * CHARS_PER_HEX_BYTE);
 
-    for (size_t i = 0; i < 8; ++i) {
+    for (i = 0; i < 8; ++i) {
         if (!str_to_u8((struct string_view) { str->text, 1 * CHARS_PER_HEX_BYTE }, &guid->data4[i]))
             return false;
 
