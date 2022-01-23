@@ -10,8 +10,6 @@
       return false;            \
     } while (0)
 
-#define HIGHER_HALF_BASE 0xFFFFFFFF80000000
-
 static Elf64_Half get_machine_type(const u8 *data, u8 bitness)
 {
     if (bitness == 32)
@@ -110,7 +108,8 @@ static void get_load_ph(void *data, struct load_ph *out, u8 bitness)
 }
 
 static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
-                    Elf64_Half machine_type, u8 bitness, struct load_result *res)
+                    Elf64_Half machine_type, u8 bitness, u32 binary_alloc_type,
+                    struct load_result *res)
 {
     struct binary_info *info = &res->info;
     Elf64_Half ph_count = get_program_header_count(data, bitness);
@@ -120,11 +119,12 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
     void *ph_addr = data + ph_begin;
     u64 reference_base, reference_ceiling;
     bool must_be_higher_half = alloc_anywhere;
-    size_t i;
+    size_t i, pages;
 
     info->virtual_base = -1ull;
+    info->physical_base = -1ull;
     info->entrypoint_address = get_entrypoint(data, bitness);
-    info->physical_valid = !use_va;
+    info->kernel_range_is_direct_map = !alloc_anywhere;
 
     if (get_machine_type(data, bitness) != machine_type)
         LOAD_ERROR("unexpected machine type");
@@ -160,6 +160,16 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
             info->entrypoint_address += hdr.phys_addr;
         }
 
+        if (hdr.phys_addr >= HIGHER_HALF_BASE) {
+            if (!use_va)
+                LOAD_ERROR("invalid load address");
+
+            hdr.phys_addr -= HIGHER_HALF_BASE;
+
+            if ((hdr.phys_addr < (1 * MB)) && !alloc_anywhere)
+                LOAD_ERROR("invalid load address");
+        }
+
         if (hdr.phys_addr < info->physical_base)
             info->physical_base = hdr.phys_addr;
 
@@ -179,11 +189,12 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
     info->physical_base = PAGE_ROUND_DOWN(info->physical_base);
     info->physical_ceiling = PAGE_ROUND_UP(info->physical_ceiling);
 
+    pages = (info->virtual_ceiling - info->virtual_base) / PAGE_SIZE;
     if (alloc_anywhere) {
-        size_t pages = (info->virtual_ceiling - info->virtual_base) / PAGE_SIZE;
-        info->physical_base = (u64)((ptr_t)allocate_critical_pages(pages));
+        info->physical_base = (u64)((ptr_t)(allocate_critical_pages_with_type(pages, binary_alloc_type)));
         info->physical_ceiling = info->physical_base + (pages * PAGE_SIZE);
-        info->physical_valid = true;
+    } else {
+        allocate_critical_pages_with_type_at(info->physical_base, pages, binary_alloc_type);
     }
 
     ph_addr = data + ph_begin;
@@ -210,26 +221,11 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
             (size < ph_file_end))
             LOAD_ERROR("invalid program header");
 
-        if (addr >= HIGHER_HALF_BASE) {
-            if (!use_va)
-                LOAD_ERROR("invalid load address");
-
+        if (addr >= HIGHER_HALF_BASE)
             addr -= HIGHER_HALF_BASE;
 
-            if ((addr < (1 * MB)) && !alloc_anywhere)
-                LOAD_ERROR("invalid load address");
-        }
-
         if (!alloc_anywhere) {
-            u64 begin = PAGE_ROUND_DOWN(addr);
-            u64 end = PAGE_ROUND_UP(begin + hdr.memsz);
-            size_t pages = (end - begin) / PAGE_SIZE;
-
-            if (end > (4ull * GB))
-                LOAD_ERROR("invalid load address");
-
-            load_base = (u64)((ptr_t)allocate_critical_pages_with_type_at(begin, pages, MEMORY_TYPE_KERNEL_BINARY));
-            load_base += addr - begin;
+            load_base = addr;
         }  else {
             load_base = info->physical_base + (hdr.virt_addr - info->virtual_base);
         }
@@ -266,15 +262,17 @@ u8 elf_bitness(void *data, size_t size)
     }
 }
 
-bool elf_load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct load_result *res)
+bool elf_load(void *data, size_t size, bool use_va, bool alloc_anywhere, u32 binary_alloc_type, struct load_result *res)
 {
     struct Elf32_Ehdr *hdr = data;
-    u8 bitness = elf_bitness(data, size);
-    Elf64_Half machine_type = bitness == 64 ? EM_386 : EM_AMD64;
+    res->info.bitness = elf_bitness(data, size);
+    Elf64_Half machine_type = res->info.bitness == 64 ? EM_AMD64 : EM_386;
 
-    if (!bitness)
+    if (!res->info.bitness)
         LOAD_ERROR("invalid elf class");
-    if (alloc_anywhere && use_va)
+    if (res->info.bitness == 32 && (alloc_anywhere || use_va))
+        LOAD_ERROR("invalid load options");
+    if (alloc_anywhere && !use_va)
         LOAD_ERROR("invalid load options");
 
     static unsigned char elf_magic[] = { ELFMAG0, ELFMAG1, ELFMAG2, ELFMAG3 };
@@ -283,5 +281,5 @@ bool elf_load(void *data, size_t size, bool use_va, bool alloc_anywhere, struct 
     if (hdr->e_ident[EI_DATA] != ELFDATA2LSB)
         LOAD_ERROR("not a little-endian file");
 
-    return do_load(data, size, use_va, alloc_anywhere, machine_type, bitness, res);
+    return do_load(data, size, use_va, alloc_anywhere, machine_type, res->info.bitness, binary_alloc_type, res);
 }
