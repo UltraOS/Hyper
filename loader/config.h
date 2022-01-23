@@ -135,19 +135,19 @@ bool _cfg_get_one_of(struct config *cfg, size_t offset, bool must_be_unique,
 bool cfg_get_next(struct config *cfg, struct value *val, bool oops_on_non_matching_type);
 bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool oops_on_non_matching_type);
 
-#define cfg_get_bool(cfg, obj, key, out_ptr) _cfg_get_bool(cfg, obj->cfg_off, true, key, out_ptr)
-#define cfg_get_signed(cfg, obj, key, out_ptr) _cfg_get_signed(cfg, obj->cfg_off, true, key, out_ptr)
-#define cfg_get_unsigned(cfg, obj, key, out_ptr) _cfg_get_unsigned(cfg, obj->cfg_off, true, key, out_ptr)
-#define cfg_get_string(cfg, obj, key, out_ptr) _cfg_get_string(cfg, obj->cfg_off, true, key, out_ptr)
-#define cfg_get_object(cfg, obj, key, out_ptr) _cfg_get_object(cfg, obj->cfg_off, true, key, out_ptr)
-#define cfg_get_one_of(cfg, obj, key, type_mask, out_ptr) _cfg_get_one_of(cfg, obj->cfg_off, true, key, (type_mask), out_ptr)
+#define cfg_get_bool(cfg, obj, key, out_ptr) _cfg_get_bool(cfg, (obj)->cfg_off, true, key, out_ptr)
+#define cfg_get_signed(cfg, obj, key, out_ptr) _cfg_get_signed(cfg, (obj)->cfg_off, true, key, out_ptr)
+#define cfg_get_unsigned(cfg, obj, key, out_ptr) _cfg_get_unsigned(cfg, (obj)->cfg_off, true, key, out_ptr)
+#define cfg_get_string(cfg, obj, key, out_ptr) _cfg_get_string(cfg, (obj)->cfg_off, true, key, out_ptr)
+#define cfg_get_object(cfg, obj, key, out_ptr) _cfg_get_object(cfg, (obj)->cfg_off, true, key, out_ptr)
+#define cfg_get_one_of(cfg, obj, key, type_mask, out_ptr) _cfg_get_one_of(cfg, (obj)->cfg_off, true, key, (type_mask), out_ptr)
 
-#define cfg_get_first_bool(cfg, obj, key, out_ptr) _cfg_get_bool(cfg, obj->cfg_off, false, key, out_ptr)
-#define cfg_get_first_signed(cfg, obj, key, out_ptr) _cfg_get_signed(cfg, obj->cfg_off, false, key, out_ptr)
-#define cfg_get_first_unsigned(cfg, obj, key, out_ptr) _cfg_get_unsigned(cfg, obj->cfg_off, false, key, out_ptr)
-#define cfg_get_first_string(cfg, obj, key, out_ptr) _cfg_get_string(cfg, obj->cfg_off, false, key, out_ptr)
-#define cfg_get_first_object(cfg, obj, key, out_ptr) _cfg_get_object(cfg, obj->cfg_off, false, key, out_ptr)
-#define cfg_get_first_one_of(cfg, obj, key, type_mask, out_ptr) _cfg_get_one_of(cfg, obj->cfg_off, false, key, (type_mask), out_ptr)
+#define cfg_get_first_bool(cfg, obj, key, out_ptr) _cfg_get_bool(cfg, (obj)->cfg_off, false, key, out_ptr)
+#define cfg_get_first_signed(cfg, obj, key, out_ptr) _cfg_get_signed(cfg, (obj)->cfg_off, false, key, out_ptr)
+#define cfg_get_first_unsigned(cfg, obj, key, out_ptr) _cfg_get_unsigned(cfg, (obj)->cfg_off, false, key, out_ptr)
+#define cfg_get_first_string(cfg, obj, key, out_ptr) _cfg_get_string(cfg, (obj)->cfg_off, false, key, out_ptr)
+#define cfg_get_first_object(cfg, obj, key, out_ptr) _cfg_get_object(cfg, (obj)->cfg_off, false, key, out_ptr)
+#define cfg_get_first_one_of(cfg, obj, key, type_mask, out_ptr) _cfg_get_one_of(cfg, (obj)->cfg_off, false, key, (type_mask), out_ptr)
 
 #define cfg_get_global_bool(cfg, key, out_ptr) _cfg_get_bool(cfg, 0, true, key, out_ptr)
 #define cfg_get_global_signed(cfg, key, out_ptr) _cfg_get_unsigned(cfg, 0, true, key, out_ptr)

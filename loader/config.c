@@ -300,6 +300,7 @@ static void consume_character(struct parse_state *s, const char* c)
 
 bool cfg_parse(struct string_view text, struct config *cfg)
 {
+    size_t i;
     struct parse_state *s = allocate_bytes(sizeof(struct parse_state));
     if (!s) {
         cfg->last_error.message = SV("out of memory");
@@ -309,7 +310,7 @@ bool cfg_parse(struct string_view text, struct config *cfg)
     s->file_line = 1;
     s->line_offset = 1;
 
-    for (size_t i = 0; i < text.size; ++i) {
+    for (i = 0; i < text.size; ++i) {
         char c = text.text[i];
         s->line_offset++;
         s->global_offset++;
@@ -568,10 +569,9 @@ bool cfg_parse(struct string_view text, struct config *cfg)
 
 void cfg_pretty_print_error(const struct config_error *err, struct string_view config_as_view)
 {
-    size_t first_char_of_line;
+    size_t i, first_char_of_line, len;
     ssize_t newline_loc;
     char line_as_string[32];
-    size_t len;
 
     if (sv_empty(err->message))
         return;
@@ -589,12 +589,12 @@ void cfg_pretty_print_error(const struct config_error *err, struct string_view c
 
     print_err("%s%s%pSV\n", line_as_string, LINE_DELIMETER, &config_as_view);
 
-    for (size_t i = 0; i < len; ++i)
+    for (i = 0; i < len; ++i)
         print_err(" ");
 
     print_err(LINE_DELIMETER);
 
-    for (size_t i = 1; i < err->offset; ++i)
+    for (i = 1; i < err->offset; ++i)
         print_err(" ");
 
     print_err("^--- %pSV\n", &err->message);
