@@ -191,7 +191,13 @@ bool parse_path(struct string_view path, struct full_path *out_path)
         return false;
 
     sv_offset_by(&path, 2);
+    if (path.size >= MAX_PATH_SIZE) {
+        oops("path \"%pSV\" is too big (%zu vs max %u)",
+             &path, path.size, MAX_PATH_SIZE);
+    }
+
     out_path->path_within_partition = path;
+
     return true;
 }
 

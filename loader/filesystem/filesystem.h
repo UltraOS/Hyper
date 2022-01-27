@@ -5,6 +5,8 @@
 #include "common/string_view.h"
 #include "common/range.h"
 
+#define MAX_PATH_SIZE 255
+
 struct guid {
     u32 data1;
     u16 data2;
