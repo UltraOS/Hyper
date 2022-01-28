@@ -6,7 +6,8 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   }
 
   cores=$(sysctl -n hw.physicalcpu)
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+elif [ "$OSTYPE" = "linux-gnu"* ]
+then
   cores=$(nproc)
 fi
 
@@ -47,7 +48,7 @@ else
   echo "Building the cross-compiler for $compiler_prefix ($platform)..."
 fi
 
-if [[ "$OSTYPE" == "linux-gnu"* ]]
+if [ "$OSTYPE" = "linux-gnu"* ]
 then
   declare -A package_managers;
   package_managers[/etc/arch-release]="pacman"
@@ -55,7 +56,7 @@ then
 
   for f in ${!package_managers[@]}
   do
-    if [[ -f $f ]];
+    if [ -f $f ]
     then
       package_manager=${package_managers[$f]}
     fi
@@ -82,7 +83,7 @@ then
               "libisl-dev"
               "build-essential"
           )
-elif [[ "$OSTYPE" == "darwin"* ]]
+elif [ "$OSTYPE" = "darwin"* ]
 then
   declare -a dependencies=(
               "bison"
@@ -100,7 +101,7 @@ fi
 for dependency in "${dependencies[@]}"
 do
   echo -n $dependency
-  if [[ "$OSTYPE" == "linux-gnu"* ]]
+  if [ "$OSTYPE" == "linux-gnu"* ]
   then
     if [ $package_manager == "apt" ]
     then
@@ -116,15 +117,16 @@ do
   if [ -z "$is_dependency_installed" ]
   then
     echo " - not installed"
-    if [[ "$OSTYPE" == "linux-gnu"* ]]
+    if [ "$OSTYPE" = "linux-gnu"* ]
     then
-      if [package_manager == "apt"]
+      if [ $package_manager == "apt"]
       then
         sudo apt install -y $dependency || on_error
       else
         sudo pacman -Sy $dependency || on_error
       fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
+    elif [ "$OSTYPE" = "darwin"* ]
+    then
       brew install $dependency || on_error
     fi
   else
@@ -199,13 +201,15 @@ echo "Building GCC..."
 mkdir -p $gcc_build_dir || on_error
 pushd $gcc_build_dir
 
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+if [ "$OSTYPE" = "linux-gnu"* ]
+then
   ../$gcc_sources_dir/configure --target=$TARGET \
                                 --prefix="$PREFIX" \
                                 --disable-nls \
                                 --enable-languages=c \
                                 --without-headers || on_error
-elif [[ "$OSTYPE" == "darwin"* ]]; then
+elif [ "$OSTYPE" = "darwin"* ]
+then
   ../$gcc_sources_dir/configure --target=$TARGET \
                                 --prefix="$PREFIX" \
                                 --disable-nls \
