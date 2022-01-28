@@ -2,6 +2,9 @@ build/
 build_uefi/
 build_bios/
 toolchain/
+installer/build
+installer/hyper_install
+installer/hyper_install.exe
 cmake-build-debug/
 .idea/
 !toolchain/build.sh
