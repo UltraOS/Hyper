@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
-string(TOLOWER ${PLATFORM} PLATFORM)
+if (PLATFORM)
+    string(TOLOWER ${PLATFORM} PLATFORM)
+endif ()
 
 if (NOT PLATFORM)
     set(PLATFORM "bios")
@@ -45,8 +47,17 @@ project(Hyper C ASM)
 
 set(ENV{HYPER_PLATFORM} ${PLATFORM})
 
+add_subdirectory(loader)
+
 if (PLATFORM MATCHES "bios")
     add_subdirectory(bios)
-endif ()
+    set(MBR_FULL_PATH "${MBR_PATH}/${MBR_BINARY}")
+    set(STAGE2_FULL_PATH "${STAGE2_PATH}/${STAGE2_BINARY}")
 
-add_subdirectory(loader)
+    add_custom_command(
+        OUTPUT ${PROJECT_SOURCE_DIR}/installer/hyper_install
+        COMMAND /bin/bash ${PROJECT_SOURCE_DIR}/installer/build.sh ${MBR_FULL_PATH} ${STAGE2_FULL_PATH}
+        DEPENDS ${MBR_FULL_PATH} ${STAGE2_BINARY}
+    )
+    add_custom_target(installer ALL DEPENDS ${PROJECT_SOURCE_DIR}/installer/hyper_install)
+endif()

@@ -54,3 +54,6 @@ if (PLATFORM MATCHES "bios")
 else ()
     set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-Wl,-dll -Wl,--subsystem,10 -e EfiMain -s -Wl,-Bsymbolic -shared")
 endif ()
+
+set(STAGE2_BINARY ${EXECUTABLE_NAME}  PARENT_SCOPE)
+set(STAGE2_PATH ${PROJECT_BINARY_DIR} PARENT_SCOPE)

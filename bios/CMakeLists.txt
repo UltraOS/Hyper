@@ -16,3 +16,6 @@ add_compile_options(
 
 add_executable(hyper_mbr hyper_mbr.asm)
 set_target_properties(hyper_mbr PROPERTIES NASM_OBJ_FORMAT bin)
+
+set(MBR_BINARY hyper_mbr           PARENT_SCOPE)
+set(MBR_PATH ${PROJECT_BINARY_DIR} PARENT_SCOPE)
