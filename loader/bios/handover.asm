@@ -1,10 +1,11 @@
 section .text
 
-PAE_BIT:                 equ 1 << 5
+PAE_BIT:                 equ (1 << 5)
 EFER_NUMBER:             equ 0xC0000080
-LONG_MODE_BIT:           equ 1 << 8
-PAGING_BIT:              equ 1 << 31
+LONG_MODE_BIT:           equ (1 << 8)
+PAGING_BIT:              equ (1 << 31)
 LONG_MODE_CODE_SELECTOR: equ 0x28
+EFLAGS_RESERVED_BIT:     equ (1 << 1)
 
 ; [[noreturn]] void do_kernel_handover32(u32 entrypoint, u32 esp)
 ; esp + 8 [esp]
@@ -15,7 +16,21 @@ do_kernel_handover32:
     mov eax, [esp + 4]
     mov esp, [esp + 8]
 
-    call eax
+    push dword 0x00000000 | EFLAGS_RESERVED_BIT
+    popfd
+
+    push dword 0x00000000 ; fake ret address
+    push eax              ; kernel entry
+
+    xor eax, eax
+    xor ecx, ecx
+    xor edx, edx
+    xor ebx, ebx
+    xor ebp, ebp
+    xor esi, esi
+    xor edi, edi
+
+    ret
 
 ; [[noreturn]] void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
 ; esp + 36 [arg1]
@@ -51,4 +66,24 @@ BITS 64
     mov rsi, [rsp + 36]
     mov rsp, [rsp + 12]
 
-    call rax
+    push qword 0x0000000000000000 | EFLAGS_RESERVED_BIT
+    popfq
+
+    push qword 0x0000000000000000 ; fake ret address
+    push rax                      ; kernel entry
+
+    xor rax, rax
+    xor rcx, rcx
+    xor rdx, rdx
+    xor rbx, rbx
+    xor rbp, rbp
+    xor r8, r8
+    xor r9, r9
+    xor r10, r10
+    xor r11, r11
+    xor r12, r12
+    xor r13, r13
+    xor r14, r14
+    xor r15, r15
+
+    ret
