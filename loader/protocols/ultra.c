@@ -38,13 +38,64 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le, st
         oops("invalid binary path %pSV", &string_path);
 }
 
+static uint32_t module_get_size(struct config *cfg, struct value *module_value)
+{
+    const uint32_t type_mask = VALUE_STRING | VALUE_UNSIGNED | VALUE_NONE;
+    struct value size_value;
+
+    if (!cfg_get_one_of(cfg, module_value, SV("size"), type_mask, &size_value) ||
+        value_is_null(&size_value))
+        return 0;
+
+    if (value_is_string(&size_value)) {
+        if (!sv_equals(size_value.as_string, SV("auto")))
+            oops("invalid value for module/size \"%pSV\"", &size_value.as_string);
+        return 0;
+    }
+
+    return size_value.as_unsigned;
+}
+
+static uint32_t module_get_type(struct config *cfg, struct value *module_value)
+{
+    const uint32_t type_mask = VALUE_STRING | VALUE_NONE;
+    struct value type_value;
+
+    if (!cfg_get_one_of(cfg, module_value, SV("type"), type_mask, &type_value) ||
+        value_is_null(&type_value) || sv_equals(type_value.as_string, SV("file")))
+        return ULTRA_MODULE_TYPE_FILE;
+
+    if (sv_equals(type_value.as_string, SV("memory")))
+        return ULTRA_MODULE_TYPE_MEMORY;
+
+    oops("invalid value for module/type \"%pSV\"", &type_value.as_string);
+}
+
+static u64 module_get_load_address(struct config *cfg, struct value *module_value)
+{
+    const uint32_t type_mask = VALUE_STRING | VALUE_UNSIGNED | VALUE_NONE;
+    struct value load_at_value;
+
+    if (!cfg_get_one_of(cfg, module_value, SV("load-at"), type_mask, &load_at_value) ||
+        value_is_null(&load_at_value))
+        return 0;
+
+    if (value_is_string(&load_at_value)) {
+        if (!sv_equals(load_at_value.as_string, SV("auto")))
+            oops("invalid value for module/load-at \"%pSV\"", &load_at_value.as_string);
+        return 0;
+    }
+
+    return load_at_value.as_unsigned;
+}
+
 static void module_load(struct config *cfg, struct value *module_value, struct ultra_module_info_attribute *attrs)
 {
-    struct full_path path;
-    const struct fs_entry *fse;
+    bool has_path;
     struct string_view str_path, module_name = { 0 };
-    struct file *module_file;
-    size_t file_pages;
+    size_t module_pages, module_size = 0;
+    uint32_t module_type = ULTRA_MODULE_TYPE_FILE;
+    u64 load_address = 0;
     void *module_data;
 
     static int module_idx = 0;
@@ -52,38 +103,87 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
 
     if (value_is_object(module_value)) {
         cfg_get_string(cfg, module_value, SV("name"), &module_name);
-        CFG_MANDATORY_GET(string, cfg, module_value, SV("path"), &str_path);
+        has_path = cfg_get_string(cfg, module_value, SV("path"), &str_path);
+        module_size = module_get_size(cfg, module_value);
+        module_type = module_get_type(cfg, module_value);
+        load_address = module_get_load_address(cfg, module_value);
     } else {
         str_path = module_value->as_string;
+        has_path = true;
     }
 
-    if (sv_empty(module_name))
+    if (sv_empty(module_name)) {
         snprintf(attrs->name, sizeof(attrs->name), "unnamed_module%d", module_idx);
+    } else {
+        if (module_name.size >= sizeof(attrs->name))
+            oops("module name \"%pSV\" is too long (%zu vs max %zu)",
+                 &module_name, module_name.size, sizeof(attrs->name) - 1);
 
-    if (!parse_path(str_path, &path))
-        oops("invalid module path %pSV", &str_path);
+        memcpy(attrs->name, module_name.text, module_name.size);
+        attrs->name[module_name.size] = '\0';
+    }
 
-    fse = fs_by_full_path(&path);
-    if (!fse)
-        oops("invalid module path %pSV", &str_path);
+    if (module_type == ULTRA_MODULE_TYPE_FILE) {
+        struct full_path path;
+        struct file *module_file;
+        const struct fs_entry *fse;
+        size_t bytes_to_read;
 
-    module_file = fse->fs->open(fse->fs, path.path_within_partition);
-    if (!module_file)
-        oops("invalid module path %pSV", &str_path);
+        if (!has_path)
+            cfg_oops_no_mandatory_key(SV("path"));
 
-    file_pages = CEILING_DIVIDE(module_file->size, PAGE_SIZE);
-    module_data = allocate_critical_pages_with_type(file_pages, ULTRA_MEMORY_TYPE_MODULE);
+        if (!parse_path(str_path, &path))
+            oops("invalid module path %pSV", &str_path);
 
-    if (!module_file->read(module_file, module_data, 0, module_file->size))
-        oops("failed to read module file");
+        fse = fs_by_full_path(&path);
+        if (!fse)
+            oops("no such disk/partition %pSV", &str_path);
+
+        module_file = fse->fs->open(fse->fs, path.path_within_partition);
+        if (!module_file)
+            oops("no such file %pSV", &path.path_within_partition);
+
+        bytes_to_read = module_file->size;
+
+        if (!module_size) {
+            module_size = bytes_to_read;
+        } else if (module_size < bytes_to_read) {
+            bytes_to_read = module_size;
+        }
+
+        module_pages = CEILING_DIVIDE(module_size, PAGE_SIZE);
+
+        // TODO: check this doesn't go above 4GB
+        if (load_address)
+            module_data = allocate_critical_pages_with_type_at(load_address, module_pages, ULTRA_MEMORY_TYPE_MODULE);
+        else
+            module_data = allocate_critical_pages_with_type(module_pages, ULTRA_MEMORY_TYPE_MODULE);
+
+        if (!module_file->read(module_file, module_data, 0, bytes_to_read))
+            oops("failed to read module file");
+
+        memzero(module_data + bytes_to_read, (module_pages * PAGE_SIZE) - bytes_to_read);
+        fse->fs->close(fse->fs, module_file);
+    } else { // module_type == ULTRA_MODULE_TYPE_MEMORY
+        if (!module_size)
+            oops("module size cannot be 0 for type \"memory\"");
+
+        module_pages = CEILING_DIVIDE(module_size, PAGE_SIZE);
+
+        // TODO: check this doesn't go above 4GB
+        if (load_address)
+            module_data = allocate_critical_pages_with_type_at(load_address, module_pages, ULTRA_MEMORY_TYPE_MODULE);
+        else
+            module_data = allocate_critical_pages_with_type(module_pages, ULTRA_MEMORY_TYPE_MODULE);
+
+        memzero(module_data, module_pages * PAGE_SIZE);
+    }
 
     *attrs = (struct ultra_module_info_attribute) {
         .header = { ULTRA_ATTRIBUTE_MODULE_INFO, sizeof(struct ultra_module_info_attribute) },
         .physical_address = (ptr_t)module_data,
-        .length = module_file->size
+        .size = module_size
     };
-
-    fse->fs->close(fse->fs, module_file);
 }
 
 struct kernel_info {
@@ -274,7 +374,7 @@ static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void 
     struct ultra_memory_map_entry *ue = buf;
 
     ue->physical_address = entry->physical_address;
-    ue->size_in_bytes = entry->size_in_bytes;
+    ue->size = entry->size_in_bytes;
 
     // Direct mapping
     if (entry->type <= ULTRA_MEMORY_TYPE_NVS || (entry->type >= ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE)) {
@@ -290,11 +390,11 @@ static void create_kernel_info_attribute(struct ultra_kernel_info_attribute *att
 
     attr->header = (struct ultra_attribute_header) {
         .type = ULTRA_ATTRIBUTE_KERNEL_INFO,
-        .size_in_bytes = sizeof(struct ultra_kernel_info_attribute)
+        .size = sizeof(struct ultra_kernel_info_attribute)
     };
     attr->physical_base = ki->bin_info.physical_base;
     attr->virtual_base = ki->bin_info.virtual_base;
-    attr->range_length = ki->bin_info.physical_ceiling - ki->bin_info.physical_base;
+    attr->size = ki->bin_info.physical_ceiling - ki->bin_info.physical_base;
     attr->partition_type = ki->bin_opts.path.partition_id_type;
     attr->partition_index = ki->bin_opts.path.partition_index;
 
@@ -302,9 +402,9 @@ static void create_kernel_info_attribute(struct ultra_kernel_info_attribute *att
     memcpy(&attr->disk_guid, &ki->bin_opts.path.disk_guid, sizeof(attr->disk_guid));
     memcpy(&attr->partition_guid, &ki->bin_opts.path.partition_guid, sizeof(attr->partition_guid));
 
-    BUG_ON(path_str.size > (sizeof(attr->path_on_disk) - 1));
-    memcpy(attr->path_on_disk, path_str.text, path_str.size);
-    attr->path_on_disk[path_str.size] = '\0';
+    BUG_ON(path_str.size > (sizeof(attr->fs_path) - 1));
+    memcpy(attr->fs_path, path_str.text, path_str.size);
+    attr->fs_path[path_str.size] = '\0';
 }
 
 void build_attribute_array(const struct attribute_array_spec *spec, enum service_provider sp,
@@ -412,8 +512,8 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
     *(struct ultra_memory_map_attribute*)attr_ptr = (struct ultra_memory_map_attribute) {
         .header = {
             .type = ULTRA_ATTRIBUTE_MEMORY_MAP,
-            .size_in_bytes = memory_map_reserved_size * sizeof(struct ultra_memory_map_entry)
-                             + sizeof(struct ultra_memory_map_attribute)
+            .size = memory_map_reserved_size * sizeof(struct ultra_memory_map_entry)
+                    + sizeof(struct ultra_memory_map_attribute)
         }
     };
     attr_ptr += sizeof(struct ultra_attribute_header);

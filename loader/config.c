@@ -640,7 +640,7 @@ static void config_find(struct config *cfg, size_t offset, struct string_view ke
 static void cfg_get_typed_entry_at_offset(struct config *cfg, enum config_entry_type expected_type,
                                           size_t offset, struct config_entry **out)
 {
-    BUG_ON(!offset || offset > cfg->size);
+    BUG_ON(offset >= cfg->size);
     *out = &cfg->buffer[offset];
     BUG_ON((*out)->t != expected_type);
 }

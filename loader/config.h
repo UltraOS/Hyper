@@ -149,24 +149,26 @@ bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value 
 #define cfg_get_first_object(cfg, obj, key, out_ptr) _cfg_get_object(cfg, (obj)->cfg_off, false, key, out_ptr)
 #define cfg_get_first_one_of(cfg, obj, key, type_mask, out_ptr) _cfg_get_one_of(cfg, (obj)->cfg_off, false, key, (type_mask), out_ptr)
 
-#define cfg_get_global_bool(cfg, key, out_ptr) _cfg_get_bool(cfg, 0, true, key, out_ptr)
-#define cfg_get_global_signed(cfg, key, out_ptr) _cfg_get_unsigned(cfg, 0, true, key, out_ptr)
-#define cfg_get_global_unsigned(cfg, key, out_ptr) _cfg_get_signed(cfg, 0, true, key, out_ptr)
-#define cfg_get_global_string(cfg, key, out_ptr) _cfg_get_string(cfg, 0, true, key, out_ptr)
-#define cfg_get_global_object(cfg, key, out_ptr) _cfg_get_object(cfg, 0, true, key, out_ptr)
+#define cfg_get_global_bool(cfg, key, out_ptr) _cfg_get_bool(cfg, -1, true, key, out_ptr)
+#define cfg_get_global_signed(cfg, key, out_ptr) _cfg_get_unsigned(cfg, -1, true, key, out_ptr)
+#define cfg_get_global_unsigned(cfg, key, out_ptr) _cfg_get_signed(cfg, -1, true, key, out_ptr)
+#define cfg_get_global_string(cfg, key, out_ptr) _cfg_get_string(cfg, -1, true, key, out_ptr)
+#define cfg_get_global_object(cfg, key, out_ptr) _cfg_get_object(cfg, -1, true, key, out_ptr)
+
+NORETURN
+static inline void cfg_oops_no_mandatory_key(struct string_view key)
+{
+    oops("couldn't find mandatory key \"%pSV\" in the config file!", &key);
+}
 
 #define CFG_MANDATORY_GET(type, cfg, obj, key, out_ptr)                              \
     do {                                                                             \
-        if (!_cfg_get_##type(cfg, (obj)->cfg_off, true, (key), out_ptr)) {           \
-            struct string_view _key_str = (key);                                     \
-            oops("couldn't find mandatory key %pSV in the config file!", &_key_str); \
-        }                                                                            \
+        if (!_cfg_get_##type(cfg, (obj)->cfg_off, true, (key), out_ptr))             \
+            cfg_oops_no_mandatory_key((key));                                        \
     } while (0)
 
 #define CFG_MANDATORY_GET_ONE_OF(type_mask, cfg, obj, key, out_ptr)                     \
     do {                                                                                \
-        if (!_cfg_get_one_of(cfg, (obj)->cfg_off, true, (key), (type_mask), out_ptr)) { \
-            struct string_view _key_str = (key);                                        \
-            oops("couldn't find mandatory key %pSV in the config file!", &_key_str);    \
-        }                                                                               \
+        if (!_cfg_get_one_of(cfg, (obj)->cfg_off, true, (key), (type_mask), out_ptr))   \
+            cfg_oops_no_mandatory_key((key));                                           \
     } while (0)
