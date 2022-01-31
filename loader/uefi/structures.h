@@ -42,6 +42,51 @@ typedef struct {
     UINT8  Data4[8];
 } EFI_GUID;
 
+#define EFI_SUCCESS               0
+
+#define EFI_WARN_UNKNOWN_GLYPH    1
+#define EFI_WARN_DELETE_FAILURE   2
+#define EFI_WARN_WRITE_FAILURE    3
+#define EFI_WARN_BUFFER_TOO_SMALL 4
+#define EFI_WARN_STALE_DATA       5
+#define EFI_WARN_FILE_SYSTEM      6
+#define EFI_WARN_RESET_REQUIRED   7
+
+// highest bit set
+#define EFI_LOAD_ERROR            1
+#define EFI_INVALID_PARAMETER     2
+#define EFI_UNSUPPORTED           3
+#define EFI_BAD_BUFFER_SIZE       4
+#define EFI_BUFFER_TOO_SMALL      5
+#define EFI_NOT_READY             6
+#define EFI_DEVICE_ERROR          7
+#define EFI_WRITE_PROTECTED       8
+#define EFI_OUT_OF_RESOURCES      9
+#define EFI_VOLUME_CORRUPTED     10
+#define EFI_VOLUME_FULL          11
+#define EFI_NO_MEDIA             12
+#define EFI_MEDIA_CHANGED        13
+#define EFI_NOT_FOUND            14
+#define EFI_ACCESS_DENIED        15
+#define EFI_NO_RESPONSE          16
+#define EFI_NO_MAPPING           17
+#define EFI_TIMEOUT              18
+#define EFI_NOT_STARTED          19
+#define EFI_ALREADY_STARTED      20
+#define EFI_ABORTED              21
+#define EFI_ICMP_ERROR           22
+#define EFI_TFTP_ERROR           23
+#define EFI_PROTOCOL_ERROR       24
+#define EFI_INCOMPATIBLE_VERSION 25
+#define EFI_SECURITY_VIOLATION   26
+#define EFI_CRC_ERROR            27
+#define EFI_END_OF_MEDIA         28
+#define EFI_END_OF_FILE          31
+#define EFI_INVALID_LANGUAGE     32
+#define EFI_COMPROMISED_DATA     33
+#define EFI_IP_ADDRESS_CONFLICT  34
+#define EFI_HTTP_ERROR           35
+
 #define EFI_SYSTEM_TABLE_SIGNATURE 0x5453595320494249
 #define EFI_2_90_SYSTEM_TABLE_REVISION ((2 << 16) | 90)
 #define EFI_2_80_SYSTEM_TABLE_REVISION ((2 << 16) | 80)
@@ -546,8 +591,8 @@ typedef
 EFI_STATUS
 (EFIAPI *EFI_DISCONNECT_CONTROLLER) (
     IN EFI_HANDLE ControllerHandle,
-    IN EFI_HANDLE DriverImageHandle OPTIONAL,
-    IN EFI_HANDLE ChildHandle OPTIONAL
+    IN OPTIONAL EFI_HANDLE DriverImageHandle,
+    IN OPTIONAL EFI_HANDLE ChildHandle
 );
 
 
@@ -563,7 +608,7 @@ EFI_STATUS
 (EFIAPI *EFI_OPEN_PROTOCOL) (
     IN EFI_HANDLE Handle,
     IN EFI_GUID *Protocol,
-    OUT VOID **Interface OPTIONAL,
+    OUT OPTIONAL VOID **Interface,
     IN EFI_HANDLE AgentHandle,
     IN EFI_HANDLE ControllerHandle,
     IN UINT32 Attributes
@@ -703,7 +748,7 @@ typedef struct {
     EFI_REINSTALL_PROTOCOL_INTERFACE ReinstallProtocolInterface; // EFI 1.0+
     EFI_UNINSTALL_PROTOCOL_INTERFACE UninstallProtocolInterface; // EFI 1.0+
     EFI_HANDLE_PROTOCOL HandleProtocol; // EFI 1.0+
-    VOID* Reserved; // EFI 1.0+
+    VOID *Reserved; // EFI 1.0+
     EFI_REGISTER_PROTOCOL_NOTIFY RegisterProtocolNotify; // EFI 1.0+
     EFI_LOCATE_HANDLE LocateHandle; // EFI 1.0+
     EFI_LOCATE_DEVICE_PATH LocateDevicePath; // EFI 1.0+
