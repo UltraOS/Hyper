@@ -42,6 +42,24 @@ typedef struct {
     UINT8  Data4[8];
 } EFI_GUID;
 
+#define EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID \
+    { 0x9042A9DE, 0x23DC, 0x4A38, { 0x96, 0xFB, 0x7A, 0xDE, 0xD0, 0x80, 0x51, 0x6a } }
+
+#define EFI_EDID_ACTIVE_PROTOCOL_GUID \
+    { 0xBD8C1056, 0x9F36, 0x44EC, { 0x92, 0xA8, 0xA6, 0x33, 0x7F, 0x81, 0x79, 0x86 } }
+
+#define EFI_EDID_DISCOVERED_PROTOCOL_GUID \
+    { 0x1C0C34F6, 0xD380, 0x41FA, { 0xA0, 0x49, 0x8A, 0xD0, 0x6C, 0x1A, 0x66, 0xAA } }
+
+#define EFI_DEVICE_PATH_PROTOCOL_GUID \
+    { 0x09576E91, 0x6D3F, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3b } }
+
+#define EFI_BLOCK_IO_PROTOCOL_GUID \
+    { 0x964E5B21, 0x6459, 0x11D2, { 0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } }
+
+#define EFI_DISK_IO_PROTOCOL_GUID \
+    { 0xCE345171, 0xBA0B, 0x11D2, { 0x8E, 0x4F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } }
+
 #define EFI_SUCCESS               0
 
 #define EFI_WARN_UNKNOWN_GLYPH    1
@@ -54,7 +72,7 @@ typedef struct {
 
 #define ERROR_BIT ((UINTN)1 << ((sizeof(VOID*) * 8) - 1))
 #define EFI_ENCODE_ERROR(code) (ERROR_BIT | (code))
-#define EFI_ERROR(sts) ((INTN)sts < 0)
+#define EFI_ERROR(sts) ((INTN)(sts) < 0)
 
 // highest bit set
 #define EFI_LOAD_ERROR           EFI_ENCODE_ERROR(1)
@@ -829,3 +847,186 @@ typedef struct {
     UINTN NumberOfTableEntries;
     EFI_CONFIGURATION_TABLE *ConfigurationTable;
 } EFI_SYSTEM_TABLE;
+
+
+typedef struct _EFI_GRAPHICS_OUTPUT_PROTOCOL EFI_GRAPHICS_OUTPUT_PROTOCOL;
+
+typedef struct {
+    UINT32 RedMask;
+    UINT32 GreenMask;
+    UINT32 BlueMask;
+    UINT32 ReservedMask;
+} EFI_PIXEL_BITMASK;
+
+typedef enum {
+    PixelRedGreenBlueReserved8BitPerColor,
+    PixelBlueGreenRedReserved8BitPerColor,
+    PixelBitMask,
+    PixelBltOnly,
+    PixelFormatMax
+} EFI_GRAPHICS_PIXEL_FORMAT;
+
+typedef struct {
+    UINT32 Version;
+    UINT32 HorizontalResolution;
+    UINT32 VerticalResolution;
+    EFI_GRAPHICS_PIXEL_FORMAT PixelFormat;
+    EFI_PIXEL_BITMASK PixelInformation;
+    UINT32 PixelsPerScanLine;
+} EFI_GRAPHICS_OUTPUT_MODE_INFORMATION;
+
+typedef struct {
+    UINT32 MaxMode;
+    UINT32 Mode;
+    EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *Info;
+    UINTN SizeOfInfo;
+    EFI_PHYSICAL_ADDRESS FrameBufferBase;
+    UINTN FrameBufferSize;
+} EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE;
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_GRAPHICS_OUTPUT_PROTOCOL_QUERY_MODE) (
+    IN EFI_GRAPHICS_OUTPUT_PROTOCOL *This,
+    IN UINT32 ModeNumber,
+    OUT UINTN *SizeOfInfo,
+    OUT EFI_GRAPHICS_OUTPUT_MODE_INFORMATION **Info
+);
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_GRAPHICS_OUTPUT_PROTOCOL_SET_MODE) (
+    IN EFI_GRAPHICS_OUTPUT_PROTOCOL *This,
+    IN UINT32 ModeNumber
+);
+
+typedef struct {
+    UINT8 Blue;
+    UINT8 Green;
+    UINT8 Red;
+    UINT8 Reserved;
+} EFI_GRAPHICS_OUTPUT_BLT_PIXEL;
+
+typedef enum {
+    EfiBltVideoFill,
+    EfiBltVideoToBltBuffer,
+    EfiBltBufferToVideo,
+    EfiBltVideoToVideo,
+    EfiGraphicsOutputBltOperationMax
+} EFI_GRAPHICS_OUTPUT_BLT_OPERATION;
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_GRAPHICS_OUTPUT_PROTOCOL_BLT) (
+    IN EFI_GRAPHICS_OUTPUT_PROTOCOL *This,
+    IN OUT OPTIONAL EFI_GRAPHICS_OUTPUT_BLT_PIXEL *BltBuffer,
+    IN EFI_GRAPHICS_OUTPUT_BLT_OPERATION BltOperation,
+    IN UINTN SourceX,
+    IN UINTN SourceY,
+    IN UINTN DestinationX,
+    IN UINTN DestinationY,
+    IN UINTN Width,
+    IN UINTN Height,
+    IN OPTIONAL UINTN Delta
+);
+
+typedef struct _EFI_GRAPHICS_OUTPUT_PROTOCOL {
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_QUERY_MODE QueryMode;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_SET_MODE SetMode;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_BLT Blt;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE *Mode;
+} EFI_GRAPHICS_OUTPUT_PROTOCOL;
+
+typedef struct {
+    UINT32 SizeOfEdid;
+    UINT8 *Edid;
+} EFI_EDID_ACTIVE_PROTOCOL;
+
+typedef struct {
+    UINT32 MediaId;
+    BOOLEAN RemovableMedia;
+    BOOLEAN MediaPresent;
+    BOOLEAN LogicalPartition;
+    BOOLEAN ReadOnly;
+    BOOLEAN WriteCaching;
+    UINT32 BlockSize;
+    UINT32 IoAlign;
+    EFI_LBA LastBlock;
+    EFI_LBA LowestAlignedLba;
+    UINT32 LogicalBlocksPerPhysicalBlock;
+    UINT32 OptimalTransferLengthGranularity;
+} EFI_BLOCK_IO_MEDIA;
+
+
+typedef struct _EFI_BLOCK_IO_PROTOCOL EFI_BLOCK_IO_PROTOCOL;
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_BLOCK_RESET) (
+    IN EFI_BLOCK_IO_PROTOCOL *This,
+    IN BOOLEAN ExtendedVerification
+);
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_BLOCK_READ) (
+    IN EFI_BLOCK_IO_PROTOCOL *This,
+    IN UINT32 MediaId,
+    IN EFI_LBA LBA,
+    IN UINTN BufferSize,
+    OUT VOID *Buffer
+);
+
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_BLOCK_WRITE) (
+    IN EFI_BLOCK_IO_PROTOCOL *This,
+    IN UINT32 MediaId,
+    IN EFI_LBA LBA,
+    IN UINTN BufferSize,
+    IN VOID *Buffer
+);
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_BLOCK_FLUSH) (
+    IN EFI_BLOCK_IO_PROTOCOL *This
+);
+
+typedef struct _EFI_BLOCK_IO_PROTOCOL {
+    UINT64 Revision;
+    EFI_BLOCK_IO_MEDIA *Media;
+    EFI_BLOCK_RESET Reset;
+    EFI_BLOCK_READ ReadBlocks;
+    EFI_BLOCK_WRITE WriteBlocks;
+    EFI_BLOCK_FLUSH FlushBlocks;
+} EFI_BLOCK_IO_PROTOCOL;
+
+typedef struct _EFI_DISK_IO_PROTOCOL EFI_DISK_IO_PROTOCOL;
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_DISK_READ) (
+    IN EFI_DISK_IO_PROTOCOL *This,
+    IN UINT32 MediaId,
+    IN UINT64 Offset,
+    IN UINTN BufferSize,
+    OUT VOID *Buffer
+);
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_DISK_WRITE) (
+    IN EFI_DISK_IO_PROTOCOL *This,
+    IN UINT32 MediaId,
+    IN UINT64 Offset,
+    IN UINTN BufferSize,
+    IN VOID *Buffer
+);
+
+typedef struct _EFI_DISK_IO_PROTOCOL {
+    UINT64 Revision;
+    EFI_DISK_READ ReadDisk;
+    EFI_DISK_WRITE WriteDisk;
+} EFI_DISK_IO_PROTOCOL;
