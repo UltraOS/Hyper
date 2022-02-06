@@ -5,878 +5,907 @@
 #include "common/minmax.h"
 #include "common/log.h"
 #include "common/format.h"
+#include "common/ctype.h"
 
-#define PARSE_ERROR(msg)                                  \
-    do {                                                  \
-        cfg->last_error.message = SV(msg);                \
-        cfg->last_error.line = s->file_line;              \
-        cfg->last_error.offset = s->line_offset;          \
-        cfg->last_error.global_offset = s->global_offset; \
-        return false;                                     \
-    } while (0)
 
-enum state {
-    STATE_NORMAL,
-    STATE_KEY,
-    STATE_VALUE,
-    STATE_LOADABLE_ENTRY_TITLE,
-    STATE_COMMENT
-};
-#define DEPTH_CAPACITY 255
+// #define CFG_DEBUG
 
-enum base_depth {
-    BASE_DEPTH_UNKNOWN,
-    BASE_DEPTH_ZERO,
-    BASE_DEPTH_NON_ZERO
-};
-static inline bool base_depth_zero(enum base_depth bd)
+
+enum token_type
 {
-    return bd == BASE_DEPTH_UNKNOWN || bd == BASE_DEPTH_ZERO;
-}
-
-struct parse_state {
-    size_t file_line;
-    size_t line_offset;
-    size_t global_offset;
-
-    enum state s;
-
-    // Character that is picked as whitespace in the current configuration.
-    // One of '\t' or ' '. Value of 0 means we don't know yet.
-    char whitespace_character;
-
-    // Current depth in picked whitespace characters->
-    size_t current_whitespace_depth;
-
-    // The number of characters we treat as one indentation level.
-    // 0 means we don't know yet.
-    size_t characters_per_level;
-
-    // Set in case we have encountered whitespace in the current value string,
-    // e.g "key=val e" in this example, the 'e' after whitespace is considered invalid.
-    bool expecting_end_of_value;
-
-    // Set for KEY/VALUE in case at least one character has been consumed
-    bool consumed_at_least_one;
-
-    // set for loadable entries where first key starts at an offset
-    enum base_depth bd;
-
-    // Character used by the current value for quoting, either ' or ".
-    // 0 means none.
-    char open_quote_character;
-
-    struct string_view current_value_view;
-    struct config_entry current;
-
-    bool within_loadable_entry;
-    bool expecting_depth_plus_one;
-
-    // Empty loadable entries are not allowed
-    bool consumed_at_least_one_kv;
-
-    size_t current_depth;
-
-    // Depth -> (offset + 1) pairs, used to link together values of the same scope.
-    // 0 means none
-    u32 depth_to_offset[DEPTH_CAPACITY];
+    TK_IDENT,  // Identifier / string. Can be quoted ('hello', "hello") or unquoted (hello)
+    TK_INDENT, // Indentation
+    TK_INT,    // Integer
+    TK_BOOL,   // Boolean
+    TK_NULL,   // Null value
+    TK_ENTRY,  // Loadable entry
+    TK_EQU,    // Equal sign '='
+    TK_COLON,  // Colon sign ':'
+    TK_EOF     // End of config
 };
 
-#define IS(expected_state) (s->s == expected_state)
+struct config_pos {
+    size_t line;
+    size_t column;
+    size_t pos;
+};
 
-static void set_state(struct parse_state *s, enum state new_state)
+struct token
 {
-    size_t i;
+    enum token_type type;
 
-    switch (new_state)
-    {
-        case STATE_NORMAL:
-            if (IS(STATE_LOADABLE_ENTRY_TITLE)) {
-                s->within_loadable_entry = true;
+    union {
+        struct string_view ident;
+        bool is_true;
 
-                for (i = 1; i <= s->current_depth + !base_depth_zero(s->bd); ++i)
-                    s->depth_to_offset[i] = 0;
-                s->current_depth = 0;
-            }
-            s->expecting_end_of_value = false;
-            s->consumed_at_least_one = false;
-            s->open_quote_character = 0;
-
-            break;
-        case STATE_KEY:
-            s->consumed_at_least_one = false;
-            s->expecting_depth_plus_one = true;
-            break;
-        case STATE_VALUE:
-            s->expecting_depth_plus_one = false;
-            s->consumed_at_least_one = false;
-            s->expecting_end_of_value = false;
-            s->open_quote_character = 0;
-            break;
-        case STATE_LOADABLE_ENTRY_TITLE:
-            s->consumed_at_least_one = false;
-            s->consumed_at_least_one_kv = false;
-            break;
-        default:
-            break;
-    }
-
-    s->s = new_state;
-}
-
-static bool try_parse_as_number(struct string_view str, struct value *val)
-{
-    if (sv_starts_with(str, SV("-"))) {
-        i64 value;
-        if (!str_to_i64(str, &value))
-            return false;
-
-        *val = (struct value) {
-            .type = VALUE_SIGNED,
-            .as_signed = value
+        struct {
+            bool is_signed;
+            union {
+                i64 num_i64;
+                u64 num_u64;
+            };
         };
-    } else {
-        u64 uvalue;
-        if (!str_to_u64(str, &uvalue))
-            return false;
-
-        *val = (struct value) {
-            .type = VALUE_UNSIGNED,
-            .as_unsigned = uvalue
-        };
-    }
-
-    return true;
-}
-
-static void value_from_state(struct parse_state *s, struct value *val)
-{
-    int as_bool = 0;
-
-    // Value is stored inside "" or '', force a string type.
-    if (s->open_quote_character) {
-        *val = (struct value) {
-            .type = VALUE_STRING,
-            .as_string = s->current_value_view
-        };
-        return;
-    }
-
-    if (sv_equals(s->current_value_view, SV("null"))) {
-        *val = (struct value) {
-            .type = VALUE_NONE
-        };
-        return;
-    }
-
-    as_bool = sv_equals(s->current_value_view, SV("true"))  ? 1 : as_bool;
-    as_bool = sv_equals(s->current_value_view, SV("false")) ? 2 : as_bool;
-
-    if (as_bool) {
-        *val = (struct value) {
-            .type = VALUE_BOOLEAN,
-            .as_bool = as_bool != 2
-        };
-        return;
-    }
-
-    if (try_parse_as_number(s->current_value_view, val))
-        return;
-
-    // Nothing else worked, assume string.
-    *val = (struct value) {
-        .type = VALUE_STRING,
-        .as_string = s->current_value_view
     };
+
+    struct config_pos pos;
+};
+
+struct config_parser {
+    // These change each time we fetch a token
+    struct config_pos pos;
+
+    // These are set once
+    struct config *cfg;
+    const char *source;
+    size_t src_size;
+
+    size_t ind_count; // Indentation character count
+    char ind_char;    // Indentation character
+
+    // These may change depending on context
+    bool preserve_line;
+};
+
+
+static inline struct config_entry *cfg_last_entry(struct config_parser *parser)
+{
+    return parser->cfg->size == 0 ? NULL : &parser->cfg->buffer[parser->cfg->size - 1];
 }
 
-bool config_emplace_entry(struct config *cfg, struct config_entry *entry, size_t *offset)
+static inline struct config_entry *cfg_last_entry_to(struct config_parser *parser, size_t offset)
 {
-    if (cfg->size == cfg->capacity) {
-        size_t old_capacity = cfg->capacity;
-        struct config_entry *new_buffer;
+    BUG_ON(offset > parser->cfg->size);
+    BUG_ON(offset == 0);
 
-        cfg->capacity = MAX(old_capacity * 2, PAGE_SIZE / sizeof(struct config_entry));
-        new_buffer = allocate_bytes(sizeof(struct config_entry) * cfg->capacity);
+    struct config_entry *ent = &parser->cfg->buffer[--offset];
+    size_t rel = 1;
 
-        if (!new_buffer)
-            return false;
 
-        if (cfg->size)
-            memcpy(new_buffer, cfg->buffer, sizeof(struct config_entry) * cfg->size);
-        free_bytes(cfg->buffer, old_capacity * sizeof(struct config_entry));
-        cfg->buffer = new_buffer;
+    while (ent->next != rel && offset > 0) {
+        ent = &parser->cfg->buffer[--offset];
+        rel++;
     }
 
-    *offset = cfg->size++;
-
-    if (entry->t == CONFIG_ENTRY_VALUE)
-        entry->as_value.cfg_off = *offset;
-
-    cfg->buffer[*offset] = *entry;
-    return true;
+    return (offset == 0 && ent->next != rel) ? NULL : ent;
 }
 
-static bool finalize_key_value(struct config *cfg, struct parse_state *s, bool is_object)
+static inline u16 cfg_ent_offset(struct config *cfg, struct config_entry *ent)
 {
-    size_t entry_offset;
-    size_t depth = s->current_depth;
-    s->current.t = CONFIG_ENTRY_VALUE;
+    BUG_ON(ent < cfg->buffer);
 
-    if (is_object) {
-        s->current.as_value = (struct value) {
-            .type = VALUE_OBJECT,
-            .cfg_off = 0
-        };
-    } else {
-        value_from_state(s, &s->current.as_value);
-    }
-
-    if (!config_emplace_entry(cfg, &s->current, &entry_offset))
-        PARSE_ERROR("out of memory");
-
-    depth += s->within_loadable_entry;
-    depth -= base_depth_zero(s->bd);
-
-    if (s->depth_to_offset[depth]) {
-        struct config_entry *ce = &cfg->buffer[s->depth_to_offset[depth] - 1];
-        ce->offset_to_next_within_same_scope = entry_offset - (s->depth_to_offset[depth] - 1);
-    }
-
-    s->depth_to_offset[depth] = entry_offset + 1;
-    s->consumed_at_least_one_kv = true;
-
-    return true;
+    return ent - cfg->buffer;
 }
 
-static bool do_depth_transition(struct parse_state *s)
+static inline struct config_entry *cfg_next_ent(struct config *cfg, struct config_entry *ent)
 {
-    bool base_is_nonzero, must_be_zero;
-    size_t next_depth;
+    BUG_ON(!ent);
+    return ent->next == 0 ? NULL : &cfg->buffer[cfg_ent_offset(cfg, ent) + ent->next];
+}
 
-    if (!s->characters_per_level)
+static inline bool cfg_eof(struct config_parser *parser)
+{
+    return parser->pos.pos >= parser->src_size;
+}
+
+static inline char cfg_getch(struct config_parser *parser)
+{
+    return cfg_eof(parser) ? '\0' : ({ parser->pos.column++; parser->source[parser->pos.pos++]; });
+}
+
+static inline void cfg_ungetch(struct config_parser *parser)
+{
+    if (parser->pos.pos != 0)
+        parser->pos.pos--;
+
+    if (parser->pos.column != 0)
+        parser->pos.column--;
+}
+
+static bool cfg_raise(struct config_parser *parser, struct config_pos *pos, const char *m)
+{
+    struct config_error *error = &parser->cfg->last_error;
+
+    error->message = SV(m);
+    error->line    = pos->line + 1;
+    error->column  = pos->column == 0 ? 0 : pos->column - 1;
+    error->pos     = pos->pos == 0 ? 0 : pos->pos - 1;
+
+    return false;
+}
+
+static bool cfg_skip_line(struct config_parser *parser)
+{
+    char ch;
+
+    if (parser->preserve_line)
+        return cfg_raise(parser, &parser->pos, "Tried skipping line while trying to preserve it");
+
+    ch = cfg_getch(parser);
+
+    while (ch == ' ' || ch == '\t' || ch == '\r')
+        ch = cfg_getch(parser);
+
+    if (ch == '#') {
+        while (ch != '\n')
+            ch = cfg_getch(parser);
+
+        parser->pos.column = 0;
+        parser->pos.line++;
+
         return true;
+    } else if (ch == '\n') {
+        parser->pos.column = 0;
+        parser->pos.line++;
 
-    // Unaligned to whitespace per level
-    if (s->current_whitespace_depth % s->characters_per_level)
-        return false;
+        return true;
+    }
 
-    base_is_nonzero = base_depth_zero(s->bd) && s->within_loadable_entry;
-    next_depth = s->current_whitespace_depth / s->characters_per_level;
-    must_be_zero = !(s->expecting_depth_plus_one || s->current_depth || base_is_nonzero);
-
-    // Expected zero but got something else
-    if (must_be_zero && next_depth)
-        return false;
-
-    // Went too deep
-    if (next_depth > s->current_depth && ((next_depth - s->current_depth) > 1))
-        return false;
-
-    // Empty object
-    if (s->expecting_depth_plus_one && (next_depth != (s->current_depth + 1)))
-        return false;
-
-    /*
-     * If our depth is now less than what it was before close
-     * all nested objects that are still open.
-     */
-    while (s->current_depth > next_depth)
-        s->depth_to_offset[s->current_depth-- + !base_is_nonzero] = 0;
-
-    s->current_depth = next_depth;
-    return true;
+    return cfg_raise(parser, &parser->pos, "Invalid character while skipping line");
 }
 
-static void consume_character(struct parse_state *s, const char* c)
+static void cfg_unfetch_token(struct config_parser *parser, struct token *token)
 {
-    if (s->consumed_at_least_one)
-        sv_extend_by(&s->current_value_view, 1);
-    else
-        s->current_value_view = (struct string_view) { c, 1 };
-
-    s->consumed_at_least_one = true;
+    parser->pos = token->pos;
 }
+
+static inline bool isnumerical(char ch)
+{
+    return (ch >= '0' && ch <= '9') ||
+           (ch >= 'a' && ch <= 'f') ||
+           (ch >= 'A' && ch <= 'F') ||
+           (ch == '-' || ch == '+') ||
+           (ch == 'x' || ch == 'X');
+}
+
+static bool cfg_fetch_token(struct config_parser *parser, struct token *token)
+{
+    if (cfg_eof(parser)) {
+        token->pos  = parser->pos;
+        token->type = TK_EOF;
+        return true;
+    }
+
+    char ch = cfg_getch(parser);
+
+    if (ch == '\r') {
+        if (parser->preserve_line)
+            return cfg_raise(parser, &parser->pos, "Unexpected new line");
+
+        ch = cfg_getch(parser);
+    }
+
+    if (ch == '\n') {
+        cfg_ungetch(parser);
+
+        while ((ch = cfg_getch(parser)) == '\n')
+            parser->pos.line++;
+
+        cfg_ungetch(parser);
+
+        parser->pos.column = 0;
+
+        if (parser->preserve_line)
+            return cfg_raise(parser, &parser->pos, "Unexpected new line");
+    } else if (ch == '#') {
+        if (parser->preserve_line)
+            return cfg_raise(parser, &parser->pos, "Unexpected comment");
+
+        while (ch != '\n')
+            ch = cfg_getch(parser);
+
+        parser->pos.line++;
+        parser->pos.column = 0;
+    } else {
+        cfg_ungetch(parser);
+    }
+
+    token->pos = parser->pos;
+
+    if (parser->pos.column == 0 && (ch == ' ' || ch == '\t')) {
+        // Try fetch indentation
+        size_t i = 0;
+
+        if (parser->ind_count == 0) {
+            parser->ind_count = 1;
+            parser->ind_char  = cfg_getch(parser);
+
+            if (parser->ind_char != '\t' && parser->ind_char != ' ')
+                return cfg_raise(parser, &parser->pos, "Invalid indentation character");
+
+            while ((ch = cfg_getch(parser)) == parser->ind_char)
+                parser->ind_count++;
+
+            if (ch == '\t' || ch == ' ')
+                return cfg_raise(parser, &parser->pos, "Invalid indentation character");
+
+            i = 1;
+        } else {
+            while ((ch = cfg_getch(parser)) == parser->ind_char)
+                i++;
+
+            if (ch == '\t' || ch == ' ')
+                return cfg_raise(parser, &parser->pos, "Invalid indentation character");
+
+            if ((i % parser->ind_count) != 0)
+                return cfg_raise(parser, &token->pos, "Invalid count of spaces/tabs");
+
+            i = i / parser->ind_count;
+        }
+
+        token->type    = TK_INDENT;
+        token->num_u64 = i;
+
+        cfg_ungetch(parser);
+        return true;
+    } else {
+        if (ch == ' ' || ch == '\t') {
+            while (ch == ' ' || ch == '\t')
+                ch = cfg_getch(parser);
+
+            cfg_ungetch(parser);
+        }
+    }
+
+    if (cfg_eof(parser)) {
+        token->pos  = parser->pos;
+        token->type = TK_EOF;
+        return true;
+    }
+
+    token->pos = parser->pos;
+
+    switch (ch = cfg_getch(parser)) {
+    case '\0':
+        token->type = TK_EOF;
+        return true;
+    case '=':
+        token->type = TK_EQU;
+        return true;
+    case ':':
+        token->type = TK_COLON;
+        return true;
+    case '[':
+        token->type = TK_ENTRY;
+        token->ident.text = &parser->source[parser->pos.pos];
+        token->ident.size = 0;
+
+        while (isalnum(ch = cfg_getch(parser)) || ch == '_')
+            token->ident.size++;
+
+        if (ch != ']')
+            return cfg_raise(parser, &parser->pos, "Invalid character in loadable entry");
+
+        return true;
+    case '+':
+    case '-':
+    case '0'...'9':
+        token->type = TK_INT;
+
+        cfg_ungetch(parser);
+
+        token->ident.text = &parser->source[parser->pos.pos];
+        token->ident.size = 0;
+
+        while (isnumerical(ch = cfg_getch(parser)))
+            token->ident.size++;
+
+        cfg_ungetch(parser);
+
+        if (token->ident.text[0] == '-') {
+            if (!str_to_i64(token->ident, &token->num_i64))
+                return cfg_raise(parser, &token->pos, "Invalid signed number");
+            token->is_signed = true;
+        } else {
+            if (!str_to_u64(token->ident, &token->num_u64))
+                return cfg_raise(parser, &token->pos, "Invalid unsigned number");
+            token->is_signed = false;
+        }
+
+        return true;
+    case '\'':
+    case '"':
+    case '_':
+    case 'a'...'z':
+    case 'A'...'Z': {
+        char quote = ch;
+
+        token->type = TK_IDENT;
+
+        if (quote == '\'' || quote == '"') {
+            token->ident.text = &parser->source[parser->pos.pos];
+            token->ident.size = 0;
+
+            while ((ch = cfg_getch(parser)) != quote && ch >= ' ' && ch < '\x7F' /* ASCII DEL */)
+                token->ident.size++;
+
+            if (ch != quote)
+                return cfg_raise(parser, &parser->pos, !ch ? "Open-ended quote" : "Invalid quote");
+
+            return true;
+        }
+
+        cfg_ungetch(parser);
+
+        token->ident.text = &parser->source[parser->pos.pos];
+        token->ident.size = 0;
+
+        while (isalnum(ch) || ch == '_' || ch == '-') {
+            ch = cfg_getch(parser);
+            token->ident.size++;
+        }
+
+        token->ident.size--;
+        cfg_ungetch(parser);
+
+        if (sv_equals(token->ident, SV("null"))) {
+            token->type = TK_NULL;
+        } else if (sv_equals(token->ident, SV("true"))) {
+            token->type    = TK_BOOL;
+            token->is_true = true;
+        } else if (sv_equals(token->ident, SV("false"))) {
+            token->type    = TK_BOOL;
+            token->is_true = false;
+        }
+
+        return true;
+      }
+    case '\r':
+    case '\n':
+        return cfg_fetch_token(parser, token);
+    default:
+        return cfg_raise(parser, &token->pos, "Unknown character");
+    }
+}
+
+static struct config_entry *cfg_fetch_entry(struct config_parser *parser)
+{
+    struct config_entry *ent = parser->cfg->size >= parser->cfg->capacity ? NULL :
+                              &parser->cfg->buffer[parser->cfg->size++];
+
+    if (ent == NULL) {
+        size_t cap = MAX(parser->cfg->capacity * 2, PAGE_SIZE / sizeof(struct config_entry));
+
+        if (!(ent = allocate_bytes(sizeof(struct config_entry) * cap)))
+            return NULL;
+
+        memcpy(ent, parser->cfg->buffer, sizeof(struct config_entry) * parser->cfg->size);
+
+        parser->cfg->capacity = cap;
+        parser->cfg->buffer   = ent;
+
+        return cfg_fetch_entry(parser);
+    }
+
+    return ent;
+}
+
+/*
+ *  Returns -1 in case there is an error
+ *  Returns the number of children + 1 for success
+ *  Returns (-2 - new indentation level) when the level changes
+*/
+static ssize_t cfg_parse_object(struct config_parser *parser, size_t lvl)
+{
+    if (lvl > 256)
+        return cfg_raise(parser, &parser->pos, "Indentation overflow (>256)") - 1;
+
+    ssize_t children, total = 1;
+    size_t indent;
+    struct token tok;
+    struct config_entry *ent;
+
+    if (!cfg_fetch_token(parser, &tok))
+        return -1;
+
+    indent = tok.type == TK_INDENT ? tok.num_u64 : 0;
+
+    if (indent != lvl) {
+        if (indent > lvl)
+            return cfg_raise(parser, &tok.pos, "Invalid indentation") - 1;
+
+        cfg_unfetch_token(parser, &tok);
+        parser->preserve_line = false;
+        return -2 - indent;
+    }
+
+    if (tok.type != TK_INDENT)
+        cfg_unfetch_token(parser, &tok);
+
+    parser->preserve_line = true;
+
+    if (!cfg_fetch_token(parser, &tok))
+        return -1;
+
+    if (tok.type != TK_IDENT)
+        return cfg_raise(parser, &tok.pos, "Expected identifier") - 1;
+
+    ent = cfg_fetch_entry(parser);
+
+    if (!ent)
+        return cfg_raise(parser, &tok.pos, "Out of memory") - 1;
+
+    ent->key = tok.ident;
+    ent->as_value.cfg_off = cfg_ent_offset(parser->cfg, ent);
+
+    if (!cfg_fetch_token(parser, &tok))
+        return -1;
+
+    if (tok.type != TK_COLON && tok.type != TK_EQU)
+        return cfg_raise(parser, &tok.pos, "Expected ':' or '='") - 1;
+
+    ent->t = CONFIG_ENTRY_VALUE;
+
+    if (tok.type == TK_EQU) {
+        ent->next = 1;
+
+        if (!cfg_fetch_token(parser, &tok))
+            return -1;
+
+        parser->preserve_line = false;
+        cfg_skip_line(parser);
+
+        switch (tok.type)
+        {
+        case TK_IDENT:
+            ent->as_value.type = VALUE_STRING;
+            ent->as_value.as_string = tok.ident;
+            return 1;
+        case TK_INT:
+            if (tok.is_signed) {
+                ent->as_value.type = VALUE_SIGNED;
+                ent->as_value.as_signed = tok.num_i64;
+            } else {
+                ent->as_value.type = VALUE_UNSIGNED;
+                ent->as_value.as_signed = tok.num_u64;
+            }
+            return 1;
+        case TK_BOOL:
+            ent->as_value.type = VALUE_BOOLEAN;
+            ent->as_value.as_bool = tok.is_true;
+            return 1;
+        case TK_NULL:
+            ent->as_value.type = VALUE_NONE;
+            return 1;
+        default:
+            return cfg_raise(parser, &tok.pos, "Expected value") - 1;
+        }
+    }
+
+    ent->as_value.type = VALUE_OBJECT;
+
+    parser->preserve_line = false;
+    cfg_skip_line(parser);
+
+    while ((children = cfg_parse_object(parser, lvl + 1)) > -2) {
+        if (children == -1)
+            return -1;
+
+        total += children;
+    }
+
+    indent = -children - 2;
+
+    ent->next = indent == lvl ? total : 0;
+    cfg_last_entry(parser)->next = 0;
+
+    return total;
+}
+
+#ifdef CFG_DEBUG
+static void cfg_print_entries(struct config *cfg, u16 offset, int depth)
+{
+    BUG_ON(offset >= cfg->size);
+
+    struct config_entry *ent = &cfg->buffer[offset];
+
+    while (ent) {
+        for (int i = 0; i < depth; i++)
+            print_info("    ");
+
+        if (ent->t == CONFIG_ENTRY_LOADABLE_ENTRY) {
+            print_info("[%pSV] %zu\n", &ent->key, ent->next);
+
+            cfg_print_entries(cfg, cfg_ent_offset(cfg, ent) + 1, depth + 1);
+        } else if (ent->t == CONFIG_ENTRY_VALUE) {
+            print_info("%pSV ", &ent->key);
+
+            switch (ent->as_value.type) {
+            case VALUE_BOOLEAN:
+                print_info("= %s %zu\n", ent->as_value.as_bool ? "true" : "false", ent->next);
+                break;
+            case VALUE_UNSIGNED:
+                print_info("= %llu %zu\n", ent->as_value.as_unsigned, ent->next);
+                break;
+            case VALUE_SIGNED:
+                print_info("= %lld %zu\n", ent->as_value.as_signed, ent->next);
+                break;
+            case VALUE_STRING:
+                print_info("= %pSV %zu\n", &ent->as_value.as_string, ent->next);
+                break;
+            case VALUE_OBJECT:
+                print_info(": %zu\n", ent->next);
+
+                cfg_print_entries(cfg, ent->as_value.cfg_off + 1, depth + 1);
+                break;
+            default:
+                print_info("<invalid>\n");
+                break;
+            }
+        } else {
+            print_info("<none>\n");
+        }
+
+        ent = cfg_next_ent(cfg, ent);
+    }
+}
+#endif
 
 bool cfg_parse(struct string_view text, struct config *cfg)
 {
-    size_t i;
-    struct parse_state *s = allocate_bytes(sizeof(struct parse_state));
-    if (!s) {
-        cfg->last_error.message = SV("out of memory");
-        return false;
-    }
-    memzero(s, sizeof(*s));
-    s->file_line = 1;
-    s->line_offset = 1;
+    struct config_parser parser = {
+        .pos           = { 0, 0, 0 },
+        .cfg           = cfg,
+        .source        = text.text,
+        .src_size      = text.size,
+        .ind_count     = 0,
+        .ind_char      = 0,
+        .preserve_line = false
+    };
 
-    for (i = 0; i < text.size; ++i) {
-        char c = text.text[i];
-        s->line_offset++;
-        s->global_offset++;
+    struct config_entry *ent = NULL;
 
-        if (IS(STATE_COMMENT) && c != '\n')
-            continue;
+    for (;;) {
+        struct token tok;
 
-        switch (c) {
-        case ' ':
-        case '\t':
-            if (IS(STATE_NORMAL)) {
-                if (s->whitespace_character && (s->whitespace_character != c))
-                    PARSE_ERROR("mixed tabs and spaces are ambiguous");
+        if (!cfg_fetch_token(&parser, &tok))
+            return false;
 
-                s->whitespace_character = c;
-                s->current_whitespace_depth++;
-                continue;
+        if (tok.type == TK_ENTRY) {
+            if (ent != NULL) {
+                if (cfg_last_entry(&parser)->t == CONFIG_ENTRY_LOADABLE_ENTRY)
+                    return cfg_raise(&parser, &parser.pos, "Empty loadable entry isn't allowed");
+
+                cfg_last_entry_to(&parser, cfg->size)->next = 0;
+                ent->next = cfg->size - cfg_ent_offset(cfg, ent);
+            } else {
+                cfg->first_loadable_entry_offset = cfg->size + 1;
             }
 
-            if (IS(STATE_KEY)) {
-                s->expecting_end_of_value = s->consumed_at_least_one;
-                continue;
+            if (!(ent = cfg_fetch_entry(&parser)))
+                return cfg_raise(&parser, &parser.pos, "Out of config entries");
+
+            ent->key  = tok.ident;
+            ent->t    = CONFIG_ENTRY_LOADABLE_ENTRY;
+
+            parser.preserve_line = false;
+            cfg_skip_line(&parser);
+        } else if (tok.type == TK_EOF) {
+            if (ent != NULL) {
+                if (cfg_last_entry(&parser)->t == CONFIG_ENTRY_LOADABLE_ENTRY)
+                    return cfg_raise(&parser, &parser.pos, "Empty loadable entry isn't allowed");
+
+                cfg_last_entry_to(&parser, cfg->size)->next = 0;
+                ent->next = 0;
+
+                cfg->last_loadable_entry_offset = cfg_ent_offset(cfg, ent);
             }
 
-            if (IS(STATE_VALUE)) {
-                if (!s->open_quote_character) {
-                    s->expecting_end_of_value = s->consumed_at_least_one;
-                    continue;
-                }
+            if (cfg_last_entry(&parser) != NULL)
+                cfg_last_entry(&parser)->next = 0;
 
-                consume_character(s, &text.text[i]);
-                continue;
-            }
-
-            if (s->expecting_end_of_value)
-                continue;
-
-            PARSE_ERROR("invalid character");
-        case '\r':
-            if (IS(STATE_NORMAL) || IS(STATE_VALUE))
-                continue;
-
-            PARSE_ERROR("invalid character");
-
-        case '\n':
-            s->file_line++;
-            s->line_offset = 0;
-
-            if (s->characters_per_level == 0)
-                s->whitespace_character = 0;
-
-            s->current_whitespace_depth = 0;
-            s->expecting_end_of_value = false;
-
-            if (IS(STATE_NORMAL))
-                continue;
-
-            if (IS(STATE_VALUE)) {
-                if (!finalize_key_value(cfg, s, false))
-                    return false;
-
-                set_state(s, STATE_NORMAL);
-                continue;
-            }
-
-            if (IS(STATE_COMMENT)) {
-                set_state(s, STATE_NORMAL);
-                continue;
-            }
-
-            PARSE_ERROR("invalid character");
-
-        case '=':
-            if (IS(STATE_NORMAL) || (IS(STATE_VALUE) && !s->open_quote_character))
-                PARSE_ERROR("invalid character");
-
-            if (IS(STATE_KEY)) {
-                set_state(s, STATE_VALUE);
-                continue;
-            }
-
-            sv_extend_by(&s->current_value_view, 1);
-            continue;
-
-        case ':':
-            if (IS(STATE_NORMAL))
-                PARSE_ERROR("invalid character");
-
-            if (IS(STATE_KEY)) {
-                if (!finalize_key_value(cfg, s, true))
-                    return false;
-
-                set_state(s, STATE_NORMAL);
-                s->expecting_end_of_value = true;
-                continue;
-            }
-
-            if (IS(STATE_VALUE) && !s->open_quote_character)
-                PARSE_ERROR("invalid character");
-
-            sv_extend_by(&s->current_value_view, 1);
-            continue;
-
-        case '"':
-        case '\'':
-            if (!IS(STATE_VALUE) || (!s->open_quote_character && s->consumed_at_least_one))
-                PARSE_ERROR("invalid character");
-
-            if (s->open_quote_character) {
-                if (s->open_quote_character != c) {
-                    consume_character(s, &text.text[i]);
-                    continue;
-                }
-
-                if (!finalize_key_value(cfg, s, false))
-                    return false;
-
-                set_state(s, STATE_NORMAL);
-                s->expecting_end_of_value = true;
-                continue;
-            }
-
-            s->open_quote_character = c;
-            continue;
-
-        case '[':
-            if (s->current_whitespace_depth)
-                PARSE_ERROR("loadable entry title must start on a new line");
-
-            if (IS(STATE_NORMAL)) {
-                if (s->expecting_depth_plus_one)
-                    PARSE_ERROR("empty objects are not allowed");
-
-                if (s->within_loadable_entry && !s->consumed_at_least_one_kv)
-                    PARSE_ERROR("empty loadable entries are not allowed");
-
-                set_state(s, STATE_LOADABLE_ENTRY_TITLE);
-                continue;
-            }
-
-            if (IS(STATE_VALUE) && s->open_quote_character) {
-                sv_extend_by(&s->current_value_view, 1);
-                continue;
-            }
-
-            PARSE_ERROR("invalid character");
-        case ']':
-            if (IS(STATE_LOADABLE_ENTRY_TITLE)) {
-                size_t prev_offset, offset;
-                s->current.t = CONFIG_ENTRY_LOADABLE_ENTRY;
-                s->current.key = s->current_value_view;
-                s->current.as_offset_to_next_loadable_entry = 0;
-
-                if (!config_emplace_entry(cfg, &s->current, &offset))
-                    PARSE_ERROR("out of memory");
-
-                if (!cfg->first_loadable_entry_offset)
-                    cfg->first_loadable_entry_offset = offset + 1;
-
-                if (cfg->last_loadable_entry_offset) {
-                    size_t prev = cfg->last_loadable_entry_offset - 1;
-                    struct config_entry *entry = &cfg->buffer[prev];
-                    entry->as_offset_to_next_loadable_entry = offset - prev;
-                }
-
-                prev_offset = s->depth_to_offset[0];
-                if (prev_offset) {
-                    struct config_entry *entry = &cfg->buffer[prev_offset - 1];
-                    entry->offset_to_next_within_same_scope = offset - (prev_offset - 1);
-                }
-                s->depth_to_offset[0] = offset;
-
-                cfg->last_loadable_entry_offset = offset + 1;
-                set_state(s, STATE_NORMAL);
-                s->expecting_end_of_value = true;
-                continue;
-            }
-
-            if (IS(STATE_VALUE) && s->open_quote_character) {
-                sv_extend_by(&s->current_value_view, 1);
-                continue;
-            }
-
-            PARSE_ERROR("invalid character");
-
-        case '#':
-            if (IS(STATE_KEY) || IS(STATE_LOADABLE_ENTRY_TITLE))
-                PARSE_ERROR("invalid character");
-
-            if (IS(STATE_VALUE) && s->open_quote_character) {
-                sv_extend_by(&s->current_value_view, 1);
-                continue;
-            }
-
-            s->expecting_end_of_value = false;
-            set_state(s, STATE_COMMENT);
-            continue;
-
-        default:
-            if (c <= 32 || c >= 127)
-                PARSE_ERROR("invalid character");
-
-            if (s->expecting_end_of_value)
-                PARSE_ERROR("unexpected character");
-
-            if (IS(STATE_NORMAL)) {
-                if (s->current_whitespace_depth && !s->characters_per_level)
-                    s->characters_per_level = s->current_whitespace_depth;
-
-                if (s->bd == BASE_DEPTH_UNKNOWN && s->within_loadable_entry)
-                    s->bd = (s->current_whitespace_depth != 0) ? BASE_DEPTH_NON_ZERO : BASE_DEPTH_ZERO;
-
-                if (!do_depth_transition(s))
-                    PARSE_ERROR("invalid number of whitespace");
-
-                set_state(s, STATE_KEY);
-                s->current.key = (struct string_view) { &text.text[i], 1 };
-                s->consumed_at_least_one = true;
-
-                continue;
-            }
-
-            if (IS(STATE_KEY)) {
-                sv_extend_by(&s->current.key, 1);
-                continue;
-            }
-
-            if (s->expecting_end_of_value)
-                PARSE_ERROR("invalid character");
-
-            if (IS(STATE_VALUE) || IS(STATE_LOADABLE_ENTRY_TITLE)) {
-                consume_character(s, &text.text[i]);
-                continue;
-            }
-
-            PARSE_ERROR("invalid character");
+            break;
+        } else {
+            cfg_unfetch_token(&parser, &tok);
+            if (cfg_parse_object(&parser, 0) == -1)
+                return false;
         }
     }
 
-    if (IS(STATE_VALUE))
-        return finalize_key_value(cfg, s, false);
-
-    if (s->expecting_depth_plus_one || (s->within_loadable_entry && !s->consumed_at_least_one_kv))
-        PARSE_ERROR("early EOF");
-
-    if (IS(STATE_COMMENT))
-        return true;
-
-    if (!IS(STATE_NORMAL))
-        PARSE_ERROR("early EOF");
+#ifdef CFG_DEBUG
+    cfg_print_entries(cfg, 0, 0);
+#endif
 
     return true;
 }
 
-#define LINE_DELIMETER " | "
-
-void cfg_pretty_print_error(const struct config_error *err, struct string_view config_as_view)
+void cfg_pretty_print_error(const struct config_error *err, struct string_view cfg)
 {
-    size_t i, first_char_of_line, len;
-    ssize_t newline_loc;
-    char line_as_string[32];
+    struct string_view line_sv;
+    size_t i;
 
-    if (sv_empty(err->message))
-        return;
+    print_err("Config:%zu:%zu: error: %pSV\n", err->line, err->column, &err->message);
 
-    print_err("Failed to parse config, error at line %zu\n", err->line);
+    for (i = 0; i < err->line - 1; i++) {
+        char ch = 0;
 
-    first_char_of_line = err->global_offset - err->offset;
-    sv_offset_by(&config_as_view, first_char_of_line);
-    newline_loc = sv_find(config_as_view, SV("\n"), 0);
-    if (newline_loc >= 0)
-        config_as_view = (struct string_view) { config_as_view.text, newline_loc };
-
-
-    len = snprintf(line_as_string, sizeof(line_as_string), "%zu", err->line);
-
-    print_err("%s%s%pSV\n", line_as_string, LINE_DELIMETER, &config_as_view);
-
-    for (i = 0; i < len; ++i)
-        print_err(" ");
-
-    print_err(LINE_DELIMETER);
-
-    for (i = 1; i < err->offset; ++i)
-        print_err(" ");
-
-    print_err("^--- %pSV\n", &err->message);
-}
-
-struct find_result {
-    size_t first_occurence;
-    size_t last_occurence;
-    size_t count;
-};
-
-static void config_find(struct config *cfg, size_t offset, struct string_view key,
-                        size_t constraint_max, struct find_result *res)
-{
-    BUG_ON(offset >= cfg->size);
-    memzero(res, sizeof(*res));
-
-    for (;;) {
-        struct config_entry *entry = &cfg->buffer[offset];
-
-        if (entry->t != CONFIG_ENTRY_VALUE)
-            break;
-
-        if (sv_equals(entry->key, key)) {
-            res->last_occurence = offset;
-
-            if (!res->count)
-                res->first_occurence = offset;
-
-            res->count++;
-
-            if (constraint_max && res->count == constraint_max)
+        while (ch != '\n') {
+            if (!sv_pop_one(&cfg, &ch))
                 break;
         }
 
-        if (entry->offset_to_next_within_same_scope == 0)
-            break;
-
-        offset += entry->offset_to_next_within_same_scope;
+        BUG_ON(ch != '\n');
     }
-}
 
-static void cfg_get_typed_entry_at_offset(struct config *cfg, enum config_entry_type expected_type,
-                                          size_t offset, struct config_entry **out)
-{
-    BUG_ON(offset >= cfg->size);
-    *out = &cfg->buffer[offset];
-    BUG_ON((*out)->t != expected_type);
-}
+    line_sv.text = cfg.text;
+    line_sv.size = 0;
 
-static void cfg_get_value_at_offset(struct config *cfg, size_t offset, struct config_entry **out)
-{
-    cfg_get_typed_entry_at_offset(cfg, CONFIG_ENTRY_VALUE, offset, out);
-}
+    for (i = 0; cfg.text[i] != '\n' && i < cfg.size; i++)
+        line_sv.size++;
 
-static void cfg_get_loadable_entry_at_offset(struct config *cfg, size_t offset, struct config_entry **out)
-{
-    cfg_get_typed_entry_at_offset(cfg, CONFIG_ENTRY_LOADABLE_ENTRY, offset, out);
+    print_err("%4zu | ", err->line);
+    print_err("%pSV\n     | ", &line_sv);
+
+    for (i = 0; i < err->column; i++)
+        print_err(" ");
+
+    print_err("^\n");
 }
 
 bool cfg_get_loadable_entry(struct config *cfg, struct string_view key, struct loadable_entry *val)
 {
-    size_t offset = cfg->first_loadable_entry_offset;
-    if (!offset--)
-        return false;
-
-    for (;;) {
-        struct config_entry *e;
-        cfg_get_loadable_entry_at_offset(cfg, offset, &e);
-
-        if (sv_equals(e->key, key)) {
-            val->cfg_off = offset;
-            val->name = e->key;
-            return true;
-        }
-
-        if (e->as_offset_to_next_loadable_entry == 0)
-            return false;
-
-        offset += e->as_offset_to_next_loadable_entry;
-    }
-}
-
-bool cfg_first_loadable_entry(struct config* cfg, struct loadable_entry *entry)
-{
-    //print("first le %zu\n", cfg->first_loadable_entry_offset);
-    //print("cfg dump\n");
-    //for (size_t i = 0; i < cfg->size; ++i)
-    //    print("off: %zu key: %pSV type: %d", i, &cfg->buffer[i].key, cfg->buffer[i].t);
-
     if (cfg->first_loadable_entry_offset == 0)
         return false;
 
-    entry->cfg_off = cfg->first_loadable_entry_offset - 1;
-    entry->name = cfg->buffer[entry->cfg_off].key;
+    struct config_entry *ent = &cfg->buffer[cfg->first_loadable_entry_offset - 1];
+
+    while (ent) {
+        if (sv_equals(ent->key, key)) {
+            *val = (struct loadable_entry) { .name = key, .cfg_off = cfg_ent_offset(cfg, ent) };
+            return true;
+        }
+
+        ent = cfg_next_ent(cfg, ent);
+    }
+
+    return false;
+}
+
+bool cfg_first_loadable_entry(struct config *cfg, struct loadable_entry *val)
+{
+    if (cfg->first_loadable_entry_offset == 0)
+        return false;
+
+    struct config_entry *ent = &cfg->buffer[cfg->first_loadable_entry_offset - 1];
+
+    *val = (struct loadable_entry) { .name = ent->key, .cfg_off = cfg_ent_offset(cfg, ent) };
     return true;
 }
 
-static bool is_type_set(enum value_type value, enum value_type type)
+struct find_result {
+    size_t first;
+    size_t last;
+    size_t count;
+};
+
+static void cfg_find(struct config *cfg, size_t offset, struct string_view key, size_t max, struct find_result *res)
 {
-    return (value & type) == type;
-}
+    BUG_ON(offset >= cfg->size);
+    memzero(res, sizeof(struct find_result));
 
-static bool is_one_of_types(enum value_type mask, enum value_type type)
-{
-    return is_type_set(mask, VALUE_ANY) || is_type_set(mask, type);
-}
+    for (;;) {
+        struct config_entry *ent = &cfg->buffer[offset];
 
-NORETURN
-static void oops_on_non_unique_key(struct string_view key)
-{
-    oops("expected key %pSV to be unique!", &key);
-}
-
-NORETURN
-static void oops_on_unexpected_type(struct string_view key, enum value_type expected_mask, enum value_type got)
-{
-    struct string_view tstr_expected, tstr_got = value_type_as_str(got);
-
-    size_t types = __builtin_popcount(expected_mask);
-    size_t bit;
-
-    if (types == 1) {
-        tstr_expected = value_type_as_str(expected_mask);
-
-        oops("unexpected type for \"%pSV\"! expected: %pSV, got: %pSV\n",
-             &key, &tstr_expected, &tstr_got);
-    }
-
-    print_err("Oops!\nunexpected type for \"%pSV\"! expected one of: [", &key);
-
-    for (bit = 1; bit < VALUE_ANY; bit <<= 1) {
-        if (!is_type_set(expected_mask, bit))
-            continue;
-
-        tstr_expected = value_type_as_str(bit);
-        print_err("%pSV", &tstr_expected);
-        if (--types == 0)
+        if (ent->t != CONFIG_ENTRY_VALUE)
             break;
 
-        print_err(", ");
+        if (sv_equals(ent->key, key)) {
+            res->last = offset;
+
+            if (!res->count)
+                res->first = offset;
+
+            res->count++;
+
+            if (res->count >= max)
+                break;
+        }
+
+        if (ent->next == 0)
+			break;
+
+        offset += ent->next;
+    }
+}
+
+static bool is_of_type(enum value_type type, enum value_type mask)
+{
+    return (type & mask) == type;
+}
+
+static void oops_on_unexpected_type(struct string_view key, enum value_type type, enum value_type expected)
+{
+    BUG_ON(expected == VALUE_ANY);
+    struct string_view type_str = value_type_as_str(type);
+    bool f = false;
+    int i;
+
+
+    print_err("Oops: %pSV has an unexpected type of %pSV. Expected ", &key, &type_str);
+
+
+    for (i = 0; i < 6; i++) {
+        enum value_type t = type & (1 << i);
+
+        if (!t)
+            continue;
+
+        type_str = value_type_as_str(t);
+
+        if (f)
+            print_err(" or ");
+
+        print_err("%pSV", &type_str);
+        f = true;
     }
 
-    print_err("] got: %pSV\n", &tstr_got);
     for (;;);
 }
 
-static bool cfg_get_next_entry(struct config *cfg, size_t entry_offset, struct config_entry *this_entry,
-                               struct config_entry **out_entry, struct string_view *key)
+static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct string_view key, 
+                     enum value_type mask, struct value *val)
 {
-    for (;;) {
-        if (this_entry->offset_to_next_within_same_scope == 0)
-            return false;
+    BUG_ON(!mask);
+    BUG_ON(offset >= cfg->size);
 
-        entry_offset += this_entry->offset_to_next_within_same_scope;
-        this_entry = &cfg->buffer[entry_offset];
-
-        if (key && !sv_equals(this_entry->key, *key))
-            continue;
-
-        *out_entry = this_entry;
-        return true;
-    }
-}
-
-bool cfg_get_next(struct config *cfg, struct value *val, bool oops_on_non_matching_type)
-{
-    struct config_entry *entry;
-    enum value_type expected_type;
-
-    cfg_get_value_at_offset(cfg, val->cfg_off, &entry);
-    expected_type = entry->as_value.type;
-
-    for (;;) {
-        if (!cfg_get_next_entry(cfg, val->cfg_off, entry, &entry, &entry->key))
-            return false;
-
-        if (expected_type != entry->as_value.type) {
-            if (oops_on_non_matching_type)
-                oops_on_unexpected_type(entry->key, expected_type, entry->as_value.type);
-            continue;
-        }
-    }
-
-    *val = entry->as_value;
-    return true;
-}
-
-bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool oops_on_non_matching_type)
-{
-    struct config_entry *entry;
-    cfg_get_value_at_offset(cfg, val->cfg_off, &entry);
-
-    for (;;) {
-        if (!cfg_get_next_entry(cfg, val->cfg_off, entry, &entry, &entry->key))
-            return false;
-
-        if (!is_type_set(entry->as_value.type, mask)) {
-            if (oops_on_non_matching_type)
-                oops_on_unexpected_type(entry->key, mask, entry->as_value.type);
-            continue;
-        }
-    }
-
-    *val = entry->as_value;
-    return true;
-}
-
-static bool cfg_find_and_extract(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key,
-                                 enum value_type type_mask, struct value *val)
-{
     struct find_result res;
-    struct config_entry *entry;
-    config_find(cfg, offset + 1, key, 2, &res);
+    struct config_entry *ent;
 
-    if (res.count > 1 && must_be_unique)
-        oops_on_non_unique_key(key);
+    cfg_find(cfg, offset == 0 ? 0 : offset + 1, key, 2, &res);
 
-    if (res.count == 0)
+    if (res.count > 1 && unique)
+        oops("%pSV must be unique", &key);
+
+    if (!res.count)
         return false;
 
-    cfg_get_value_at_offset(cfg, res.first_occurence, &entry);
-    if (!is_one_of_types(type_mask, entry->as_value.type))
-        oops_on_unexpected_type(key, type_mask, entry->as_value.type);
+    ent = &cfg->buffer[res.first];
+
+    if (!is_of_type(ent->as_value.type, mask))
+        oops_on_unexpected_type(key, ent->as_value.type, mask);
+
+    *val = ent->as_value;
+    return true;
+}
+
+bool cfg_get_next(struct config *cfg, struct value *val, bool type_oops)
+{
+    struct config_entry *entry;
+    enum value_type type;
+    struct string_view key;
+
+    entry = &cfg->buffer[val->cfg_off];
+    type  = entry->as_value.type;
+    key   = entry->key;
+
+    for (;;) {
+        if (!cfg_next_ent(cfg, entry))
+            return false;
+
+        if (!sv_equals(entry->key, key))
+            continue;
+
+        if (entry->as_value.type != type) {
+            if (type_oops)
+                oops_on_unexpected_type(key, entry->as_value.type, type);
+
+            continue;
+        }
+
+        break;
+    }
 
     *val = entry->as_value;
     return true;
 }
 
-bool _cfg_get_bool(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, bool *out)
+bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool type_oops)
 {
-    struct value val;
-    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_BOOLEAN, &val))
-        return false;
+    struct config_entry *entry;
+    struct string_view key;
 
-    *out = val.as_bool;
+    entry = &cfg->buffer[val->cfg_off];
+    key   = entry->key;
+
+    for (;;) {
+        if (!cfg_next_ent(cfg, entry))
+            return false;
+
+        if (!sv_equals(entry->key, key))
+            continue;
+
+        if (!is_of_type(entry->as_value.type, mask)) {
+            if (type_oops)
+                oops_on_unexpected_type(key, entry->as_value.type, mask);
+
+            continue;
+        }
+
+        break;
+    }
+
+    *val = entry->as_value;
     return true;
 }
 
-bool _cfg_get_unsigned(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, u64 *out)
+
+bool _cfg_get_bool(struct config *cfg, size_t offset, bool unique,
+                   struct string_view key, bool *val)
 {
-    struct value val;
-    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_UNSIGNED, &val))
+    struct value value;
+    if (!cfg_find_ext(cfg, offset, unique, key, VALUE_BOOLEAN, &value))
         return false;
 
-    *out = val.as_unsigned;
+    *val = value.as_bool;
     return true;
 }
 
-bool _cfg_get_signed(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, i64 *out)
+bool _cfg_get_unsigned(struct config *cfg, size_t offset, bool unique,
+                       struct string_view key, u64 *val)
 {
-    struct value val;
-    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_SIGNED, &val))
+    struct value value;
+    if (!cfg_find_ext(cfg, offset, unique, key, VALUE_UNSIGNED, &value))
         return false;
 
-    *out = val.as_signed;
+    *val = value.as_unsigned;
     return true;
 }
 
-bool _cfg_get_string(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key,
-                     struct string_view *out)
+bool _cfg_get_signed(struct config *cfg, size_t offset, bool unique,
+                     struct string_view key, i64 *val)
 {
-    struct value val;
-    if (!cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_STRING, &val))
+    struct value value;
+    if (!cfg_find_ext(cfg, offset, unique, key, VALUE_SIGNED, &value))
         return false;
 
-    *out = val.as_string;
+    *val = value.as_signed;
     return true;
 }
 
-bool _cfg_get_object(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, struct value *val)
+bool _cfg_get_string(struct config *cfg, size_t offset, bool unique,
+                     struct string_view key, struct string_view *val)
 {
-    return cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_OBJECT, val);
+    struct value value;
+    if (!cfg_find_ext(cfg, offset, unique, key, VALUE_STRING, &value))
+        return false;
+
+    *val = value.as_string;
+    return true;
+
 }
 
-bool _cfg_get_value(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, struct value *val)
+bool _cfg_get_object(struct config *cfg, size_t offset, bool unique,
+                     struct string_view key, struct value *val)
 {
-    return cfg_find_and_extract(cfg, offset, must_be_unique, key, VALUE_ANY, val);
+    return cfg_find_ext(cfg, offset, unique, key, VALUE_OBJECT, val);
 }
 
-bool _cfg_get_one_of(struct config *cfg, size_t offset, bool must_be_unique,
-                     struct string_view key, enum value_type mask, struct value *val)
+bool _cfg_get_value(struct config *cfg, size_t offset, bool unique,
+                    struct string_view key, struct value *val) {
+    return cfg_find_ext(cfg, offset, unique, key, VALUE_ANY, val);
+}
+
+bool _cfg_get_one_of(struct config *cfg, size_t offset, bool unique, struct string_view key,
+                     enum value_type mask, struct value *val)
 {
-    return cfg_find_and_extract(cfg, offset, must_be_unique, key, mask, val);
+    return cfg_find_ext(cfg, offset, unique, key, mask, val);
 }
