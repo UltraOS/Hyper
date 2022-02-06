@@ -14,7 +14,7 @@ enum value_type {
     VALUE_SIGNED   = 1 << 3,
     VALUE_STRING   = 1 << 4,
     VALUE_OBJECT   = 1 << 5,
-    VALUE_ANY      = 1 << 6
+    VALUE_ANY      = 0xFF
 };
 
 static inline struct string_view value_type_as_str(enum value_type t)
@@ -88,20 +88,16 @@ enum config_entry_type {
 struct config_entry {
     struct string_view key;
     enum config_entry_type t;
+    struct value as_value;
 
-    union {
-        struct value as_value;
-        size_t as_offset_to_next_loadable_entry; // 0 -> this is the last entry
-    };
-
-    size_t offset_to_next_within_same_scope; // 0 -> this is the last entry
+    size_t next; // 0 -> this is the last entry
 };
 
 struct config_error {
     struct string_view message;
     size_t line;
-    size_t offset;
-    size_t global_offset;
+    size_t column;
+    size_t pos;
 };
 
 struct config {
@@ -120,7 +116,7 @@ bool cfg_parse(struct string_view text, struct config *cfg);
 void cfg_pretty_print_error(const struct config_error *err, struct string_view config_as_view);
 
 bool cfg_get_loadable_entry(struct config *cfg, struct string_view key, struct loadable_entry *val);
-bool cfg_first_loadable_entry(struct config* cfg, struct loadable_entry *entry);
+bool cfg_first_loadable_entry(struct config *cfg, struct loadable_entry *entry);
 
 bool _cfg_get_bool(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, bool *val);
 bool _cfg_get_unsigned(struct config *cfg, size_t offset, bool must_be_unique, struct string_view key, u64 *val);
