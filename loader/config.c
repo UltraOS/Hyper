@@ -734,43 +734,44 @@ static bool is_of_type(enum value_type type, enum value_type mask)
 
 static void oops_on_unexpected_type(struct string_view key, enum value_type type, enum value_type expected)
 {
+    struct string_view type_str;
+    bool first_type = true;
+    size_t i;
+
     BUG_ON(expected == VALUE_ANY);
-    struct string_view type_str = value_type_as_str(type);
-    bool f = false;
-    int i;
 
-
-    print_err("Oops: %pSV has an unexpected type of %pSV. Expected ", &key, &type_str);
-
+    type_str = value_type_as_str(type);
+    print_err("Oops! \"%pSV\" has an unexpected type of %pSV, expected ", &key, &type_str);
 
     for (i = 0; i < 6; i++) {
-        enum value_type t = type & (1 << i);
+        enum value_type t = expected & (1 << i);
 
         if (!t)
             continue;
 
         type_str = value_type_as_str(t);
 
-        if (f)
+        if (!first_type)
             print_err(" or ");
 
         print_err("%pSV", &type_str);
-        f = true;
+        first_type = false;
     }
+    print_err(".");
 
     for (;;);
 }
 
-static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct string_view key, 
-                     enum value_type mask, struct value *val)
+static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct string_view key,
+                         enum value_type mask, struct value *val)
 {
     BUG_ON(!mask);
-    BUG_ON(offset >= cfg->size);
+    BUG_ON((ssize_t)offset != -1 && offset >= (cfg->size ? cfg->size - 1 : 0));
 
     struct find_result res;
     struct config_entry *ent;
 
-    cfg_find(cfg, offset == 0 ? 0 : offset + 1, key, 2, &res);
+    cfg_find(cfg, offset + 1, key, 2, &res);
 
     if (res.count > 1 && unique)
         oops("%pSV must be unique", &key);
