@@ -788,54 +788,21 @@ static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct 
     return true;
 }
 
-bool cfg_get_next(struct config *cfg, struct value *val, bool type_oops)
+bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool oops_on_non_matching_type)
 {
-    struct config_entry *entry;
-    enum value_type type;
-    struct string_view key;
-
-    entry = &cfg->buffer[val->cfg_off];
-    type  = entry->as_value.type;
-    key   = entry->key;
+    struct config_entry *entry = &cfg->buffer[val->cfg_off];
+    struct string_view key = entry->key;
 
     for (;;) {
-        if (!cfg_next_ent(cfg, entry))
-            return false;
-
-        if (!sv_equals(entry->key, key))
-            continue;
-
-        if (entry->as_value.type != type) {
-            if (type_oops)
-                oops_on_unexpected_type(key, entry->as_value.type, type);
-
-            continue;
-        }
-
-        break;
-    }
-
-    *val = entry->as_value;
-    return true;
-}
-
-bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool type_oops)
-{
-    struct config_entry *entry;
-    struct string_view key;
-
-    entry = &cfg->buffer[val->cfg_off];
-    key   = entry->key;
-
-    for (;;) {
-        if (!cfg_next_ent(cfg, entry))
+        entry = cfg_next_ent(cfg, entry);
+        if (!entry)
             return false;
 
         if (!sv_equals(entry->key, key))
             continue;
 
         if (!is_of_type(entry->as_value.type, mask)) {
-            if (type_oops)
+            if (oops_on_non_matching_type)
                 oops_on_unexpected_type(key, entry->as_value.type, mask);
 
             continue;
@@ -848,6 +815,10 @@ bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value 
     return true;
 }
 
+bool cfg_get_next(struct config *cfg, struct value *val, bool oops_on_non_matching_type)
+{
+    return cfg_get_next_one_of(cfg, val->type, val, oops_on_non_matching_type);
+}
 
 bool _cfg_get_bool(struct config *cfg, size_t offset, bool unique,
                    struct string_view key, bool *val)
