@@ -150,11 +150,9 @@ struct memory_services {
      * count -> number of 4096-byte pages to allocate.
      * upper_limit -> 1 + maximum allowed address within the allocated range.
      * type -> the type of range to allocate, must be one of the valid protocol values.
-     * top_down -> indicates whether range should be allocated at the highest available region of memory
-     *             but under upper_limit. If set to NO the lowest available range is picked.
      * Returns the address of the first byte of the allocated range if allocation succeeded, nullptr otherwise.
      */
-    u64 (*allocate_pages)(size_t count, u64 upper_limit, u32 type, bool top_down);
+    u64 (*allocate_pages)(size_t count, u64 upper_limit, u32 type);
 
     /*
      * Frees count pages starting at address.

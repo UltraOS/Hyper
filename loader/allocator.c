@@ -54,7 +54,7 @@ static void *do_allocate_with_type_at(u64 address, size_t count, u32 type, bool 
     BUG_ON(!memory_backend);
 
     if (!address) {
-        result = (void*)((ptr_t)memory_backend->allocate_pages(count, 4ull * GB, type, true));
+        result = (void*)((ptr_t)memory_backend->allocate_pages(count, 4ull * GB, type));
     } else {
         result = (void*)((ptr_t)memory_backend->allocate_pages_at(address, count, type));
     }

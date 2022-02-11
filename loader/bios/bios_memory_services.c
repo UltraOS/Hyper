@@ -381,12 +381,9 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
     return allocated_range.begin;
 }
 
-static u64 allocate_pages(size_t count, u64 upper_limit, u32 type, bool top_down)
+static u64 allocate_pages(size_t count, u64 upper_limit, u32 type)
 {
-    if (top_down)
-        return allocate_top_down(count, upper_limit, type);
-
-    return allocate_within(count, 1 * MB, upper_limit, type);
+    return allocate_top_down(count, upper_limit, type);
 }
 
 static u64 allocate_pages_at(u64 address, size_t count, u32 type)
