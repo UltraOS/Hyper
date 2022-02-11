@@ -48,7 +48,7 @@ static struct contiguous_file_range *find_range(struct contiguous_file_range *ra
 }
 
 #define RANGES_PER_PAGE (PAGE_SIZE / sizeof(struct contiguous_file_range))
-#define IN_PLACE_RANGE_CAPACITY ((PAGE_SIZE - 32 ) / sizeof(struct contiguous_file_range))
+#define IN_PLACE_RANGE_CAPACITY ((PAGE_SIZE - (8 * sizeof(void*))) / sizeof(struct contiguous_file_range))
 
 struct fat32_file {
     struct file f;
@@ -629,17 +629,17 @@ static bool is_fat32_fs(const struct disk *d, struct range lba_range, struct fat
     u32 cluster_count;
 
     if (ebpb->bytes_per_sector != d->bytes_per_sector)
-        return NULL;
+        return false;
     if (ebpb->signature != EBPB_SIGNATURE)
-        return NULL;
+        return false;
     if (memcmp(ebpb->filesystem_type, fat32_signature, sizeof(fat32_signature) - 1) != 0)
-        return NULL;
+        return false;
     if (!ebpb->fat_count)
-        return NULL;
+        return false;
     if (!ebpb->sectors_per_cluster)
-        return NULL;
+        return false;
     if (!ebpb->sectors_per_fat)
-        return NULL;
+        return false;
 
     range_advance_begin(&lba_range, ebpb->reserved_sectors);
     range_advance_begin(&lba_range, ebpb->sectors_per_fat * ebpb->fat_count);
