@@ -175,14 +175,6 @@ struct memory_services {
      */
     size_t (*copy_map)(void *buf, size_t capacity, size_t elem_size,
                        size_t *out_key, entry_convert_func entry_convert);
-
-    /*
-     * Disables the service and makes caller the owner of the entire map.
-     * key -> expected id of the current state of the memory map.
-     * Returns true if key handover was successful and key matched the internal state,
-     * otherwise key didn't match the internal state and memory map must be re-fetched.
-     */
-    bool (*handover)(size_t key);
 };
 
 enum service_provider {
@@ -201,6 +193,15 @@ struct services {
      * Returns a 16-byte aligned address of the structure if successful, NULL otherwise.
      */
     ptr_t (*get_rsdp)();
+
+    /*
+     * Disables all services and makes the caller the owner of all system resources.
+     * sv -> services handle.
+     * map_key -> expected id of the current state of the memory map.
+     * Returns true if key handover was successful and key matched the internal state,
+     * otherwise key didn't match the internal state and memory map must be re-fetched.
+     */
+    bool (*exit_all_services)(struct services *sv, size_t map_key);
 
     enum service_provider provider;
 };

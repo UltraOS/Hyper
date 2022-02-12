@@ -653,7 +653,9 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
      * saved inside the attribute array.
      */
     build_attribute_array(&spec, sv->provider, sv->ms, &hi);
-    handover_res = sv->ms->handover(hi.memory_map_handover_key);
+
+    // Exit all services before handover
+    handover_res = sv->exit_all_services(sv, hi.memory_map_handover_key);
     BUG_ON(!handover_res);
 
     // Relocate pointers to higher half for convenience

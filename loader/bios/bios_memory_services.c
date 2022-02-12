@@ -457,10 +457,9 @@ static size_t copy_map(void *buf, size_t capacity, size_t elem_size,
     return entry_count;
 }
 
-static bool handover(size_t key)
+bool memory_services_release(size_t key)
 {
-    if (released)
-        oops("use-after-release: handover()");
+    BUG_ON(released);
 
     if (key != map_key)
         return false;
@@ -509,8 +508,7 @@ static struct memory_services bios_ms = {
     .allocate_pages_at = allocate_pages_at,
     .allocate_pages = allocate_pages,
     .free_pages = free_pages,
-    .copy_map = copy_map,
-    .handover = handover
+    .copy_map = copy_map
 };
 
 struct memory_services *memory_services_init()

@@ -12,11 +12,21 @@ extern u8 a20_enabled;
 extern u8 section_bss_begin;
 extern u8 section_bss_end;
 
+static bool bios_exit_all_services(struct services *sv, size_t key)
+{
+    if (!memory_services_release(key))
+        return false;
+
+    *sv = (struct services) {};
+    return true;
+}
+
 void bios_entry(void)
 {
     struct services s = {
         .provider = SERVICE_PROVIDER_BIOS,
-        .get_rsdp = bios_find_rsdp
+        .get_rsdp = bios_find_rsdp,
+        .exit_all_services = bios_exit_all_services
     };
 
     memzero(&section_bss_begin, &section_bss_end - &section_bss_begin);
