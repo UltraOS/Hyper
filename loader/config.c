@@ -127,7 +127,7 @@ static bool cfg_raise(struct config_parser *parser, struct config_pos *pos, cons
 
     error->message = SV(m);
     error->line    = pos->line + 1;
-    error->column  = pos->column == 0 ? 0 : pos->column - 1;
+    error->column  = pos->column;
     error->pos     = pos->pos == 0 ? 0 : pos->pos - 1;
 
     return false;
@@ -371,9 +371,10 @@ static bool cfg_fetch_token(struct config_parser *parser, struct token *token)
       }
     case '\r':
     case '\n':
+    case '#' :
         return cfg_fetch_token(parser, token);
     default:
-        return cfg_raise(parser, &token->pos, "Unknown character");
+        return cfg_raise(parser, &token->pos, "Invalid character");
     }
 }
 
