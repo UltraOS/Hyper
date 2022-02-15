@@ -176,6 +176,9 @@ static bool tty_write(const char *text, size_t count, enum color col)
         c = text[i];
         no_write = false;
 
+        if (c == '\r')
+            continue;
+
         if (c == '\n') {
             tty_y++;
             tty_x = 0;
