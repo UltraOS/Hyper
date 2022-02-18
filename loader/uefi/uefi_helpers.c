@@ -13,7 +13,7 @@ bool uefi_pool_alloc(EFI_MEMORY_TYPE type, size_t elem_size, size_t count, VOID 
     BUG_ON(bytes_total == 0);
 
     ret = g_st->BootServices->AllocatePool(type, bytes_total, out);
-    if (unlikely(EFI_ERROR(ret))) {
+    if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("AllocatePool(type=%u, bytes=%zu) failed: %pSV\n", type, bytes_total, &err_msg);
         return false;
@@ -127,11 +127,11 @@ bool uefi_get_protocol_handles(EFI_GUID *guid, EFI_HANDLE **array, UINTN *count)
         return false;
 
     ret = bs->AllocatePool(EfiLoaderData, bytes_needed, (void**)array);
-    if (unlikely(EFI_ERROR(ret)))
+    if (unlikely_efi_error(ret))
         goto efi_error;
 
     ret = bs->LocateHandle(ByProtocol, guid, NULL, &bytes_needed, *array);
-    if (unlikely(EFI_ERROR(ret)))
+    if (unlikely_efi_error(ret))
         goto efi_error;
 
     *count = bytes_needed / sizeof(EFI_HANDLE);
