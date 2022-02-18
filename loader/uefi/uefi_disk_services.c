@@ -34,7 +34,7 @@ static bool uefi_read(void *handle, void *buffer, u64 offset, size_t bytes)
     }
 
     ret = h->dio->ReadDisk(h->dio, h->bio->Media->MediaId, offset, bytes, buffer);
-    if (unlikely(EFI_ERROR(ret))) {
+    if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("ReadDisk() failed: %pSV\n", &err_msg);
         return false;
@@ -51,7 +51,7 @@ static bool uefi_read_blocks(void *handle, void *buffer, u64 sector, size_t bloc
     BUG_ON(!handle);
 
     ret = h->bio->ReadBlocks(h->bio, h->bio->Media->MediaId, sector, blocks * h->bio->Media->BlockSize, buffer);
-    if (unlikely(EFI_ERROR(ret))) {
+    if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("ReadDisk() failed: %pSV\n", &err_msg);
         return false;
@@ -89,7 +89,7 @@ static void enumerate_disks()
         struct uefi_disk_handle *dh;
 
         ret = g_st->BootServices->HandleProtocol(handles[i], &block_io_guid, (void**)&bio);
-        if (unlikely(EFI_ERROR(ret))) {
+        if (unlikely_efi_error(ret)) {
             struct string_view err_msg = uefi_status_to_string(ret);
             print_warn("disk[%zu] HandleProtocol(block_io) error: %pSV\n", i, &err_msg);
             continue;
@@ -101,7 +101,7 @@ static void enumerate_disks()
             continue;
 
         ret = g_st->BootServices->HandleProtocol(handles[i], &disk_io_guid, (void**)&dio);
-        if (unlikely(EFI_ERROR(ret))) {
+        if (unlikely_efi_error(ret)) {
             struct string_view err_msg = uefi_status_to_string(ret);
             print_warn("disk[%zu] HandleProtocol(disk_io) error: %pSV\n", i, &err_msg);
         }
