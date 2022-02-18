@@ -137,8 +137,8 @@ static size_t fill_internal_memory_map_buffer()
 
     for (;;) {
         bytes_inout = internal_map_byte_capacity;
-        ret = g_st->BootServices->GetMemoryMap(&bytes_inout, internal_memory_map_buf,
-                                               &internal_map_key, &internal_descriptor_size, &descriptor_version);
+        ret = g_st->BootServices->GetMemoryMap(&bytes_inout, internal_memory_map_buf, &internal_map_key,
+                                               &internal_descriptor_size, &descriptor_version);
 
         if (ret == EFI_SUCCESS)
             break;
@@ -200,6 +200,5 @@ static struct memory_services uefi_memory_services = {
 
 struct memory_services *memory_services_init()
 {
-    fill_internal_memory_map_buffer();
     return &uefi_memory_services;
 }
