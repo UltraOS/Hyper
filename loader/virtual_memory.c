@@ -90,7 +90,7 @@ bool map_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_
         if (!do_map_page(pt, virtual_base, physical_base, false))
             return false;
 
-        virtual_base += PAGE_SIZE;
+        virtual_base  += PAGE_SIZE;
         physical_base += PAGE_SIZE;
     }
 

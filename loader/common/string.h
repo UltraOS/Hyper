@@ -1,5 +1,7 @@
 #pragma once
 
+#include "types.h"
+
 static inline size_t strlen(const char *str)
 {
     const char *str1;

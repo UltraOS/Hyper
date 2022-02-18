@@ -2,9 +2,7 @@ section .data
 
 global mbr_data
 mbr_data:
-%ifdef MBR_PATH
 incbin MBR_PATH
-%endif
 
 global mbr_size
 mbr_size: dd $ - mbr_data

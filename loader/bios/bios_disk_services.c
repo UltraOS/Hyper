@@ -189,7 +189,7 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
     return true;
 }
 
-static struct disk* list_disks(size_t *count)
+static struct disk *list_disks(size_t *count)
 {
     *count = disk_count;
     return disks_buffer;
