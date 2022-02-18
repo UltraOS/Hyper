@@ -3,7 +3,6 @@
 #include "common/constants.h"
 
 #define ENTRIES_PER_PAGE (PAGE_SIZE / sizeof(struct fs_entry))
-#define RAW_PARTITION_IDX 0xFFFFFFFF
 
 static struct fs_entry *entry_buffer;
 static struct fs_entry origin_fs;
@@ -42,12 +41,13 @@ void add_raw_fs_entry(void *disk_handle, u32 disk_index, struct filesystem *fs)
     entry_buffer[entry_buffer_size++] = (struct fs_entry) {
         .disk_index = disk_index,
         .disk_handle = disk_handle,
-        .partition_index = RAW_PARTITION_IDX,
+        .partition_index = 0,
+        .entry_type = FSE_TYPE_RAW,
         .fs = fs
     };
 }
 
-void add_mbr_fs_entry(void* disk_handle, u32 disk_index, u32 partition_index, struct filesystem *fs)
+void add_mbr_fs_entry(void* disk_handle, u32 disk_index, u16 partition_index, struct filesystem *fs)
 {
     if (!ensure_has_capacity())
         return;
@@ -56,11 +56,12 @@ void add_mbr_fs_entry(void* disk_handle, u32 disk_index, u32 partition_index, st
         .disk_handle = disk_handle,
         .disk_index = disk_index,
         .partition_index = partition_index,
+        .entry_type = FSE_TYPE_MBR,
         .fs = fs
     };
 }
 
-void add_gpt_fs_entry(void* disk_handle, u32 disk_index, u32 partition_index,
+void add_gpt_fs_entry(void* disk_handle, u32 disk_index, u16 partition_index,
                       const struct guid *disk_guid, const struct guid *partition_guid,
                       struct filesystem *fs)
 {
@@ -71,6 +72,7 @@ void add_gpt_fs_entry(void* disk_handle, u32 disk_index, u32 partition_index,
         .disk_handle = disk_handle,
         .disk_index = disk_index,
         .partition_index = partition_index,
+        .entry_type = FSE_TYPE_GPT,
         .disk_guid = *disk_guid,
         .partition_guid = *partition_guid,
         .fs = fs
@@ -118,7 +120,7 @@ const struct fs_entry *fs_by_full_path(const struct full_path *path)
         }
 
         if (raw_partition)
-            return (entry->partition_index == RAW_PARTITION_IDX) ? entry : NULL;
+            return (entry->entry_type == FSE_TYPE_RAW) ? entry : NULL;
 
         if (by_partition_index) {
             if (partition_index != entry->partition_index)

@@ -2,18 +2,25 @@
 
 #include "filesystem.h"
 
+enum fse_type {
+    FSE_TYPE_RAW,
+    FSE_TYPE_MBR,
+    FSE_TYPE_GPT
+};
+
 struct fs_entry {
     void *disk_handle;
     u32 disk_index;
-    u32 partition_index;
+    u16 partition_index;
+    u16 entry_type;
     struct guid disk_guid;
     struct guid partition_guid;
     struct filesystem *fs;
 };
 
 void add_raw_fs_entry(void *disk_handle, u32 disk_index, struct filesystem*);
-void add_mbr_fs_entry(void *disk_handle, u32 disk_index, u32 partition_index, struct filesystem*);
-void add_gpt_fs_entry(void *disk_handle, u32 disk_index, u32 partition_index,
+void add_mbr_fs_entry(void *disk_handle, u32 disk_index, u16 partition_index, struct filesystem*);
+void add_gpt_fs_entry(void *disk_handle, u32 disk_index, u16 partition_index,
                       const struct guid *disk_guid, const struct guid *partition_guid, struct filesystem*);
 
 const struct fs_entry *fs_by_full_path(const struct full_path *path);
