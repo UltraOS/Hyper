@@ -3,6 +3,8 @@
 #include "structures.h"
 #include "common/string_view.h"
 
+#define unlikely_efi_error(ret) unlikely(EFI_ERROR(ret))
+
 bool uefi_pool_alloc(EFI_MEMORY_TYPE type, size_t elem_size, size_t count, VOID **out);
 
 /*
