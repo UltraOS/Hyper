@@ -71,7 +71,7 @@ static u64 uefi_allocate_pages_at(u64 address, size_t count, u32 type)
     EFI_STATUS ret;
 
     ret = g_st->BootServices->AllocatePages(AllocateAddress, native_memory_type_to_efi(type), count, &address);
-    if (unlikely(EFI_ERROR(ret))) {
+    if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("AllocatePages(AllocateAddress, %zu, 0x%016llX) failed: %pSV\n", address, count, &err_msg);
         return 0;
@@ -86,7 +86,7 @@ static u64 uefi_allocate_pages(size_t count, u64 upper_limit, u32 type)
     u64 address = upper_limit;
 
     ret = g_st->BootServices->AllocatePages(AllocateMaxAddress, native_memory_type_to_efi(type), count, &address);
-    if (unlikely(EFI_ERROR(ret))) {
+    if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("AllocatePages(AllocateMaxAddress, %zu, 0x%016llX) failed: %pSV\n", address, count, &err_msg);
         return 0;
@@ -120,7 +120,7 @@ static void internal_buf_ensure_capacity(size_t bytes)
         uefi_free_pages((u64)internal_memory_map_buf, internal_map_byte_capacity / PAGE_SIZE);
 
     ret = g_st->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, page_count, &addr);
-    if (unlikely(EFI_ERROR(ret))) {
+    if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         panic("failed to allocate internal memory buffer (%zu pages): %pSV\n", page_count, &err_msg);
     }
