@@ -60,8 +60,10 @@ enum color {
 };
 
 #define FB_FORMAT_INVALID 0
-#define FB_FORMAT_RBG     1
-#define FB_FORMAT_RGBA    2
+#define FB_FORMAT_RGB888   1
+#define FB_FORMAT_BGR888   2
+#define FB_FORMAT_RGBX8888 3
+#define FB_FORMAT_XRGB8888 4
 
 struct framebuffer {
     uint32_t width;

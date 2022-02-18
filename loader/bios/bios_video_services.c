@@ -422,9 +422,9 @@ static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
     out_framebuffer->physical_address = info.framebuffer_address;
 
     if (info.bits_per_pixel == 24) {
-        out_framebuffer->format = FB_FORMAT_RBG;
+        out_framebuffer->format = FB_FORMAT_RGB888;
     } else if (info.bits_per_pixel == 32) {
-        out_framebuffer->format = FB_FORMAT_RGBA;
+        out_framebuffer->format = FB_FORMAT_XRGB8888;
     } else {
         out_framebuffer->format = FB_FORMAT_INVALID;
         print_warn("set video mode with unsupported format (%d bpp)\n", info.bits_per_pixel);
