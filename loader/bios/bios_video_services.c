@@ -161,11 +161,8 @@ static void tty_scroll()
 
 static bool tty_write(const char *text, size_t count, enum color col)
 {
-    size_t i;
-    for (i = 0; i < count; ++i)
-        asm volatile("outb %0, %1" ::"a"(text[i]), "Nd"(0xE9));
-
     volatile u16 *vga_memory = (volatile u16*)VGA_ADDRESS;
+    size_t i;
     bool no_write;
     char c;
 
