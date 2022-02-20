@@ -7,20 +7,15 @@ PAGING_BIT:              equ (1 << 31)
 LONG_MODE_CODE_SELECTOR: equ 0x28
 EFLAGS_RESERVED_BIT:     equ (1 << 1)
 
-; [[noreturn]] void do_kernel_handover32(u32 entrypoint, u32 esp)
-; esp + 8 [esp]
-; esp + 4 [entrypoint]
+; [[noreturn]] void do_kernel_handover32(u32 esp)
+; esp + 4 [esp]
 ; esp + 0 [ret]
 global do_kernel_handover32
 do_kernel_handover32:
-    mov eax, [esp + 4]
-    mov esp, [esp + 8]
+    mov esp, [esp + 4]
 
     push dword 0x00000000 | EFLAGS_RESERVED_BIT
     popfd
-
-    push dword 0x00000000 ; fake ret address
-    push eax              ; kernel entry
 
     xor eax, eax
     xor ecx, ecx

@@ -2,26 +2,22 @@
 #include "bios_call.h"
 
 NORETURN
-void do_kernel_handover32(u32 entrypoint, u32 esp);
+void do_kernel_handover32(u32 esp);
 
 NORETURN
 void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1);
 
-#define PUSH_DWORD(stack, value) \
-    do {                         \
-        (stack) -= 4;            \
-        *(u32*)(stack) = value;  \
-    } while (0);
-
 void kernel_handover32(u32 entrypoint, u32 esp, u32 arg0, u32 arg1)
 {
     // make sure the stack is 16 byte aligned pre-call
-    PUSH_DWORD(esp, 0x00000000);
-    PUSH_DWORD(esp, 0x00000000);
-    PUSH_DWORD(esp, arg1);
-    PUSH_DWORD(esp, arg0);
+    STACK_PUSH_DWORD(esp, 0x00000000);
+    STACK_PUSH_DWORD(esp, 0x00000000);
+    STACK_PUSH_DWORD(esp, arg1);
+    STACK_PUSH_DWORD(esp, arg0);
+    STACK_PUSH_DWORD(esp, 0x00000000); // Fake return address
+    STACK_PUSH_DWORD(esp, entrypoint);
 
-    do_kernel_handover32(entrypoint, esp);
+    do_kernel_handover32(esp);
 }
 
 void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
