@@ -160,6 +160,12 @@ static size_t fill_internal_memory_map_buffer()
 static size_t uefi_copy_map(void *buf, size_t capacity, size_t elem_size,
                             size_t *out_key, entry_convert_func entry_convert)
 {
+    /*
+     * Only log errors after first call to GetMemoryMap,
+     * as WriteString() is allowed to allocate.
+     */
+    logger_set_level(LOG_LEVEL_ERR);
+
     size_t entries = fill_internal_memory_map_buffer();
     void *buf_cursor = internal_memory_map_buf;
     if (capacity < entries)
