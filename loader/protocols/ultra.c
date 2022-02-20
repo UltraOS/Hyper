@@ -181,7 +181,7 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
 
     *attrs = (struct ultra_module_info_attribute) {
         .header = { ULTRA_ATTRIBUTE_MODULE_INFO, sizeof(struct ultra_module_info_attribute) },
-        .physical_address = (ptr_t)module_data,
+        .address = (ptr_t)module_data,
         .size = module_size
     };
 }
@@ -387,6 +387,23 @@ static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void 
 static void create_kernel_info_attribute(struct ultra_kernel_info_attribute *attr, const struct kernel_info *ki)
 {
     struct string_view path_str = ki->bin_opts.path.path_within_partition;
+    u32 partition_type = ki->bin_opts.path.partition_id_type;
+
+    if (partition_type == PARTITION_IDENTIFIER_ORIGIN) {
+        switch (get_origin_fs()->entry_type) {
+        case FSE_TYPE_RAW:
+            partition_type = ULTRA_PARTITION_TYPE_RAW;
+            break;
+        case FSE_TYPE_MBR:
+            partition_type = ULTRA_PARTITION_TYPE_MBR;
+            break;
+        case FSE_TYPE_GPT:
+            partition_type = ULTRA_PARTITION_TYPE_GPT;
+            break;
+        default:
+            BUG();
+        }
+    }
 
     attr->header = (struct ultra_attribute_header) {
         .type = ULTRA_ATTRIBUTE_KERNEL_INFO,
@@ -395,7 +412,7 @@ static void create_kernel_info_attribute(struct ultra_kernel_info_attribute *att
     attr->physical_base = ki->bin_info.physical_base;
     attr->virtual_base = ki->bin_info.virtual_base;
     attr->size = ki->bin_info.physical_ceiling - ki->bin_info.physical_base;
-    attr->partition_type = ki->bin_opts.path.partition_id_type;
+    attr->partition_type = partition_type;
     attr->partition_index = ki->bin_opts.path.partition_index;
 
     BUILD_BUG_ON(sizeof(attr->disk_guid) != sizeof(ki->bin_opts.path.disk_guid));
@@ -431,6 +448,7 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
     bytes_needed += spec->module_count * sizeof(struct ultra_module_info_attribute);
     bytes_needed += cmdline_aligned_length;
     bytes_needed += spec->fb_present * sizeof(struct ultra_framebuffer_attribute);
+    bytes_needed += sizeof(struct ultra_memory_map_attribute);
 
     /*
      * Attempt to allocate the storage for attribute array while having enough space for the memory map
@@ -444,16 +462,19 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
         bytes_for_this_allocation = bytes_needed + memory_map_reserved_size * sizeof(struct ultra_memory_map_entry);
 
         // FIXME: this should probably do page granularity allocations
-        hi->attribute_array_address = (u32)allocate_critical_bytes(bytes_for_this_allocation);
+        hi->attribute_array_address = (u32)(ptr_t)allocate_critical_bytes(bytes_for_this_allocation);
 
         // Check if memory map had to grow to store the previous allocation
         memory_map_size_new = ms->copy_map(NULL, 0, 0, &key, NULL);
-        if (memory_map_reserved_size >= memory_map_size_new) {
-            memzero((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
-            break;
+
+        if (memory_map_reserved_size < memory_map_size_new) {
+            free_bytes((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
+            continue;
         }
 
-        free_bytes((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
+        memory_map_reserved_size = memory_map_size_new;
+        memzero((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
+        break;
     }
 
     attr_ptr = (void*)(ptr_t)hi->attribute_array_address;
@@ -606,12 +627,31 @@ u64 pick_stack(struct config *cfg, struct loadable_entry *le)
 
 #define MODULES_PER_PAGE (PAGE_SIZE / sizeof(struct ultra_module_info_attribute))
 
+void load_all_modules(struct config *cfg, struct loadable_entry *le, struct attribute_array_spec *spec)
+{
+    struct value module_value;
+    size_t modules_capacity = MODULES_PER_PAGE;
+
+    if (!cfg_get_first_one_of(cfg, le, SV("module"), VALUE_STRING | VALUE_OBJECT, &module_value))
+        return;
+
+    spec->modules = allocate_critical_pages(1);
+    do {
+        if (++spec->module_count == modules_capacity) {
+            void *new_modules = allocate_critical_pages((modules_capacity / MODULES_PER_PAGE) + 1);
+            memcpy(new_modules, spec->modules, modules_capacity);
+            free_pages(spec->modules, modules_capacity / MODULES_PER_PAGE);
+            spec->modules = new_modules;
+            modules_capacity += MODULES_PER_PAGE;
+        }
+
+        module_load(cfg, &module_value, &spec->modules[spec->module_count - 1]);
+    } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
+}
+
 void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct services *sv)
 {
     struct attribute_array_spec spec = { 0 };
-    size_t modules_capacity = MODULES_PER_PAGE;
-    spec.modules = allocate_critical_pages(1);
-    struct value module_value;
     struct handover_info hi;
     u64 pt;
     bool handover_res;
@@ -622,19 +662,7 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
 
     spec.cmdline_present = cfg_get_string(cfg, le, SV("cmdline"), &spec.cmdline);
 
-    if (cfg_get_first_one_of(cfg, le, SV("module"), VALUE_STRING | VALUE_OBJECT, &module_value)) {
-        do {
-            if (++spec.module_count == modules_capacity) {
-                void *new_modules = allocate_critical_pages(modules_capacity + MODULES_PER_PAGE);
-                memcpy(new_modules, spec.modules, modules_capacity);
-                free_pages(spec.modules, (modules_capacity * sizeof(struct ultra_module_info_attribute)) / PAGE_SIZE);
-                spec.modules = new_modules;
-                modules_capacity += MODULES_PER_PAGE;
-            }
-
-            module_load(cfg, &module_value, &spec.modules[spec.module_count - 1]);
-        } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
-    }
+    load_all_modules(cfg, le, &spec);
 
     pt = build_page_table(&spec.kern_info.bin_info);
     spec.stack_address = pick_stack(cfg, le);
@@ -646,7 +674,7 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
     */
     spec.fb_present = set_video_mode(cfg, le, sv->vs, &spec.fb);
     if (is_higher_half_kernel)
-        spec.fb.physical_address += DIRECT_MAP_BASE;
+        spec.fb.address += DIRECT_MAP_BASE;
 
     /*
      * We cannot allocate any memory after this call, as memory map is now
