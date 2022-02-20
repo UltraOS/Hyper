@@ -68,6 +68,7 @@ MODE_32BIT:       equ (1 << 6)
 MODE_64BIT:       equ (1 << 5)
 PAGE_GRANULARITY: equ (1 << 7)
 
+align 16
 gdt_struct:
     .null: equ $ - gdt_struct
     dq 0x0000000000000000
