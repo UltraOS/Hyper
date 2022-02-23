@@ -126,11 +126,19 @@ static void internal_buf_ensure_capacity(size_t bytes)
     internal_map_byte_capacity = rounded_up_bytes;
 }
 
+static EFI_MEMORY_DESCRIPTOR *memory_descriptor_at(size_t i)
+{
+    BUG_ON(i >= internal_map_entries);
+
+    return internal_memory_map_buf + i * internal_descriptor_size;
+}
+
 static size_t fill_internal_memory_map_buffer()
 {
     UINT32 descriptor_version;
     UINTN bytes_inout;
     EFI_STATUS ret;
+    size_t i;
 
     for (;;) {
         bytes_inout = internal_map_byte_capacity;
@@ -152,8 +160,27 @@ static size_t fill_internal_memory_map_buffer()
 
         internal_buf_ensure_capacity(bytes_inout);
     }
-
     internal_map_entries = bytes_inout / internal_descriptor_size;
+
+    // UEFI doesn't guarantee anything about the memory map, so we have to sort it.
+    // FIXME: correct overlapping entries too
+    for (i = 0; i < internal_map_entries; ++i) {
+        size_t j = i;
+
+        while (j) {
+            EFI_MEMORY_DESCRIPTOR *rhs = memory_descriptor_at(j);
+            EFI_MEMORY_DESCRIPTOR *lhs = memory_descriptor_at(j - 1);
+
+            if (lhs->PhysicalStart <= rhs->PhysicalStart)
+                break;
+
+            EFI_MEMORY_DESCRIPTOR tmp = *rhs;
+            *rhs = *lhs;
+            *lhs = tmp;
+            --j;
+        }
+    }
+
     return internal_map_entries;
 }
 
