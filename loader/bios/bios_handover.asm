@@ -6,6 +6,7 @@ LONG_MODE_BIT:           equ (1 << 8)
 PAGING_BIT:              equ (1 << 31)
 LONG_MODE_CODE_SELECTOR: equ 0x28
 EFLAGS_RESERVED_BIT:     equ (1 << 1)
+DIRECT_MAP_BASE:         equ 0xFFFF800000000000
 
 ; [[noreturn]] void do_kernel_handover32(u32 esp)
 ; esp + 4 [esp]
@@ -27,7 +28,8 @@ do_kernel_handover32:
 
     ret
 
-; [[noreturn]] void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
+; [[noreturn]] void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1, bool unmap_lower_half)
+; esp + 44 [unmap_lower_half]
 ; esp + 36 [arg1]
 ; esp + 28 [arg0]
 ; esp + 20 [cr3]
@@ -56,16 +58,32 @@ do_kernel_handover64:
 
 BITS 64
 .long_mode:
-    mov rax, [rsp + 4]
+    mov rax, DIRECT_MAP_BASE
+    add rax, .higher_half
+    jmp rax
+
+.higher_half:
+    mov r8,  [rsp + 4]
     mov rdi, [rsp + 28]
     mov rsi, [rsp + 36]
+    mov al,  [rsp + 44]
+
     mov rsp, [rsp + 12]
 
+    test al, al
+    jz .unmap_done
+
+    ; unmap lower half
+    mov rax, cr3
+    mov qword [rax], 0x0000000000000000
+    mov cr3, rax
+
+.unmap_done:
     push qword 0x0000000000000000 | EFLAGS_RESERVED_BIT
     popfq
 
     push qword 0x0000000000000000 ; fake ret address
-    push rax                      ; kernel entry
+    push r8                       ; kernel entry
 
     xor rax, rax
     xor rcx, rcx

@@ -5,7 +5,7 @@ NORETURN
 void do_kernel_handover32(u32 esp);
 
 NORETURN
-void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1);
+void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1, bool unmap_lower_half);
 
 void kernel_handover32(u32 entrypoint, u32 esp, u32 arg0, u32 arg1)
 {
@@ -20,7 +20,7 @@ void kernel_handover32(u32 entrypoint, u32 esp, u32 arg0, u32 arg1)
     do_kernel_handover32(esp);
 }
 
-void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
+void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1, bool unmap_lower_half)
 {
     /*
      * AMD Hammer Family Processor BIOS and Kernel Developer’s Guide
@@ -35,5 +35,5 @@ void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
     regs.ebx = 0x02;
     bios_call(0x15, &regs, &regs);
 
-    do_kernel_handover64(entrypoint, rsp, cr3, arg0, arg1);
+    do_kernel_handover64(entrypoint, rsp, cr3, arg0, arg1, unmap_lower_half);
 }

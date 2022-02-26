@@ -6,8 +6,10 @@ PAE_BIT:             equ (1 << 5)
 EFER_NUMBER:         equ 0xC0000080
 LONG_MODE_BIT:       equ (1 << 8)
 PAGING_BIT:          equ (1 << 31)
+DIRECT_MAP_BASE:     equ 0xFFFF800000000000
 
-; [[noreturn]] void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1)
+; [[noreturn]] void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1, bool unmap_lower_half)
+; RSP + 48 [unmap_lower_half]
 ; RSP + 40 [arg1]
 ; R9       [arg0]
 ; R8       [cr3]
@@ -37,14 +39,44 @@ kernel_handover64:
     mov rdi, r9
     mov rsi, [rsp + 40]
 
+    mov r10b, [rsp + 48]
+
     mov cr3, r8
     mov rsp, rdx
 
+    mov rax, DIRECT_MAP_BASE
+    mov rbx, .higher_half
+    add rax, rbx
+    jmp rax
+
+.higher_half:
+    test r10b, r10b
+    jz .unmap_done
+
+    mov rax, cr3
+    mov qword [rax], 0x0000000000000000
+    mov cr3, rax
+
+.unmap_done:
     push qword 0x0000000000000000 | EFLAGS_RESERVED_BIT
     popfq
 
     push qword 0x0000000000000000 ; fake ret address
     push rcx                      ; kernel entry
+
+    xor rax, rax
+    xor rcx, rcx
+    xor rdx, rdx
+    xor rbx, rbx
+    xor rbp, rbp
+    xor r8, r8
+    xor r9, r9
+    xor r10, r10
+    xor r11, r11
+    xor r12, r12
+    xor r13, r13
+    xor r14, r14
+    xor r15, r15
 
     ret
 
