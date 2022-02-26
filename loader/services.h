@@ -177,6 +177,11 @@ struct memory_services {
      */
     size_t (*copy_map)(void *buf, size_t capacity, size_t elem_size,
                        size_t *out_key, entry_convert_func entry_convert);
+
+    /*
+     * Returns the address of the last byte of the last entry in the memory map + 1
+     */
+    u64 (*get_highest_memory_map_address)();
 };
 
 enum service_provider {

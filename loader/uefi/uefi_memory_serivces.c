@@ -221,11 +221,22 @@ static size_t uefi_copy_map(void *buf, size_t capacity, size_t elem_size,
     return internal_map_entries;
 }
 
+static u64 uefi_get_highest_memory_map_address()
+{
+    EFI_MEMORY_DESCRIPTOR *last_desc;
+    if (!internal_map_entries)
+        fill_internal_memory_map_buffer();
+
+    last_desc = memory_descriptor_at(internal_map_entries - 1);
+    return last_desc->PhysicalStart + last_desc->NumberOfPages * PAGE_SIZE;
+}
+
 static struct memory_services uefi_memory_services = {
     .allocate_pages_at = uefi_allocate_pages_at,
     .allocate_pages = uefi_allocate_pages,
     .free_pages = uefi_free_pages,
-    .copy_map = uefi_copy_map
+    .copy_map = uefi_copy_map,
+    .get_highest_memory_map_address = uefi_get_highest_memory_map_address
 };
 
 struct memory_services *memory_services_init()

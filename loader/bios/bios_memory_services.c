@@ -504,11 +504,18 @@ static void initialize_memory_map()
         print_warn("failed to mark loader base 0x%08X as allocated\n", STAGE2_BASE_PAGE);
 }
 
+static u64 bios_get_highest_memory_map_address()
+{
+    BUG_ON(entry_count == 0);
+    return entries_buffer[entry_count - 1].end;
+}
+
 static struct memory_services bios_ms = {
     .allocate_pages_at = allocate_pages_at,
     .allocate_pages = allocate_pages,
     .free_pages = free_pages,
-    .copy_map = copy_map
+    .copy_map = copy_map,
+    .get_highest_memory_map_address = bios_get_highest_memory_map_address
 };
 
 struct memory_services *memory_services_init()
