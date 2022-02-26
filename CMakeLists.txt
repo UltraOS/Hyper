@@ -11,7 +11,7 @@ elseif ((NOT PLATFORM MATCHES "bios") AND (NOT PLATFORM MATCHES "uefi"))
 endif ()
 
 if (PLATFORM MATCHES "uefi")
-    set(COMPILER_PREFIX "mingw64")
+    set(COMPILER_PREFIX "x86_64-w64-mingw32")
 else ()
     set(COMPILER_PREFIX "i686-elf")
 endif ()
