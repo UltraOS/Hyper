@@ -7,6 +7,7 @@
 #include "common/constants.h"
 #include "common/format.h"
 #include "common/log.h"
+#include "common/minmax.h"
 #include "filesystem/filesystem_table.h"
 #include "allocator.h"
 #include "virtual_memory.h"
@@ -122,6 +123,8 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
         memcpy(attrs->name, module_name.text, module_name.size);
         attrs->name[module_name.size] = '\0';
     }
+
+    print_info("loading module \"%s\"...\n", attrs->name);
 
     if (module_type == ULTRA_MODULE_TYPE_FILE) {
         struct full_path path;
@@ -348,6 +351,7 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
 }
 
 struct attribute_array_spec {
+    bool higher_half_pointers;
     bool fb_present;
     bool cmdline_present;
 
@@ -384,7 +388,35 @@ static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void 
     }
 }
 
-static void create_kernel_info_attribute(struct ultra_kernel_info_attribute *attr, const struct kernel_info *ki)
+#define ULTRA_MAJOR 1
+#define ULTRA_MINOR 0
+
+static void *write_context_header(struct ultra_boot_context *ctx, uint32_t** attr_count)
+{
+    ctx->protocol_major = ULTRA_MAJOR;
+    ctx->protocol_minor = ULTRA_MINOR;
+    *attr_count = &ctx->attribute_count;
+
+    return ++ctx;
+}
+
+static void *write_platform_info(struct ultra_platform_info_attribute *pi, enum service_provider sp, u64 rsdp_address)
+{
+    struct string_view loader_name_str = SV(LOAD_NAME_STRING);
+
+    pi->header.type = ULTRA_ATTRIBUTE_PLATFORM_INFO;
+    pi->header.size = sizeof(struct ultra_platform_info_attribute);
+    pi->platform_type = sp == SERVICE_PROVIDER_BIOS ? ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI;
+    pi->loader_major = 0;
+    pi->loader_minor = 1;
+    pi->acpi_rsdp_address = rsdp_address;
+
+    memcpy(pi->loader_name, loader_name_str.text, loader_name_str.size + 1);
+
+    return ++pi;
+}
+
+static void *write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr, const struct kernel_info *ki)
 {
     struct string_view path_str = ki->bin_opts.path.path_within_partition;
     u32 partition_type = ki->bin_opts.path.partition_id_type;
@@ -422,14 +454,34 @@ static void create_kernel_info_attribute(struct ultra_kernel_info_attribute *att
     BUG_ON(path_str.size > (sizeof(attr->fs_path) - 1));
     memcpy(attr->fs_path, path_str.text, path_str.size);
     attr->fs_path[path_str.size] = '\0';
+
+    return ++attr;
+}
+
+static void *write_framebuffer(struct ultra_framebuffer_attribute *fb_attr, const struct attribute_array_spec *spec)
+{
+    fb_attr->header.type = ULTRA_ATTRIBUTE_FRAMEBUFFER_INFO;
+    fb_attr->header.size = sizeof(struct ultra_framebuffer_attribute);
+    fb_attr->fb = spec->fb;
+
+    if (spec->higher_half_pointers)
+        fb_attr->fb.address += DIRECT_MAP_BASE;
+
+    return ++fb_attr;
+}
+
+static void *write_memory_map_header(struct ultra_memory_map_attribute *mm, size_t entry_count)
+{
+    mm->header.type = ULTRA_ATTRIBUTE_MEMORY_MAP;
+    mm->header.size = sizeof(struct ultra_memory_map_attribute) + entry_count * sizeof(struct ultra_memory_map_entry);
+    return ++mm;
 }
 
 void build_attribute_array(const struct attribute_array_spec *spec, enum service_provider sp,
                            struct memory_services *ms, struct handover_info *hi)
 {
-    struct string_view loader_name_str = SV(LOAD_NAME_STRING);
     u32 cmdline_aligned_length = 0;
-    size_t memory_map_reserved_size, bytes_needed = 0;
+    size_t mm_entry_count, bytes_needed = 0;
     void *attr_ptr;
     uint32_t *attr_count;
 
@@ -442,7 +494,7 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
             cmdline_aligned_length += 8 - remainder;
     }
 
-    bytes_needed += sizeof(uint64_t); // attribute_count
+    bytes_needed += sizeof(struct ultra_boot_context);
     bytes_needed += sizeof(struct ultra_platform_info_attribute);
     bytes_needed += sizeof(struct ultra_kernel_info_attribute);
     bytes_needed += spec->module_count * sizeof(struct ultra_module_info_attribute);
@@ -455,49 +507,35 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
      * (which is changed every time we allocate/free more memory)
      */
     for (;;) {
-        size_t bytes_for_this_allocation, memory_map_size_new, key = 0;
+        size_t bytes_for_this_allocation, mm_entry_count_new, key = 0;
 
         // Add 1 to give some leeway for memory map growth after the next allocation
-        memory_map_reserved_size = ms->copy_map(NULL, 0, 0, &key, NULL) + 1;
-        bytes_for_this_allocation = bytes_needed + memory_map_reserved_size * sizeof(struct ultra_memory_map_entry);
+        mm_entry_count = ms->copy_map(NULL, 0, 0, &key, NULL) + 1;
+        bytes_for_this_allocation = bytes_needed + mm_entry_count * sizeof(struct ultra_memory_map_entry);
 
         // FIXME: this should probably do page granularity allocations
         hi->attribute_array_address = (u32)(ptr_t)allocate_critical_bytes(bytes_for_this_allocation);
 
         // Check if memory map had to grow to store the previous allocation
-        memory_map_size_new = ms->copy_map(NULL, 0, 0, &key, NULL);
+        mm_entry_count_new = ms->copy_map(NULL, 0, 0, &key, NULL);
 
-        if (memory_map_reserved_size < memory_map_size_new) {
+        if (mm_entry_count < mm_entry_count_new) {
             free_bytes((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
             continue;
         }
 
-        memory_map_reserved_size = memory_map_size_new;
+        mm_entry_count = mm_entry_count_new;
         memzero((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
         break;
     }
 
     attr_ptr = (void*)(ptr_t)hi->attribute_array_address;
-    attr_ptr += sizeof(uint32_t);
-    attr_count = attr_ptr;
-    attr_ptr += sizeof(uint32_t);
+    attr_ptr = write_context_header(attr_ptr, &attr_count);
 
-    *attr_count = 0;
-
-    *(struct ultra_platform_info_attribute*)attr_ptr = (struct ultra_platform_info_attribute) {
-        .header = { ULTRA_ATTRIBUTE_PLATFORM_INFO, sizeof(struct ultra_platform_info_attribute) },
-        .platform_type = sp == SERVICE_PROVIDER_BIOS ? ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI,
-        .loader_major = 0,
-        .loader_minor = 1,
-        .acpi_rsdp_address = spec->acpi_rsdp_address
-    };
-    memcpy(((struct ultra_platform_info_attribute*)attr_ptr)->loader_name, loader_name_str.text,
-          loader_name_str.size + 1);
-    attr_ptr += sizeof(struct ultra_platform_info_attribute);
+    attr_ptr = write_platform_info(attr_ptr, sp, spec->acpi_rsdp_address);
     *attr_count += 1;
 
-    create_kernel_info_attribute(attr_ptr, &spec->kern_info);
-    attr_ptr += sizeof(struct ultra_kernel_info_attribute);
+    attr_ptr = write_kernel_info_attribute(attr_ptr, &spec->kern_info);
     *attr_count += 1;
 
     if (spec->module_count) {
@@ -521,48 +559,58 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
     }
 
     if (spec->fb_present) {
-        *(struct ultra_framebuffer_attribute*)attr_ptr = (struct ultra_framebuffer_attribute) {
-            .header = { ULTRA_ATTRIBUTE_FRAMEBUFFER_INFO, sizeof(struct ultra_framebuffer_attribute) },
-            .fb = spec->fb
-        };
-
-        attr_ptr += sizeof(struct ultra_framebuffer_attribute);
+        attr_ptr = write_framebuffer(attr_ptr, spec);
         *attr_count += 1;
     }
 
-    *(struct ultra_memory_map_attribute*)attr_ptr = (struct ultra_memory_map_attribute) {
-        .header = {
-            .type = ULTRA_ATTRIBUTE_MEMORY_MAP,
-            .size = memory_map_reserved_size * sizeof(struct ultra_memory_map_entry)
-                    + sizeof(struct ultra_memory_map_attribute)
-        }
-    };
-    attr_ptr += sizeof(struct ultra_attribute_header);
+    attr_ptr = write_memory_map_header(attr_ptr, mm_entry_count);
     *attr_count += 1;
-
-    ms->copy_map(attr_ptr, memory_map_reserved_size, sizeof(struct ultra_memory_map_entry),
+    ms->copy_map(attr_ptr, mm_entry_count, sizeof(struct ultra_memory_map_entry),
                  &hi->memory_map_handover_key, ultra_memory_map_entry_convert);
-    attr_ptr += memory_map_reserved_size * sizeof(struct ultra_memory_map_entry);
+    attr_ptr += mm_entry_count * sizeof(struct ultra_memory_map_entry);
 }
 
-u64 build_page_table(struct binary_info *bi)
+u64 build_page_table(struct binary_info *bi, u64 max_address, bool higher_half_exclusive, bool null_guard)
 {
     struct page_table pt;
+    u64 max_address_rounded_up;
 
     if (bi->bitness != 64)
         return 0;
+
+    max_address_rounded_up = HUGE_PAGE_ROUND_UP(max_address);
+    max_address_rounded_up = MAX(4ull * GB, max_address_rounded_up);
+    print_info("going to map physical up to 0x%016llX\n", max_address_rounded_up);
 
     pt.root = (u64*)allocate_critical_pages(1);
     pt.levels = 4;
     memzero(pt.root, PAGE_SIZE);
 
-    // identity map bottom 4 gigabytes
-    map_critical_huge_pages(&pt, 0x0000000000000000, 0x0000000000000000,
-                            (4ull * GB) / HUGE_PAGE_SIZE);
-
     // direct map higher half
     map_critical_huge_pages(&pt, DIRECT_MAP_BASE , 0x0000000000000000,
-                            (4ull * GB) / HUGE_PAGE_SIZE);
+                            max_address_rounded_up / HUGE_PAGE_SIZE);
+
+    if (!higher_half_exclusive) {
+        u64 base = 0x0000000000000000;
+        size_t pages_to_map;
+
+        /*
+         * Don't use huge pages for the first 2M in case there's a null guard,
+         * we only want to unmap the first 4K page.
+         */
+        if (null_guard) {
+            base += PAGE_SIZE;
+            pages_to_map = ((2 * MB) / PAGE_SIZE) - 1;
+            map_critical_pages(&pt, base, base, pages_to_map);
+            base = 2 * MB;
+        }
+
+        pages_to_map = (max_address_rounded_up - base) / HUGE_PAGE_SIZE;
+        map_critical_huge_pages(&pt, base, base, pages_to_map);
+    } else {
+        // steal the direct mapping from higher half, we're gonna unmap it later
+        pt.root[0] = pt.root[256];
+    }
 
     /*
      * If kernel had allocate-anywhere set to on, map virtual base to physical base,
@@ -637,6 +685,8 @@ void load_all_modules(struct config *cfg, struct loadable_entry *le, struct attr
 
     spec->modules = allocate_critical_pages(1);
     do {
+        struct ultra_module_info_attribute *mi;
+
         if (++spec->module_count == modules_capacity) {
             void *new_modules = allocate_critical_pages((modules_capacity / MODULES_PER_PAGE) + 1);
             memcpy(new_modules, spec->modules, modules_capacity);
@@ -644,8 +694,11 @@ void load_all_modules(struct config *cfg, struct loadable_entry *le, struct attr
             spec->modules = new_modules;
             modules_capacity += MODULES_PER_PAGE;
         }
+        mi = &spec->modules[spec->module_count - 1];
 
-        module_load(cfg, &module_value, &spec->modules[spec->module_count - 1]);
+        module_load(cfg, &module_value, mi);
+        if (spec->higher_half_pointers)
+            mi->address += DIRECT_MAP_BASE;
     } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
 }
 
@@ -654,17 +707,23 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
     struct attribute_array_spec spec = { 0 };
     struct handover_info hi;
     u64 pt;
-    bool handover_res;
-    bool is_higher_half_kernel;
+    bool handover_res, is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
 
     load_kernel(cfg, le, &spec.kern_info);
     is_higher_half_kernel = spec.kern_info.bin_info.entrypoint_address >= HIGHER_HALF_BASE;
+    cfg_get_bool(cfg, le, SV("higher-half-exclusive"), &is_higher_half_exclusive);
+    cfg_get_bool(cfg, le, SV("null-guard"), &null_guard);
 
+    if (!is_higher_half_kernel && is_higher_half_exclusive)
+        oops("Higher half exclusive mode is only allowed for higher half kernels");
+
+    spec.higher_half_pointers = is_higher_half_exclusive;
     spec.cmdline_present = cfg_get_string(cfg, le, SV("cmdline"), &spec.cmdline);
 
     load_all_modules(cfg, le, &spec);
 
-    pt = build_page_table(&spec.kern_info.bin_info);
+    pt = build_page_table(&spec.kern_info.bin_info, sv->ms->get_highest_memory_map_address(),
+                          is_higher_half_exclusive, null_guard);
     spec.stack_address = pick_stack(cfg, le);
     spec.acpi_rsdp_address = sv->get_rsdp();
 
@@ -673,8 +732,6 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
     * legacy tty logging after that.
     */
     spec.fb_present = set_video_mode(cfg, le, sv->vs, &spec.fb);
-    if (is_higher_half_kernel)
-        spec.fb.address += DIRECT_MAP_BASE;
 
     /*
      * We cannot allocate any memory after this call, as memory map is now
@@ -686,7 +743,6 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
     handover_res = sv->exit_all_services(sv, hi.memory_map_handover_key);
     BUG_ON(!handover_res);
 
-    // Relocate pointers to higher half for convenience
     if (is_higher_half_kernel) {
         spec.stack_address += DIRECT_MAP_BASE;
         hi.attribute_array_address += DIRECT_MAP_BASE;
@@ -701,5 +757,5 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
                           (u32)hi.attribute_array_address, ULTRA_MAGIC);
 
     kernel_handover64(spec.kern_info.bin_info.entrypoint_address, spec.stack_address, pt,
-                      hi.attribute_array_address, ULTRA_MAGIC);
+                      hi.attribute_array_address, ULTRA_MAGIC, is_higher_half_exclusive);
 }
