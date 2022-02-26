@@ -45,12 +45,11 @@ FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM}/*asm")
 set(LOADER_SOURCES ${C_FILES} ${ASM_FILES})
 
 add_executable(${EXECUTABLE_NAME} ${LOADER_SOURCES})
-
 target_include_directories(${EXECUTABLE_NAME} PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/..)
+target_link_libraries(${EXECUTABLE_NAME} gcc)
 
 if (PLATFORM MATCHES "bios")
     set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-T ${PROJECT_SOURCE_DIR}/${PLATFORM}/linker.ld -Wl,--oformat,binary")
-    target_link_libraries(${EXECUTABLE_NAME} gcc)
 else ()
     set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS "-Wl,-dll -Wl,--subsystem,10 -e EfiMain -s -Wl,-Bsymbolic -shared")
 endif ()
