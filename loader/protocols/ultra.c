@@ -239,6 +239,7 @@ enum video_mode_constraint {
 
 struct requested_video_mode {
     u32 width, height, bpp;
+    u16 format;
     enum video_mode_constraint constraint;
     bool none;
 };
@@ -250,6 +251,7 @@ void video_mode_from_value(struct config *cfg, struct value *val, struct request
 {
     u64 cfg_width, cfg_height, cfg_bpp;
     struct string_view constraint_str;
+    struct string_view format_str;
 
     if (value_is_null(val)) {
         mode->none = true;
@@ -274,6 +276,19 @@ void video_mode_from_value(struct config *cfg, struct value *val, struct request
         mode->height = cfg_height;
     if (cfg_get_unsigned(cfg, val, SV("bpp"), &cfg_bpp))
         mode->bpp = cfg_bpp;
+
+    if (cfg_get_string(cfg, val, SV("format"), &format_str)) {
+        if (sv_equals_caseless(format_str, SV("rgb888")))
+            mode->format = FB_FORMAT_RGB888;
+        else if (sv_equals_caseless(format_str, SV("bgr888")))
+            mode->format = FB_FORMAT_BGR888;
+        else if (sv_equals_caseless(format_str, SV("rgbx8888")))
+            mode->format = FB_FORMAT_RGBX8888;
+        else if (sv_equals_caseless(format_str, SV("xrgb8888")))
+            mode->format = FB_FORMAT_XRGB8888;
+        else if (!sv_equals_caseless(format_str, SV("auto")))
+            oops("Unsupported video-mode format '%pSV'", &format_str);
+    }
 
     if (cfg_get_string(cfg, val, SV("constraint"), &constraint_str)) {
         if (sv_equals(constraint_str, SV("at-least")))
@@ -304,6 +319,7 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
         .width = DEFAULT_WIDTH,
         .height = DEFAULT_HEIGHT,
         .bpp = DEFAULT_BPP,
+        .format = FB_FORMAT_INVALID,
         .constraint = VIDEO_MODE_CONSTRAINT_AT_LEAST
     };
     struct framebuffer fb;
@@ -321,6 +337,9 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
 
     for (mode_idx = 0; mode_idx < mode_count; ++mode_idx) {
         struct video_mode *m = &mode_list[mode_idx];
+
+        if (rm.format != FB_FORMAT_INVALID && m->format != rm.format)
+            continue;
 
         if (rm.constraint == VIDEO_MODE_CONSTRAINT_EXACTLY && VM_EQUALS(*m, rm)) {
             picked_vm = *m;
