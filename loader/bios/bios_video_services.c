@@ -337,6 +337,7 @@ static void fetch_all_video_modes()
             .width = info.width,
             .height = info.height,
             .bpp = info.bits_per_pixel,
+            .format = FB_FORMAT_XRGB8888, // FIXME: support other formats
             .id = mode_id
         };
     }

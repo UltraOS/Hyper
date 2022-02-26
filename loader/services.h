@@ -38,10 +38,17 @@ struct disk_services {
     bool (*read_blocks)(void *handle, void *buffer, u64 sector, size_t blocks);
 };
 
+#define FB_FORMAT_INVALID 0
+#define FB_FORMAT_RGB888   1
+#define FB_FORMAT_BGR888   2
+#define FB_FORMAT_RGBX8888 3
+#define FB_FORMAT_XRGB8888 4
+
 struct video_mode {
     u32 width;
     u32 height;
-    u32 bpp;
+    u16 bpp;
+    u16 format;
     u32 id;
 };
 
@@ -59,19 +66,13 @@ enum color {
     COLOR_GREEN,
 };
 
-#define FB_FORMAT_INVALID 0
-#define FB_FORMAT_RGB888   1
-#define FB_FORMAT_BGR888   2
-#define FB_FORMAT_RGBX8888 3
-#define FB_FORMAT_XRGB8888 4
-
 struct framebuffer {
-    uint32_t width;
-    uint32_t height;
-    uint32_t pitch;
-    uint16_t bpp;
-    uint16_t format;
-    uint64_t physical_address;
+    u32 width;
+    u32 height;
+    u32 pitch;
+    u16 bpp;
+    u16 format;
+    u64 physical_address;
 };
 
 struct video_services {

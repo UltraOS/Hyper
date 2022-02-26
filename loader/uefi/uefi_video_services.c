@@ -254,6 +254,7 @@ static void gfx_modes_init()
             .width = mode_info->HorizontalResolution,
             .height = mode_info->VerticalResolution,
             .bpp = 32,
+            .format = FB_FORMAT_XRGB8888, // FIXME: support other formats
             .id = i
         };
     }
