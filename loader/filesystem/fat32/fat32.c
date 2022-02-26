@@ -159,24 +159,26 @@ static bool ensure_fat_entry(struct fat32_filesystem *fs, u32 index)
 {
     struct disk_services *srvc = filesystem_backend();
     struct disk *d = &fs->f.d;
-    u32 first_block, sectors_to_read;
+    index = index & ~(FAT_VIEW_CAPACITY - 1);
+    u32 first_block, blocks_to_read;
+    u32 fat_entries_per_block = d->bytes_per_sector / sizeof(u32); // TODO: cache this?
     bool was_null = fs->fat_view == NULL;
 
+    if (unlikely(!srvc))
+        return false;
     if (was_null && !(fs->fat_view = allocate_bytes(FAT_VIEW_PAGES)))
         return false;
 
     BUG_ON(index >= fs->fat_clusters);
 
     // already have it cached
-    if (!was_null && (fs->fat_view_offset <= index && ((fs->fat_view_offset + FAT_VIEW_CAPACITY) > index)))
+    if (!was_null && fs->fat_view_offset == index)
         return true;
 
-    if (!srvc)
-        return false;
-
-    first_block = fs->fat_lba_range.begin + ((index * sizeof(u32)) / fs->f.d.bytes_per_sector);
-    sectors_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_PAGES / (size_t)d->bytes_per_sector);
-    return srvc->read_blocks(d->handle, fs->fat_view, first_block, sectors_to_read);
+    fs->fat_view_offset = index;
+    first_block = fs->fat_lba_range.begin + (index / fat_entries_per_block);
+    blocks_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_PAGES / (size_t)d->bytes_per_sector);
+    return srvc->read_blocks(d->handle, fs->fat_view, first_block, blocks_to_read);
 }
 
 static u32 fat_entry_at(struct fat32_filesystem *fs, u32 index)
@@ -231,8 +233,8 @@ static bool file_compute_contiguous_ranges(struct fat32_file *file)
 
         switch (entry_type_of_fat_value(next_cluster)) {
         case FAT_ENTRY_END_OF_CHAIN: {
-            if (current_file_offset * fs->bytes_per_cluster < file->f.size) {
-                print_warn("FAT32: EOC before end of file");
+            if (unlikely(current_file_offset * fs->bytes_per_cluster < file->f.size)) {
+                print_warn("EOC before end of file");
                 return false;
             }
 
@@ -267,7 +269,6 @@ static u32 file_cluster_from_offset(struct fat32_file *file, u32 offset)
     u32 global_cluster;
 
     BUG_ON(file->range_count == 0);
-    //BUG_ON(offset < CEILING_DIVIDE(file->f.size, fs_as_fat32().bytes_per_cluster()));
 
     if (file->ranges_extra && file->ranges_extra[0].file_offset_cluster >= offset) {
         ranges = file->ranges_extra;
