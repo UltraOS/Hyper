@@ -125,9 +125,9 @@ struct video_services {
 #define MEMORY_TYPE_LOADER_RECLAIMABLE 0xFFFF0001
 
 struct memory_map_entry {
-    uint64_t physical_address;
-    uint64_t size_in_bytes;
-    uint64_t type;
+    u64 physical_address;
+    u64 size_in_bytes;
+    u64 type;
 };
 
 /*
