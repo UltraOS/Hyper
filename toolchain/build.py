@@ -16,8 +16,8 @@ SUPPORTED_SYSTEMS = [ "Linux", "Darwin" ]
 # Needed to build on M1 and other aarch64 chips
 GCC_DARWIN_PATCH = \
 """     
---- gcc/config/host-darwin.c       2021-02-26 09:55:07.060284175 +0300
-+++ gcc/config/host-darwin.c       2022-02-26 09:55:07.060284175 +0300
+--- gcc/config/host-darwin.c
++++ gcc/config/host-darwin.c
 @@ -22,6 +22,10 @@
  #include "coretypes.h"
  #include "diagnostic-core.h"
@@ -46,14 +46,17 @@ def get_compiler_prefix(platform) -> str:
 
 
 def is_toolchain_built(tc_root, prefix) -> bool:
-    full_path = os.path.join(tc_root, f"bin/{prefix}-")
+    full_path = os.path.join(tc_root, "bin", f"{prefix}-")
 
     # TODO: a more "reliable" check?
     return os.path.isfile(full_path + "gcc") and \
            os.path.isfile(full_path + "ld")
 
 
-def get_package_manager() -> str:
+def get_package_manager(platform) -> str:
+    if platform == "Darwin":
+        return "brew"
+
     for pm in SUPPORTED_PACKAGE_MANGERS:
         ret = subprocess.run(["which", pm], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
@@ -64,7 +67,7 @@ def get_package_manager() -> str:
     raise RuntimeError("Couldn't detect a supported package manager")
 
 
-def download_and_extract(url, target_file, target_dir):
+def download_and_extract(url, target_file, target_dir, platform):
     if os.path.exists(target_dir):
         print(f"{target_dir} already exists")
         return False
@@ -76,9 +79,14 @@ def download_and_extract(url, target_file, target_dir):
         print(f"{target_file} already exists, not downloading")
 
     os.mkdir(target_dir)
+
+    command = ["tar", "-xf", target_file, "-C", target_dir, "--strip-components", "1"]
+    if platform != "Darwin":
+        command.append("--checkpoint=.250")
+
     print(f"Unpacking {target_file}...")
-    subprocess.run(["tar", "-xf", target_file, "-C", target_dir, "--strip-components", "1",
-                    "--checkpoint=.250"], check=True)
+    subprocess.run(command, check=True)
+
     # line feed after tar printing '....' for progress
     print("")
     return True
@@ -91,14 +99,14 @@ def download_toolchain_sources(platform, workdir, gcc_target_dir, binutils_targe
     full_gcc_tarball_path = os.path.join(workdir, "gcc.tar.gz")
     full_binutils_tarball_path = os.path.join(workdir, "binutils.tar.gz")
 
-    is_new = download_and_extract(gcc_url, full_gcc_tarball_path, gcc_target_dir)
+    is_new = download_and_extract(gcc_url, full_gcc_tarball_path, gcc_target_dir, platform)
     with contextlib.suppress(FileNotFoundError):
         os.remove(full_gcc_tarball_path)
 
     if is_new and platform == "Darwin":
         apply_patch(gcc_target_dir, GCC_DARWIN_PATCH)
 
-    download_and_extract(binutils_url, full_binutils_tarball_path, binutils_target_dir)
+    download_and_extract(binutils_url, full_binutils_tarball_path, binutils_target_dir, platform)
     with contextlib.suppress(FileNotFoundError):
         os.remove(full_binutils_tarball_path)
 
@@ -133,6 +141,10 @@ def brew_install(dependency):
     subprocess.run(["brew", "install", dependency], check=True)
 
 
+def brew_prefix(dependency):
+    return subprocess.check_output(["brew", "--prefix", dependency], text=True).strip()
+
+
 def fetch_dependencies(package_manager):
     pm_to_dependencies = {
         "apt": {
@@ -161,14 +173,14 @@ def fetch_dependencies(package_manager):
         },
         "brew": {
             "dependencies": [
-              "bison",
-              "flex",
-              "gmp",
-              "libmpc",
-              "mpfr",
-              "texinfo",
-              "isl",
-              "libmpc"
+                "coreutils",
+                "bison",
+                "flex",
+                "gmp",
+                "libmpc",
+                "mpfr",
+                "texinfo",
+                "isl"
             ],
             "is_dependency_installed": brew_is_dependency_installed,
             "install": brew_install
@@ -204,22 +216,28 @@ def build_binutils(binutils_sources, binutils_target_dir, target, platform_root,
     subprocess.run(["make", "install"], cwd=binutils_target_dir, check=True)
 
 
-def build_gcc(gcc_sources, gcc_target_dir, target, platform_root, env):
+def build_gcc(gcc_sources, gcc_target_dir, this_platform, target_platform, platform_root, env):
     configure_full_path = os.path.join(gcc_sources, "configure")
 
-    print("Building GCC...")
-    subprocess.run([configure_full_path,
-                    f"--target={target}",
-                    f"--prefix={platform_root}",
-                     "--disable-nls",
-                     "--enable-languages=c,c++",
-                     "--disable-multilib"
-                   ], cwd=gcc_target_dir, env=env, check=True)
+    configure_command = [configure_full_path,
+                         f"--target={target_platform}",
+                         f"--prefix={platform_root}",
+                         "--disable-nls",
+                         "--enable-languages=c,c++",
+                         "--disable-multilib"]
 
+    if this_platform == "Darwin":
+        configure_command.extend([
+            f"--with-gmp={brew_prefix('gmp')}",
+            f"--with-mpc={brew_prefix('libmpc')}",
+            f"--with-mpfr={brew_prefix('mpfr')}"
+        ])
+
+    print("Building GCC...")
+    subprocess.run(configure_command, cwd=gcc_target_dir, env=env, check=True)
     subprocess.run(["make", "all-gcc", "-j{}".format(os.cpu_count())],
                    cwd=gcc_target_dir, env=env, check=True)
     subprocess.run(["make", "install-gcc"], cwd=gcc_target_dir, env=env, check=True)
-
 
 
 def build_libgcc(gcc_dir):
@@ -241,7 +259,7 @@ def clone_mingw_w64(target_dir):
 def install_mingw_headers(source_dir, platform_dir, target_dir, env):
     mingw_headers_dir = os.path.join(target_dir, "mingw_headers")
     os.makedirs(mingw_headers_dir, exist_ok=True)
-    configure_path = os.path.join(source_dir, "mingw-w64-headers/configure")
+    configure_path = os.path.join(source_dir, "mingw-w64-headers", "configure")
 
     print("Installing mingw headers...")
     subprocess.run([configure_path, "--prefix={}".format(platform_dir)],
@@ -254,7 +272,7 @@ def install_mingw_headers(source_dir, platform_dir, target_dir, env):
 def install_mingw_libs(source_dir, target, platform_dir, target_dir, env):
     mingw_crt_dir = os.path.join(target_dir, "mingw_crt")
     os.makedirs(mingw_crt_dir, exist_ok=True)
-    configure_path = os.path.join(source_dir, "mingw-w64-crt/configure")
+    configure_path = os.path.join(source_dir, "mingw-w64-crt", "configure")
 
     print("Compiling mingw crt...")
     subprocess.run([configure_path,
@@ -268,31 +286,25 @@ def install_mingw_libs(source_dir, target, platform_dir, target_dir, env):
     shutil.rmtree(mingw_crt_dir)
 
 
-def build_toolchain(gcc_sources, binutils_sources, target_dir,
-                    platform, keep_sources, keep_build_dirs):
-    compiler_prefix=None
-    binutils_build_dir = os.path.join(target_dir, f"binutils_{platform}_build")
-    gcc_build_dir = os.path.join(target_dir, f"gcc_{platform}_build")
-    is_mingw = platform == "uefi"
-    compiler_prefix = get_compiler_prefix(platform)
+def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
+                    target_platform, keep_sources, keep_build_dirs):
+    compiler_prefix = get_compiler_prefix(target_platform)
+    binutils_build_dir = os.path.join(target_dir, f"binutils_{target_platform}_build")
+    gcc_build_dir = os.path.join(target_dir, f"gcc_{target_platform}_build")
+    is_mingw = target_platform == "uefi"
 
     if is_mingw:
-        compiler_prefix = "x86_64-w64-mingw32"
         mingw_w64_dir = os.path.join(target_dir, "mingw-w64")
         mingw_target_dir = os.path.join(target_dir, compiler_prefix)
         os.makedirs(mingw_target_dir, exist_ok=True)
         clone_mingw_w64(mingw_w64_dir)
-    elif platform == "bios":
-        compiler_prefix = "i686-elf"
-    else:
-        raise RuntimeError(f"Don't know how to build toolchain for {platform}")
 
     env = os.environ.copy()
     env["CFLAGS"] = env.get("CFLAGS", "") + "-g -O2 -march=native"
     env["CXXFLAGS"] = env.get("CXXFLAGS", "") + "-g -O2 -march=native"
     env["PATH"] = os.path.join(target_dir, "bin") + ":" + env.get("PATH", "")
 
-    print(f"Building the toolchain for {platform} (gcc for {compiler_prefix})...")
+    print(f"Building the toolchain for {target_platform} (gcc for {compiler_prefix})...")
 
     os.makedirs(binutils_build_dir, exist_ok=True)
     build_binutils(binutils_sources, binutils_build_dir, compiler_prefix, target_dir, env)
@@ -301,14 +313,14 @@ def build_toolchain(gcc_sources, binutils_sources, target_dir,
         install_mingw_headers(mingw_w64_dir, mingw_target_dir, target_dir, env)
 
     os.makedirs(gcc_build_dir, exist_ok=True)
-    build_gcc(gcc_sources, gcc_build_dir, compiler_prefix, target_dir, env)
+    build_gcc(gcc_sources, gcc_build_dir, this_platform, compiler_prefix, target_dir, env)
 
     if is_mingw:
         install_mingw_libs(mingw_w64_dir, compiler_prefix, mingw_target_dir, target_dir, env)
 
     build_libgcc(gcc_build_dir)
 
-    print(f"Toolchain for {platform} built succesfully!")
+    print(f"Toolchain for {target_platform} built succesfully!")
 
     if is_mingw and not keep_sources:
         shutil.rmtree(mingw_w64_dir)
@@ -361,7 +373,7 @@ def main():
 
     os.makedirs(tc_platform_root_path, exist_ok=True)
     build_toolchain(gcc_dir_full_path, binutils_dir_full_path, tc_platform_root_path,
-                    build_platform, args.keep_sources, args.keep_build)
+                    native_platform, build_platform, args.keep_sources, args.keep_build)
 
     if not args.keep_sources:
         print("Removing source directories...")
