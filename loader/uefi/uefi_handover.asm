@@ -150,8 +150,8 @@ MODE_32BIT:       equ (1 << 6)
 MODE_64BIT:       equ (1 << 5)
 PAGE_GRANULARITY: equ (1 << 7)
 
-; FIXME: if this ends up above 4G in memory we're screwed for 32 bit handover
 align 16
+global gdt_struct
 gdt_struct:
     .null: equ $ - gdt_struct
     dq 0x0000000000000000
