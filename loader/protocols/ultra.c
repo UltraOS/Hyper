@@ -182,11 +182,14 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
         memzero(module_data, module_pages * PAGE_SIZE);
     }
 
-    *attrs = (struct ultra_module_info_attribute) {
-        .header = { ULTRA_ATTRIBUTE_MODULE_INFO, sizeof(struct ultra_module_info_attribute) },
-        .address = (ptr_t)module_data,
-        .size = module_size
+    attrs->header = (struct ultra_attribute_header) {
+        .type = ULTRA_ATTRIBUTE_MODULE_INFO,
+        .size = sizeof(struct ultra_module_info_attribute)
     };
+
+    attrs->address = (ptr_t)module_data;
+    attrs->type = module_type;
+    attrs->size = module_size;
 }
 
 struct kernel_info {
