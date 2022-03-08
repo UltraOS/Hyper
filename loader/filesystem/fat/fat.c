@@ -154,6 +154,11 @@ struct fat_filesystem {
     struct fat_file *root_directory;
 };
 
+
+// FAT12/16 root directory
+#define DIR_FIXED_CAP_ROOT (1 << 1)
+#define DIR_EOF            (1 << 0)
+
 struct fat_directory {
     struct fat_filesystem *parent;
     union {
@@ -161,8 +166,7 @@ struct fat_directory {
         u32 first_sector_off;
     };
     u32 current_offset;
-    bool fixed_cap_root : 1; // FAT12/16 root directory
-    bool end            : 1;
+    u8 flags;
 };
 
 struct fat_directory_record {
@@ -350,19 +354,24 @@ static u32 fat_entry_at(struct fat_filesystem *fs, u32 index)
     return extract_cached_fat_entry_at_index[fs->fat_type](fs, index);
 }
 
-static void file_insert_range(void *ranges, u32 idx, struct contiguous_file_range32 range, enum fat_type ft)
+static void file_insert_range_fat32(void *ranges, u32 idx, struct contiguous_file_range32 range)
 {
-    if (ft == FAT_TYPE_32) {
-        struct contiguous_file_range32 *ranges32 = ranges;
-        ranges32[idx] = range;
-    } else {
-        struct contiguous_file_range16 *ranges16 = ranges;
-        ranges16[idx] = (struct contiguous_file_range16) {
-            .global_cluster = range.global_cluster,
-            .file_offset_cluster = range.file_offset_cluster
-        };
-    }
+    ((struct contiguous_file_range32*)ranges)[idx] = range;
 }
+
+static void file_insert_range_fat12_or_16(void *ranges, u32 idx, struct contiguous_file_range32 range)
+{
+    ((struct contiguous_file_range16*)ranges)[idx] = (struct contiguous_file_range16) {
+        .global_cluster = range.global_cluster,
+        .file_offset_cluster = range.file_offset_cluster
+    };
+}
+
+static void (*file_insert_range[])(void*, u32, struct contiguous_file_range32) = {
+    [FAT_TYPE_12] = file_insert_range_fat12_or_16,
+    [FAT_TYPE_16] = file_insert_range_fat12_or_16,
+    [FAT_TYPE_32] = file_insert_range_fat32
+};
 
 static bool file_emplace_range(struct fat_file *file, struct contiguous_file_range32 range,
                                enum fat_type ft)
@@ -371,7 +380,7 @@ static bool file_emplace_range(struct fat_file *file, struct contiguous_file_ran
     size_t extra_range_pages, extra_range_capacity;
 
     if (file->range_count < ft_to_in_place_range_capacity[ft]) {
-        file_insert_range(file->in_place_ranges, file->range_count++, range, ft);
+        file_insert_range[ft](file->in_place_ranges, file->range_count++, range);
         return true;
     }
 
@@ -389,7 +398,7 @@ static bool file_emplace_range(struct fat_file *file, struct contiguous_file_ran
         file->ranges_extra = new_extra;
     }
 
-    file_insert_range(file->ranges_extra, file->range_count++, range, ft);
+    file_insert_range[ft](file->ranges_extra, file->range_count++, range);
     return true;
 }
 
@@ -521,7 +530,7 @@ static bool fixed_root_directory_fetch_next_entry(struct fat_directory *dir, voi
         return false;
 
     if ((dir->current_offset / sizeof(struct fat_directory_entry)) == fs->root_dir_entries) {
-       dir->end = true;
+       dir->flags |= DIR_EOF;
        return false;
     }
 
@@ -536,17 +545,17 @@ static bool fixed_root_directory_fetch_next_entry(struct fat_directory *dir, voi
 
 static bool directory_fetch_next_entry(struct fat_directory *dir, void* entry)
 {
-    if (dir->end)
+    if (dir->flags & DIR_EOF)
         return false;
 
-    if (dir->fixed_cap_root)
+    if (dir->flags & DIR_FIXED_CAP_ROOT)
         return fixed_root_directory_fetch_next_entry(dir, entry);
 
     if (dir->current_offset == dir->parent->bytes_per_cluster) {
         u32 next_cluster = fat_entry_at(dir->parent, dir->current_cluster);
 
         if (entry_type_of_fat_value(next_cluster, dir->parent->fat_type) != FAT_ENTRY_LINK) {
-            dir->end = true;
+            dir->flags |= DIR_EOF;
             return false;
         }
 
@@ -556,7 +565,7 @@ static bool directory_fetch_next_entry(struct fat_directory *dir, void* entry)
 
     bool ok = fat_read(dir->parent, pure_cluster_value(dir->current_cluster),
                        dir->current_offset, sizeof(struct fat_directory_entry), entry);
-    dir->end = !ok;
+    dir->flags |= !ok ? DIR_EOF : 0;
     dir->current_offset += sizeof(struct fat_directory_entry);
 
     return ok;
@@ -632,7 +641,7 @@ static bool directory_next_entry(struct fat_directory *dir, struct fat_directory
 {
     struct fat_directory_entry normal_entry;
 
-    if (dir->end)
+    if (dir->flags & DIR_EOF)
         return false;
 
     for (;;) {
@@ -653,7 +662,7 @@ static bool directory_next_entry(struct fat_directory *dir, struct fat_directory
             continue;
 
         if ((u8)normal_entry.filename[0] == END_OF_DIRECTORY_MARK) {
-            dir->end = true;
+            dir->flags |= DIR_EOF;
             return false;
         }
 
@@ -795,23 +804,23 @@ static struct fat_file *fat_do_open_file(struct fat_filesystem *fs, u32 first_cl
 static struct file *fat_open(struct filesystem *base_fs, struct string_view path)
 {
     struct fat_filesystem *fs = container_of(base_fs, struct fat_filesystem, f);
+    struct fat_directory dir;
     struct fat_file *file;
     u32 first_cluster, size = 0;
-    bool is_fixed, is_directory = true, node_found = false;
+    bool is_directory = true, node_found = false;
     struct string_view node;
 
     if (!ensure_root_directory(fs))
         return NULL;
 
     first_cluster = fs->root_directory->first_cluster;
-    is_fixed = fs->fat_type != FAT_TYPE_32;
+    dir = (struct fat_directory) {
+        .parent = fs,
+        .current_cluster = first_cluster,
+        .flags = (fs->fat_type != FAT_TYPE_32) ? DIR_FIXED_CAP_ROOT : 0
+    };
 
     while (next_path_node(&path, &node)) {
-        struct fat_directory dir = {
-            .parent = fs,
-            .current_cluster = first_cluster,
-            .fixed_cap_root = is_fixed
-        };
         struct fat_directory_record rec = { 0 };
 
         if (sv_equals(node, SV(".")))
@@ -833,8 +842,8 @@ static struct file *fat_open(struct filesystem *base_fs, struct string_view path
         if (!node_found)
             break;
 
-        // Always false for any directory other than root
-        is_fixed = false;
+        dir.current_cluster = first_cluster;
+        dir.current_offset = dir.flags = 0;
     }
 
     if (!node_found || is_directory)
