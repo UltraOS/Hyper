@@ -1,16 +1,23 @@
 #include "filesystem.h"
+#include "filesystem_table.h"
 #include "common/string_view.h"
 #include "common/types.h"
 #include "common/ctype.h"
 #include "common/conversions.h"
-#include "filesystem/fat32/fat32.h"
+#include "common/log.h"
+#include "common/constants.h"
+#include "allocator.h"
+#include "filesystem/fat/fat.h"
+
+#undef MSG_FMT
+#define MSG_FMT(msg) "FS: " msg
 
 static struct disk_services *backend;
 
-struct disk_services *filesystem_set_backend(struct disk_services* srvc)
+struct disk_services *filesystem_set_backend(struct disk_services* sv)
 {
     struct disk_services *prev = backend;
-    backend = srvc;
+    backend = sv;
     return prev;
 }
 
@@ -206,5 +213,106 @@ struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range, v
     if (!backend)
         return NULL;
 
-    return try_create_fat32(d, lba_range, first_page);
+    return try_create_fat(d, lba_range, first_page);
+}
+
+struct PACKED mbr_partition_entry {
+    u8 status;
+    u8 chs_begin[3];
+    u8 type;
+    u8 chs_end[3];
+    u32 first_block;
+    u32 block_count;
+};
+BUILD_BUG_ON(sizeof(struct mbr_partition_entry) != 16);
+
+enum {
+    MBR_EMPTY_PARTITION = 0x00,
+    MBR_EBR_PARTITION   = 0x05
+};
+
+#define OFFSET_TO_MBR_PARTITION_LIST 0x01BE
+
+void initialize_from_mbr(struct disk_services *sv, const struct disk *d, u32 disk_id,
+                         void *mbr_buffer, size_t base_index, size_t sector_offset)
+{
+    struct mbr_partition_entry *partition = mbr_buffer + OFFSET_TO_MBR_PARTITION_LIST;
+    bool is_ebr = base_index != 0;
+    size_t i, max_partitions = is_ebr ? 2 : 4;
+
+    for (i = 0; i < max_partitions; ++i, ++partition) {
+        size_t real_partition_offset = sector_offset + partition->first_block;
+        struct range lba_range = { real_partition_offset, real_partition_offset + partition->block_count };
+        void *partition_page;
+        struct filesystem *fs = NULL;
+
+        if (partition->type == MBR_EMPTY_PARTITION)
+            continue;
+
+        if (partition->type == MBR_EBR_PARTITION) {
+            if (is_ebr && i == 0) {
+                print_warn("EBR with chain at index 0");
+                break;
+            }
+
+            partition_page = allocate_pages(1);
+            if (!partition_page)
+                break;
+
+            if (sv->read_blocks(d->handle, partition_page, real_partition_offset, PAGE_SIZE / d->bytes_per_sector)) {
+                initialize_from_mbr(sv, d, disk_id, partition_page, base_index + (is_ebr ? 1 : 4),
+                                    real_partition_offset);
+            }
+            free_pages(partition_page, 1);
+            continue;
+        }
+
+        if (i == 1 && is_ebr) {
+            print_warn("EBR with a non-EBR entry at index 1 (0x%X)", partition->type);
+            break;
+        }
+
+        partition_page = allocate_pages(1);
+        if (!partition_page)
+            break;
+
+        if (sv->read_blocks(d->handle, partition_page, lba_range.begin, PAGE_SIZE / d->bytes_per_sector))
+            fs = fs_try_detect(d, lba_range, partition_page);
+
+        if (fs)
+            add_mbr_fs_entry(d->handle, disk_id, base_index + i, fs);
+
+        free_pages(partition_page, 1);
+    }
+}
+
+#define GPT_SIGNATURE "EFI PART"
+
+#define MBR_SIGNATURE 0xAA55
+#define OFFSET_TO_MBR_SIGNATURE 510
+
+void fs_detect_all(struct disk_services *sv, const struct disk *d, u32 disk_id)
+{
+    void *table_page;
+
+    if (unlikely(d->bytes_per_sector != 512)) {
+        print_warn("Skipping disk with an unsupported block size of %d\n", d->bytes_per_sector);
+        return;
+    }
+
+    table_page = allocate_pages(1);
+    if (!table_page)
+        return;
+    if (!sv->read_blocks(d->handle, table_page, 0, PAGE_SIZE / 512))
+        return;
+
+    if (*(u16*)(table_page + OFFSET_TO_MBR_SIGNATURE) == MBR_SIGNATURE) {
+        initialize_from_mbr(sv, d, disk_id, table_page, 0, 0);
+        goto out;
+    }
+
+    print_warn("unpartitioned drive %p skipped\n", d->handle);
+
+out:
+    free_pages(table_page, 1);
 }

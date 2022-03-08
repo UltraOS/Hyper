@@ -74,7 +74,8 @@ struct filesystem {
     struct file *(*open)(struct filesystem *fs, struct string_view path);
     void (*close)(struct filesystem *fs, struct file*);
 };
-struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range, void *first_page);
+
+void fs_detect_all(struct disk_services *srvc, const struct disk *d, u32 disk_id);
 
 bool split_prefix_and_path(struct string_view str, struct string_view *prefix, struct string_view *path);
 bool next_path_node(struct string_view* path, struct string_view* node);
