@@ -201,9 +201,9 @@ enum fat_entry {
 #define FREE_CLUSTER_VALUE     0x00000000
 #define RESERVED_CLUSTER_VALUE 0x00000001
 
-#define FAT32_EOC_VALUE 0x0FFFFFF8
-#define FAT16_EOC_VALUE 0x0000FFF8
 #define FAT12_EOC_VALUE 0x00000FF8
+#define FAT16_EOC_VALUE 0x0000FFF8
+#define FAT32_EOC_VALUE 0x0FFFFFF8
 
 static u32 ft_to_eoc_value[] = {
     [FAT_TYPE_12] = FAT12_EOC_VALUE,
@@ -230,10 +230,10 @@ static enum fat_entry entry_type_of_fat_value(u32 value, enum fat_type ft)
     if (value == RESERVED_CLUSTER_VALUE)
         return FAT_ENTRY_RESERVED;
 
-    if (value >= ft_to_eoc_value[ft])
-        return FAT_ENTRY_END_OF_CHAIN;
     if (unlikely(value == ft_to_bad_value[ft]))
         return FAT_ENTRY_BAD;
+    if (value >= ft_to_eoc_value[ft])
+        return FAT_ENTRY_END_OF_CHAIN;
 
     return FAT_ENTRY_LINK;
 }
@@ -265,7 +265,7 @@ static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
     struct disk *d = &fs->f.d;
     u32 first_block, blocks_to_read;
     u32 fat_entries_per_block = d->bytes_per_sector / sizeof(u32); // TODO: cache this?
-    index = index & ~(FAT_VIEW_CAPACITY_FAT32 - 1);
+    index &= ~(FAT_VIEW_CAPACITY_FAT32 - 1);
 
     if (unlikely(!srvc))
         return false;
@@ -891,8 +891,10 @@ struct fat_info {
 static bool check_fs_type(struct string_view expected, const char *actual)
 {
     int res = memcmp(expected.text, actual, expected.size);
-    if (res != 0)
-        print_warn("Unexpected file system type: %pSV\n", &expected);
+    if (res != 0) {
+        struct string_view actual_view = { actual, expected.size };
+        print_warn("Unexpected file system type: %pSV\n", &actual_view);
+    }
 
     return res == 0;
 }
