@@ -93,6 +93,7 @@ struct fat_file {
      */
     void *ranges_extra;
 
+    _Alignas(struct contiguous_file_range32)
     u8 in_place_ranges[IN_PLACE_RANGE_CAPACITY_BYTES];
 };
 BUILD_BUG_ON(sizeof(struct fat_file) > PAGE_SIZE);
