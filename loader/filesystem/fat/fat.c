@@ -284,10 +284,11 @@ static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
     return srvc->read_blocks(d->handle, fs->fat_view, first_block, blocks_to_read);
 }
 
-static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs)
+static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
 {
     struct disk_services *srvc = filesystem_backend();
     struct disk *d = &fs->f.d;
+    UNUSED(index); // we cache the entire fat anyway
 
     if (!ensure_fat_view(fs))
         return false;
@@ -303,18 +304,10 @@ static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs)
                              range_length(&fs->fat_lba_range));
 }
 
-
-static u32 do_extract_cached_fat_entry_at_index(struct fat_filesystem *fs, u32 index)
+static u32 extract_cached_fat_entry_at_index_fat12(struct fat_filesystem *fs, u32 index)
 {
-    u32 out_val;
-
-    if (fs->fat_type == FAT_TYPE_32)
-        return ((u32*)fs->fat_view)[index - fs->fat_view_offset] & FAT32_CLUSTER_MASK;
-
-    if (fs->fat_type == FAT_TYPE_16)
-        return ((u16*)fs->fat_view)[index];
-
-    out_val = *((u16*)(fs->fat_view + (index + (index / 2))));
+    void *view_offset = fs->fat_view + (index + (index / 2));
+    u32 out_val = *(u16*)view_offset;
 
     if (index & 1)
         out_val >>= 4;
@@ -324,17 +317,37 @@ static u32 do_extract_cached_fat_entry_at_index(struct fat_filesystem *fs, u32 i
     return out_val;
 }
 
+static u32 extract_cached_fat_entry_at_index_fat16(struct fat_filesystem *fs, u32 index)
+{
+    return ((u16*)fs->fat_view)[index];
+}
+
+static u32 extract_cached_fat_entry_at_index_fat32(struct fat_filesystem *fs, u32 index)
+{
+    return ((u32*)fs->fat_view)[index - fs->fat_view_offset] & FAT32_CLUSTER_MASK;
+}
+
+static u32 (*extract_cached_fat_entry_at_index[])(struct fat_filesystem*, u32) = {
+    [FAT_TYPE_12] = extract_cached_fat_entry_at_index_fat12,
+    [FAT_TYPE_16] = extract_cached_fat_entry_at_index_fat16,
+    [FAT_TYPE_32] = extract_cached_fat_entry_at_index_fat32,
+};
+
+static bool (*ensure_fat_entry_cached[])(struct fat_filesystem*, u32) = {
+    [FAT_TYPE_12] = ensure_fat_cached_fat12_or_16,
+    [FAT_TYPE_16] = ensure_fat_cached_fat12_or_16,
+    [FAT_TYPE_32] = ensure_fat_entry_cached_fat32,
+};
+
 static u32 fat_entry_at(struct fat_filesystem *fs, u32 index)
 {
-    bool cached = fs->fat_type == FAT_TYPE_32 ?
-            ensure_fat_entry_cached_fat32(fs, index) :
-            ensure_fat_cached_fat12_or_16(fs);
+    bool cached = ensure_fat_entry_cached[fs->fat_type](fs, index);
 
     // OOM, disk read error, corrupted fs etc
     if (unlikely(!cached))
         return ft_to_bad_value[fs->fat_type];
 
-    return do_extract_cached_fat_entry_at_index(fs, index);
+    return extract_cached_fat_entry_at_index[fs->fat_type](fs, index);
 }
 
 static void file_insert_range(void *ranges, u32 idx, struct contiguous_file_range32 range, enum fat_type ft)
