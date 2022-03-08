@@ -20,3 +20,5 @@
 #define CEILING_DIVIDE(x, y) (!!(x) + (((x) - !!(x)) / (y)))
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+#define UNUSED(x) (void)(x)
