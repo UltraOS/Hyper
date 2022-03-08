@@ -3,22 +3,59 @@
 #include "common/types.h"
 #include "common/bug.h"
 
-struct PACKED fat_ebpb {
-    // BPB
+struct PACKED dos20_bpb {
     u16 bytes_per_sector;
     u8 sectors_per_cluster;
     u16 reserved_sectors;
     u8 fat_count;
     u16 max_root_dir_entries;
-    u16 unused_1; // total logical sectors for FAT12/16
+    u16 total_logical_sectors_fat12_or_16;
     u8 media_descriptor;
-    u16 unused_2; // logical sectors per file allocation table for FAT12/16
+    u16 sectors_per_fat_fat12_or_16;
+};
+BUILD_BUG_ON(sizeof(struct dos20_bpb) != 13);
+
+struct PACKED dos30_bpb {
+    struct dos20_bpb d20_bpb;
+
+    u16 sectors_per_track;
+    u16 heads;
+    u16 hidden_sectors;
+};
+BUILD_BUG_ON(sizeof(struct dos30_bpb) != 19);
+
+struct PACKED dos32_bpb {
+    struct dos30_bpb d20_bpb;
+
+    u16 total_logical_sectors;
+};
+BUILD_BUG_ON(sizeof(struct dos32_bpb) != 21);
+
+struct PACKED dos33_bpb {
+    struct dos20_bpb d20_bpb;
+
     u16 sectors_per_track;
     u16 heads;
     u32 hidden_sectors;
-    u32 total_logical_sectors;
+    u32 total_logical_sectors_fat32;
+};
+BUILD_BUG_ON(sizeof(struct dos33_bpb) != 25);
 
-    // EBPB
+struct PACKED fat12_or_16_ebpb {
+    struct dos33_bpb d33_bpb;
+
+    u8 physical_drive_number;
+    u8 reserved;
+    u8 signature;
+    u32 volume_id;
+    char volume_label[11];
+    char filesystem_type[8];
+};
+BUILD_BUG_ON(sizeof(struct fat12_or_16_ebpb) != 51);
+
+struct PACKED fat32_ebpb {
+    struct dos33_bpb d33_bpb;
+
     u32 sectors_per_fat;
     u16 ext_flags;
     u16 version;
@@ -33,8 +70,7 @@ struct PACKED fat_ebpb {
     char volume_label[11];
     char filesystem_type[8];
 };
-
-BUILD_BUG_ON(sizeof(struct fat_ebpb) != 79);
+BUILD_BUG_ON(sizeof(struct fat32_ebpb) != 79);
 
 #define FAT_SHORT_NAME_LENGTH 8
 #define FAT_SHORT_EXTENSION_LENGTH 3
@@ -71,7 +107,6 @@ struct PACKED fat_directory_entry {
     u16 cluster_low;
     u32 size;
 };
-
 BUILD_BUG_ON(sizeof(struct fat_directory_entry) != 32);
 
 #define BYTES_PER_UCS2_CHAR 2
@@ -94,5 +129,4 @@ struct PACKED long_name_fat_directory_entry {
     u16 first_cluster;
     u8 name_3[NAME_3_CHARS * BYTES_PER_UCS2_CHAR];
 };
-
 BUILD_BUG_ON(sizeof(struct long_name_fat_directory_entry) != 32);
