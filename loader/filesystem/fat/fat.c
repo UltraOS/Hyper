@@ -16,10 +16,13 @@
 #define FAT16_MIN_CLUSTER_COUNT 4085
 #define FAT32_MIN_CLUSTER_COUNT 65525
 
+// aka __builtin_ffs(sizeof(u32)) - 1
+#define FAT32_FAT_INDEX_SHIFT 2
+
 #define FAT32_CLUSTER_MASK 0x0FFFFFFF
 
 // This capacity is picked so that the entire FAT is cached for both FAT12/16 at all times.
-#define FAT_VIEW_BYTES (PAGE_SIZE * 32)
+#define FAT_VIEW_BYTES (PAGE_SIZE * 32u)
 BUILD_BUG_ON(FAT_VIEW_BYTES < ((FAT32_MIN_CLUSTER_COUNT - 1) * 2));
 
 #define FAT_VIEW_CAPACITY_FAT32 (FAT_VIEW_BYTES / sizeof(u32))
@@ -145,8 +148,7 @@ struct fat_filesystem {
         u32 root_dir_sector_off;
     };
 
-    u32 bytes_per_cluster;
-    u32 fat_clusters;
+    u32 cluster_shift;
 
     size_t fat_view_offset;
     void *fat_view;
@@ -268,7 +270,6 @@ static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
     struct disk_services *srvc = filesystem_backend();
     struct disk *d = &fs->f.d;
     u32 first_block, blocks_to_read;
-    u32 fat_entries_per_block = d->bytes_per_sector / sizeof(u32); // TODO: cache this?
     index &= ~(FAT_VIEW_CAPACITY_FAT32 - 1);
 
     if (unlikely(!srvc))
@@ -276,15 +277,13 @@ static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
     if (!ensure_fat_view(fs))
         return false;
 
-    BUG_ON(index >= fs->fat_clusters);
-
     // already have it cached
     if (fs->fat_view_offset == index)
         return true;
 
     fs->fat_view_offset = index;
-    first_block = fs->fat_lba_range.begin + (index / fat_entries_per_block);
-    blocks_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_BYTES / (size_t)d->bytes_per_sector);
+    first_block = fs->fat_lba_range.begin + (index >> (d->block_shift - FAT32_FAT_INDEX_SHIFT));
+    blocks_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_BYTES >> d->block_shift);
     return srvc->read_blocks(d->handle, fs->fat_view, first_block, blocks_to_read);
 }
 
@@ -417,7 +416,7 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
 
         switch (entry_type_of_fat_value(next_cluster, fs->fat_type)) {
         case FAT_ENTRY_END_OF_CHAIN: {
-            if (unlikely(current_file_offset * fs->bytes_per_cluster < file->f.size)) {
+            if (unlikely((current_file_offset << fs->cluster_shift) < file->f.size)) {
                 print_warn("EOC before end of file");
                 return false;
             }
@@ -510,10 +509,9 @@ static bool fat_read(struct fat_filesystem *fs, u32 cluster, u32 offset, u32 byt
     if (unlikely(!srvc))
         return false;
 
-    // FIXME: This seems unnecessarily expensive
     offset_to_read = fs->data_lba_range.begin;
-    offset_to_read *= fs->f.d.bytes_per_sector;
-    offset_to_read += cluster * fs->bytes_per_cluster;
+    offset_to_read <<= fs->f.d.block_shift;
+    offset_to_read += cluster << fs->cluster_shift;
     offset_to_read += offset;
 
     return srvc->read(fs->f.d.handle, buffer, offset_to_read, bytes);
@@ -534,9 +532,8 @@ static bool fixed_root_directory_fetch_next_entry(struct fat_directory *dir, voi
        return false;
     }
 
-    // FIXME: This seems unnecessarily expensive
     offset_to_read = fs->f.lba_range.begin + dir->first_sector_off;
-    offset_to_read *= d->bytes_per_sector;
+    offset_to_read <<= d->block_shift;
     offset_to_read += dir->current_offset;
     dir->current_offset += sizeof(struct fat_directory_entry);
 
@@ -551,7 +548,7 @@ static bool directory_fetch_next_entry(struct fat_directory *dir, void* entry)
     if (dir->flags & DIR_FIXED_CAP_ROOT)
         return fixed_root_directory_fetch_next_entry(dir, entry);
 
-    if (dir->current_offset == dir->parent->bytes_per_cluster) {
+    if ((dir->current_offset >> dir->parent->cluster_shift) == 1) {
         u32 next_cluster = fat_entry_at(dir->parent, dir->current_cluster);
 
         if (entry_type_of_fat_value(next_cluster, dir->parent->fat_type) != FAT_ENTRY_LINK) {
@@ -758,14 +755,14 @@ static bool fat_file_read(struct file *base_file, void* buffer, u32 offset, u32 
     if (!file->range_count && !file_compute_contiguous_ranges(file))
         return false;
 
-    cluster_offset = offset / fs->bytes_per_cluster;
-    offset_within_cluster = offset - (cluster_offset * fs->bytes_per_cluster);
+    cluster_offset = offset >> fs->cluster_shift;
+    offset_within_cluster = offset - (cluster_offset << fs->cluster_shift);
     bytes_left_after_offset = file->f.size - offset;
     bytes_to_read = MIN(size, bytes_left_after_offset);
 
     for (;;) {
         u32 current_cluster = file_cluster_from_offset(file, cluster_offset++, fs->fat_type);
-        size_t bytes_to_read_for_this_cluster = MIN(bytes_to_read, fs->bytes_per_cluster - offset_within_cluster);
+        size_t bytes_to_read_for_this_cluster = MIN(bytes_to_read, (1ul << fs->cluster_shift) - offset_within_cluster);
 
         if (!fat_read(fs, pure_cluster_value(current_cluster),
                       offset_within_cluster, bytes_to_read_for_this_cluster, byte_buffer))
@@ -879,7 +876,6 @@ static void fat_close(struct filesystem *base_fs, struct file *f)
     fat_file_free(file, fs->fat_type == FAT_TYPE_32);
 }
 
-
 struct fat_info {
     enum fat_type type;
     u32 fat_count;
@@ -896,7 +892,6 @@ struct fat_info {
     u16 max_root_dir_entries;
 };
 
-
 static bool check_fs_type(struct string_view expected, const char *actual)
 {
     int res = memcmp(expected.text, actual, expected.size);
@@ -908,7 +903,6 @@ static bool check_fs_type(struct string_view expected, const char *actual)
     return res == 0;
 }
 
-
 static bool detect_fat(const struct disk *d, struct range lba_range, struct dos33_bpb *bpb33,
                        struct fat_info *out_info)
 {
@@ -918,7 +912,9 @@ static bool detect_fat(const struct disk *d, struct range lba_range, struct dos3
     bool ebpb16_valid = false, ebpb32_valid = false;
     u32 root_dir_bytes, data_sectors;
 
-    if (bpb20->bytes_per_sector != d->bytes_per_sector)
+    if (__builtin_popcount(bpb20->bytes_per_sector) != 1)
+        return false;
+    if ((bpb20->bytes_per_sector >> d->block_shift) != 1)
         return false;
 
     ebpb16_valid = ebpb16->signature == EBPB_OLD_SIGNATURE || ebpb16->signature == EBPB_SIGNATURE;
@@ -942,7 +938,7 @@ static bool detect_fat(const struct disk *d, struct range lba_range, struct dos3
 
     if (!out_info->fat_count)
         return false;
-    if (!out_info->sectors_per_cluster)
+    if (!out_info->sectors_per_cluster || (__builtin_popcount(out_info->sectors_per_cluster) != 1))
         return false;
     if (!out_info->sectors_per_fat)
         return false;
@@ -950,7 +946,7 @@ static bool detect_fat(const struct disk *d, struct range lba_range, struct dos3
         return false;
 
     root_dir_bytes = out_info->max_root_dir_entries * sizeof(struct fat_directory_entry);
-    out_info->root_dir_sectors = CEILING_DIVIDE(root_dir_bytes,d->bytes_per_sector);
+    out_info->root_dir_sectors = CEILING_DIVIDE(root_dir_bytes, 1ul << d->block_shift);
 
     data_sectors = range_length(&lba_range);
 
@@ -1032,8 +1028,7 @@ struct filesystem *try_create_fat(const struct disk *d, struct range lba_range, 
     }
 
     fs->data_lba_range = lba_range;
-    fs->bytes_per_cluster = info.sectors_per_cluster * d->bytes_per_sector;
-    fs->fat_clusters = (range_length(&fs->fat_lba_range) * d->bytes_per_sector) / sizeof(u32);
+    fs->cluster_shift = (__builtin_ffs(info.sectors_per_cluster) - 1) + d->block_shift;
 
     return &fs->f;
 }
