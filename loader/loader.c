@@ -8,24 +8,21 @@
 #include "protocols/ultra.h"
 #include "config.h"
 
-void detect_all_filesystems(struct disk_services*, const struct disk *d, u32 disk_index);
+void init_all_disks(struct disk_services* ds);
+void init_config(struct config *out_cfg);
+
 struct file *find_config_file(struct fs_entry **fe);
 void pick_loadable_entry(struct config *cfg, struct loadable_entry *le);
+
 
 enum load_protocol {
     LOAD_PROTOCOL_ULTRA,
     // Maybe multiboot/stivale in the future?
 };
-enum load_protocol deduce_protocol(struct config *cfg, struct loadable_entry*);
+enum load_protocol get_load_protocol(struct config *cfg, struct loadable_entry*);
 
 void loader_entry(struct services *svc)
 {
-    size_t disk_count, disk_index;
-    struct disk *disks;
-    struct fs_entry *fe;
-    struct file *cfg_file;
-    char *cfg_data;
-    struct string_view cfg_view;
     struct config cfg = { 0 };
     struct loadable_entry le;
     enum load_protocol prot;
@@ -35,37 +32,54 @@ void loader_entry(struct services *svc)
     allocator_set_default_alloc_type(MEMORY_TYPE_LOADER_RECLAIMABLE);
     filesystem_set_backend(svc->ds);
 
-    disks = svc->ds->list_disks(&disk_count);
-    for (disk_index = 0; disk_index < disk_count; ++disk_index)
-        fs_detect_all(svc->ds, &disks[disk_index], disk_index);
+    init_all_disks(svc->ds);
+    init_config(&cfg);
+
+    pick_loadable_entry(&cfg, &le);
+    prot = get_load_protocol(&cfg, &le);
+
+    BUG_ON(prot != LOAD_PROTOCOL_ULTRA);
+    ultra_protocol_load(&cfg, &le, svc);
+}
+
+// TODO: support chain-loading configs
+void init_config(struct config *out_cfg)
+{
+    struct fs_entry *fe;
+    struct file *cfg_file;
+    char *cfg_data;
+    struct string_view cfg_view;
 
     cfg_file = find_config_file(&fe);
     if (!cfg_file)
         oops("Couldn't find hyper.cfg anywhere on disk!");
 
     set_origin_fs(fe);
-
-    cfg_data = allocate_bytes(cfg_file->size);
-    if (!cfg_data)
-        oops("not enough memory to read config file");
+    cfg_data = allocate_critical_bytes(cfg_file->size);
 
     if (!cfg_file->read(cfg_file, cfg_data, 0, cfg_file->size))
         oops("failed to read config file");
+
     cfg_view = (struct string_view) {
         .text = cfg_data,
         .size = cfg_file->size
     };
 
-    if (!cfg_parse(cfg_view, &cfg)) {
-        cfg_pretty_print_error(&cfg.last_error, cfg_view);
+    if (!cfg_parse(cfg_view, out_cfg)) {
+        cfg_pretty_print_error(&out_cfg->last_error, cfg_view);
         for (;;);
     }
+}
 
-    pick_loadable_entry(&cfg, &le);
-    prot = deduce_protocol(&cfg, &le);
+void init_all_disks(struct disk_services* ds)
+{
+    size_t disk_index;
 
-    BUG_ON(prot != LOAD_PROTOCOL_ULTRA);
-    ultra_protocol_load(&cfg, &le, svc);
+    for (disk_index = 0; disk_index < ds->disk_count; ++disk_index) {
+         struct disk d;
+         ds->query_disk(disk_index, &d);
+         fs_detect_all(ds, &d, disk_index);
+    }
 }
 
 static struct string_view search_paths[] = {
@@ -114,12 +128,11 @@ void pick_loadable_entry(struct config *cfg, struct loadable_entry *le)
 
 #define PROTOCOL_KEY SV("protocol")
 
-enum load_protocol deduce_protocol(struct config *cfg, struct loadable_entry *entry)
+enum load_protocol get_load_protocol(struct config *cfg, struct loadable_entry *entry)
 {
     struct string_view protocol_name;
+    CFG_MANDATORY_GET(string, cfg, entry, PROTOCOL_KEY, &protocol_name);
 
-    if (!cfg_get_string(cfg, entry, PROTOCOL_KEY, &protocol_name))
-        return LOAD_PROTOCOL_ULTRA;
     if (!sv_equals_caseless(protocol_name, SV("ultra")))
         oops("unsupported load protocol: %pSV", &protocol_name);
 
