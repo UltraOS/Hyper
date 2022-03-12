@@ -4,18 +4,22 @@
 
 struct disk {
     u64 sectors;
-    u16 bytes_per_sector;
-    u16 opaque_flags;
     void *handle;
+    u8 block_shift;
 };
 
 struct disk_services {
     /*
-     * Lists all available disks.
-     * count -> number of disks listed. can be zero.
-     * Returns the pointer to the array of disks, can be NULL if count is zero.
+     * Retrieves information about a disk at idx.
+     * idx -> disk to retrieve.
+     * out_disk -> pointer to data that receives disk information.
      */
-    struct disk *(*list_disks)(size_t *count);
+    void (*query_disk)(size_t idx, struct disk *out_disk);
+
+    /*
+     * Number of disks that can be queried.
+     */
+    u32 disk_count;
 
     /*
      * Reads byte aligned data from disk.

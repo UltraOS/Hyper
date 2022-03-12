@@ -11,7 +11,7 @@
 static struct disk disks_buffer[DISK_BUFFER_CAPACITY];
 static size_t disk_count = 0;
 
-#define TRANSFER_BUFFER_CAPACITY 4096
+#define TRANSFER_BUFFER_CAPACITY 4096u
 static u8 transfer_buffer[TRANSFER_BUFFER_CAPACITY];
 
 #define FIRST_DRIVE_INDEX 0x80
@@ -82,9 +82,15 @@ static void fetch_all_disks()
         if (drive_params.total_sector_count == 0 || drive_params.bytes_per_sector == 0)
             continue;
 
-        if (drive_params.bytes_per_sector != 512 && drive_params.bytes_per_sector != 2048) {
-            print_warn("unsupported bytes per sector %hu for drive %X\n",
+        if (unlikely(__builtin_popcount(drive_params.bytes_per_sector) != 1)) {
+            print_warn("Skipping a non-power-of-two block size (%u) disk %X\n",
                        drive_params.bytes_per_sector, drive_index);
+            continue;
+        }
+
+        if (unlikely(drive_params.bytes_per_sector > PAGE_SIZE)) {
+            print_warn("Disk %X block size is too large (%u), skipped\n",
+                       drive_index, drive_params.bytes_per_sector);
             continue;
         }
 
@@ -92,9 +98,9 @@ static void fetch_all_disks()
                    drive_index, drive_params.total_sector_count, drive_params.bytes_per_sector);
 
         disks_buffer[disk_count++] = (struct disk) {
-            .bytes_per_sector = drive_params.bytes_per_sector,
             .sectors = drive_params.total_sector_count,
-            .handle = (void*)((ptr_t)drive_index)
+            .handle = (void*)((ptr_t)drive_index),
+            .block_shift = __builtin_ffs(drive_params.bytes_per_sector) - 1,
         };
 
         if (++detected_disks == number_of_disks)
@@ -143,9 +149,9 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
     struct real_mode_addr tb_addr;
 
     u8* byte_buffer = buffer;
-    u64 last_read_sector = (offset + bytes) / d->bytes_per_sector;
-    u64 current_sector = offset / d->bytes_per_sector;
-    size_t sectors_to_read = bytes / d->bytes_per_sector;
+    u64 last_read_sector = (offset + bytes) >> d->block_shift;
+    u64 current_sector = offset >> d->block_shift;
+    size_t sectors_to_read = bytes >> d->block_shift;
 
     as_real_mode_addr((u32)transfer_buffer, &tb_addr);
     BUG_ON(bytes == 0);
@@ -153,15 +159,15 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
     if (d->sectors <= last_read_sector)
         panic("BUG! invalid read at %llu with %zu bytes\n", offset, bytes);
 
-    offset -= current_sector * d->bytes_per_sector;
+    offset -= current_sector << d->block_shift;
 
     // round up sectors to read in case read is not aligned to sector size
-    if (offset != 0 || (bytes % d->bytes_per_sector))
+    if (offset != 0 || (bytes % (1ul << d->block_shift)))
         sectors_to_read++;
 
     for (;;) {
-        u32 sectors_for_this_read = MIN(sectors_to_read, TRANSFER_BUFFER_CAPACITY / (u32)d->bytes_per_sector);
-        u32 bytes_for_this_read = sectors_for_this_read * d->bytes_per_sector;
+        u32 sectors_for_this_read = MIN(sectors_to_read, TRANSFER_BUFFER_CAPACITY >> d->block_shift);
+        u32 bytes_for_this_read = sectors_for_this_read << d->block_shift;
         size_t bytes_to_copy;
 
         sectors_to_read -= sectors_for_this_read;
@@ -189,10 +195,10 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
     return true;
 }
 
-static struct disk *list_disks(size_t *count)
+static void query_disk(size_t idx, struct disk *out_disk)
 {
-    *count = disk_count;
-    return disks_buffer;
+    BUG_ON(idx >= disk_count);
+    *out_disk = disks_buffer[idx];
 }
 
 static bool read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
@@ -200,7 +206,7 @@ static bool read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
     struct disk *d = disk_from_handle(handle);
     BUG_ON(!d);
 
-    return do_read(d, buffer, sector * d->bytes_per_sector, blocks * d->bytes_per_sector);
+    return do_read(d, buffer, sector << d->block_shift, blocks << d->block_shift);
 }
 
 static bool read(void *handle, void *buffer, u64 offset, size_t bytes)
@@ -212,7 +218,7 @@ static bool read(void *handle, void *buffer, u64 offset, size_t bytes)
 }
 
 static struct disk_services bios_disk_services = {
-    .list_disks = list_disks,
+    .query_disk = query_disk,
     .read = read,
     .read_blocks = read_blocks
 };
@@ -222,5 +228,6 @@ struct disk_services *disk_services_init()
     if (!disk_count)
         fetch_all_disks();
 
+    bios_disk_services.disk_count = disk_count;
     return &bios_disk_services;
 }

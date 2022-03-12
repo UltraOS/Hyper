@@ -7,33 +7,43 @@
 #undef MSG_FMT
 #define MSG_FMT(msg) "UEFI-IO: " msg
 
-struct uefi_disk_handle {
+struct uefi_disk {
+    u64 sectors;
+    u8 block_shift;
     EFI_BLOCK_IO_PROTOCOL *bio;
     EFI_DISK_IO_PROTOCOL *dio;
 };
 
-static struct disk *disks;
+static struct uefi_disk *disks;
 static size_t disk_count;
 
-static struct disk *uefi_list_disks(size_t *count)
+static void uefi_query_disk(size_t idx, struct disk *out_disk)
 {
-    *count = disk_count;
-    return disks;
+    struct uefi_disk *d;
+    BUG_ON(idx >= disk_count);
+
+    d = &disks[idx];
+
+    *out_disk = (struct disk) {
+        .sectors = d->sectors,
+        .handle = d,
+        .block_shift = d->block_shift
+    };
 }
 
 static bool uefi_read(void *handle, void *buffer, u64 offset, size_t bytes)
 {
-    struct uefi_disk_handle *h = handle;
+    struct uefi_disk *d = handle;
     EFI_STATUS ret;
 
     BUG_ON(!handle);
 
-    if (!h->dio) {
+    if (!d->dio) {
         print_warn("unable to read blocks, no EFI_DISK_IO_PROTOCOL for disk\n");
         return false;
     }
 
-    ret = h->dio->ReadDisk(h->dio, h->bio->Media->MediaId, offset, bytes, buffer);
+    ret = d->dio->ReadDisk(d->dio, d->bio->Media->MediaId, offset, bytes, buffer);
     if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("ReadDisk() failed: %pSV\n", &err_msg);
@@ -45,12 +55,24 @@ static bool uefi_read(void *handle, void *buffer, u64 offset, size_t bytes)
 
 static bool uefi_read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
 {
-    struct uefi_disk_handle *h = handle;
+    struct uefi_disk *d;
+    UINT32 media_id, io_align;
+    EFI_BLOCK_IO_PROTOCOL *bio;
     EFI_STATUS ret;
 
     BUG_ON(!handle);
+    d = handle;
+    bio = d->bio;
+    media_id = bio->Media->MediaId;
+    io_align = bio->Media->IoAlign;
 
-    ret = h->bio->ReadBlocks(h->bio, h->bio->Media->MediaId, sector, blocks * h->bio->Media->BlockSize, buffer);
+    if (io_align > 1 && ((ptr_t)buffer % io_align)) {
+        print_warn("buffer 0x%016llX is unaligned to minimum IoAlign (%u), attempting a DISK_IO read instead!\n",
+                   (ptr_t)buffer, io_align);
+        return uefi_read(handle, buffer, sector << d->block_shift, blocks << d->block_shift);
+    }
+
+    ret = d->bio->ReadBlocks(bio, media_id, sector, blocks << d->block_shift, buffer);
     if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("ReadDisk() failed: %pSV\n", &err_msg);
@@ -61,7 +83,7 @@ static bool uefi_read_blocks(void *handle, void *buffer, u64 sector, size_t bloc
 }
 
 static struct disk_services uefi_disk_services = {
-    .list_disks = uefi_list_disks,
+    .query_disk = uefi_query_disk,
     .read = uefi_read,
     .read_blocks = uefi_read_blocks
 };
@@ -86,7 +108,6 @@ static void enumerate_disks()
     for (i = 0; i < handle_count; ++i) {
         EFI_BLOCK_IO_PROTOCOL *bio = NULL;
         EFI_DISK_IO_PROTOCOL *dio = NULL;
-        struct uefi_disk_handle *dh;
 
         ret = g_st->BootServices->HandleProtocol(handles[i], &block_io_guid, (void**)&bio);
         if (unlikely_efi_error(ret)) {
@@ -100,10 +121,15 @@ static void enumerate_disks()
         if (!bio->Media->MediaPresent || bio->Media->LogicalPartition || !bio->Media->LastBlock)
             continue;
 
+        if (unlikely(__builtin_popcount(bio->Media->BlockSize) != 1)) {
+            print_warn("Skipping a non-power-of-two block size (%u) disk\n", bio->Media->BlockSize);
+            continue;
+        }
+
         ret = g_st->BootServices->HandleProtocol(handles[i], &disk_io_guid, (void**)&dio);
         if (unlikely_efi_error(ret)) {
             struct string_view err_msg = uefi_status_to_string(ret);
-            print_warn("disk[%zu] HandleProtocol(disk_io) error: %pSV\n", i, &err_msg);
+            print_warn("disk[%zu] HandleProtocol(DISK_IO) error: %pSV\n", i, &err_msg);
         }
 
         /*
@@ -113,17 +139,11 @@ static void enumerate_disks()
          * - Not very useful overall
          */
 
-        // TODO: I don't like that we have to allocate the handle separately, maybe redesign this
-        if (unlikely(!uefi_pool_alloc(EfiLoaderData, sizeof(struct uefi_disk_handle), 1, (void**)&dh)))
-            return;
-
-        dh->bio = bio;
-        dh->dio = dio;
-
-        disks[disk_count++] = (struct disk) {
+        disks[disk_count++] = (struct uefi_disk) {
             .sectors = bio->Media->LastBlock + 1,
-            .bytes_per_sector = bio->Media->BlockSize,
-            .handle = dh
+            .block_shift = __builtin_ffs(bio->Media->BlockSize) - 1,
+            .bio = bio,
+            .dio = dio
         };
 
         print_info("detected disk: block-size %u, %llu blocks\n",
@@ -135,5 +155,6 @@ struct disk_services *disk_services_init()
 {
     enumerate_disks();
 
+    uefi_disk_services.disk_count = disk_count;
     return &uefi_disk_services;
 }
