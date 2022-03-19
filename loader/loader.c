@@ -123,7 +123,7 @@ void pick_loadable_entry(struct config *cfg, struct loadable_entry *le)
     }
 
     if (!cfg_get_loadable_entry(cfg, loadable_entry_name, le))
-        oops("no loadable entry called %pSV", &loadable_entry_name);
+        oops("no loadable entry \"%pSV\"", &loadable_entry_name);
 }
 
 #define PROTOCOL_KEY SV("protocol")

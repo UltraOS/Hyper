@@ -20,20 +20,20 @@ enum value_type {
 static inline struct string_view value_type_as_str(enum value_type t)
 {
     switch (t) {
-        case VALUE_NONE:
-            return SV("None");
-        case VALUE_BOOLEAN:
-            return SV("Boolean");
-        case VALUE_UNSIGNED:
-            return SV("Unsigned Integer");
-        case VALUE_SIGNED:
-            return SV("Signed Integer");
-        case VALUE_STRING:
-            return SV("String");
-        case VALUE_OBJECT:
-            return SV("Object");
-        default:
-            return SV("<Invalid>");
+    case VALUE_NONE:
+        return SV("None");
+    case VALUE_BOOLEAN:
+        return SV("Boolean");
+    case VALUE_UNSIGNED:
+        return SV("Unsigned Integer");
+    case VALUE_SIGNED:
+        return SV("Signed Integer");
+    case VALUE_STRING:
+        return SV("String");
+    case VALUE_OBJECT:
+        return SV("Object");
+    default:
+        return SV("<Invalid>");
     }
 }
 
@@ -97,7 +97,7 @@ struct config_error {
     struct string_view message;
     size_t line;
     size_t column;
-    size_t pos;
+    size_t line_start_pos;
 };
 
 struct config {
