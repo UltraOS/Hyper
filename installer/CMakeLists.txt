@@ -37,3 +37,7 @@ set(CMAKE_ASM_NASM_FLAGS "${CMAKE_ASM_NASM_FLAGS} ${STAGE_PATHS} ${NASM_FORMAT}"
 set(CMAKE_ASM_NASM_COMPILE_OBJECT "<CMAKE_ASM_NASM_COMPILER> <FLAGS> -o <OBJECT> <SOURCE>")
 
 add_executable(hyper_install hyper_install.c embedded.asm)
+
+if (UNIX OR APPLE)
+    target_link_libraries(hyper_install -static)
+endif ()
