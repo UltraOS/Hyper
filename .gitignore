@@ -7,4 +7,6 @@ installer/hyper_install
 installer/hyper_install.exe
 cmake-build-debug/
 .idea/
+.vscode/
+.DS_Store
 !toolchain/build.sh
