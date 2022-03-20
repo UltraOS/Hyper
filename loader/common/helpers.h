@@ -7,6 +7,9 @@
 #define CONCAT(x, y) DO_CONCAT(x, y)
 #define UNIQUE(x) CONCAT(x, __COUNTER__)
 
+#define DO_TO_STR(x) #x
+#define TO_STR(x) DO_TO_STR(x)
+
 #define ARE_SAME_TYPE(x, y) __builtin_types_compatible_p(typeof(x), typeof(y))
 
 #define DO_CONTAINER_OF(ptr, ptr_name, type, member) ({				       \
