@@ -20,6 +20,7 @@ if (NOT WIN32)
     execute_process(
         COMMAND ${CMAKE_SOURCE_DIR}/toolchain/build.py ${PLATFORM}
         RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
+        OUTPUT_FILE "/dev/stdout"
     )
     if (TOOLCHAIN_BUILD_FAILED)
         message(FATAL_ERROR "-- Toolchain build error.")
@@ -27,6 +28,7 @@ if (NOT WIN32)
 
     # dirty hack because it tries to compile with -lc and crt0.o
     set(CMAKE_C_COMPILER_WORKS 1)
+    set(CMAKE_CXX_COMPILER_WORKS 1)
 
     set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${PLATFORM})
     set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
@@ -39,11 +41,14 @@ if (NOT WIN32)
     set(CMAKE_RANLIB ${TOOLCHAIN_PREFIX}gcc-ranlib)
     set(CMAKE_STRIP ${TOOLCHAIN_PREFIX}strip)
     set(CMAKE_AR ${TOOLCHAIN_PREFIX}gcc-ar)
+
+    # We override CMAKE_C_COMPILE_OBJECT, which breaks this option
+    set(CMAKE_DEPENDS_USE_COMPILER FALSE)
 else ()
     add_compile_options("/std:c++latest")
 endif()
 
-project(Hyper C ASM)
+project(Hyper C ASM_NASM)
 
 set(ENV{HYPER_PLATFORM} ${PLATFORM})
 
