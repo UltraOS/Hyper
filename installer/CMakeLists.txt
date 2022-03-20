@@ -38,6 +38,6 @@ add_custom_command(
 
 add_executable(hyper_install hyper_install.c ${MBR_EMBEDDED_PATH} ${STAGE2_EMBEDDED_PATH})
 
-if (UNIX OR APPLE)
+if (UNIX AND NOT APPLE)
     target_link_libraries(hyper_install -static)
 endif ()
