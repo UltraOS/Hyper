@@ -300,8 +300,17 @@ def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
         clone_mingw_w64(mingw_w64_dir)
 
     env = os.environ.copy()
-    env["CFLAGS"] = env.get("CFLAGS", "") + "-g -O2 -march=native"
-    env["CXXFLAGS"] = env.get("CXXFLAGS", "") + "-g -O2 -march=native"
+
+    cflags = ["-g", "-O2"]
+    
+    # -mtune=native doesn't work on M1 clang for some reason
+    if this_platform == "Darwin":
+        cflags.append("-mtune=native")
+    else:
+        cflags.append("-march=native")
+
+    env["CFLAGS"] = env.get("CFLAGS", "") + " ".join(cflags)
+    env["CXXFLAGS"] = env.get("CXXFLAGS", "") + " ".join(cflags)
     env["PATH"] = os.path.join(target_dir, "bin") + ":" + env.get("PATH", "")
 
     print(f"Building the toolchain for {target_platform} (gcc for {compiler_prefix})...")
@@ -361,15 +370,15 @@ def main():
 
     gcc_dir = "gcc_sources"
     binutils_dir = "binutils_sources"
-    download_toolchain_sources(native_platform, tc_root_path, gcc_dir, binutils_dir)
-
-    if not args.skip_dependencies:
-        pm = get_package_manager()
-        print(f"Detected package manager '{pm}'")
-        fetch_dependencies(pm)
-
     gcc_dir_full_path = os.path.join(tc_root_path, gcc_dir)
     binutils_dir_full_path = os.path.join(tc_root_path, binutils_dir)
+
+    download_toolchain_sources(native_platform, tc_root_path, gcc_dir_full_path, binutils_dir_full_path)
+
+    if not args.skip_dependencies:
+        pm = get_package_manager(native_platform)
+        print(f"Detected package manager '{pm}'")
+        fetch_dependencies(pm)
 
     os.makedirs(tc_platform_root_path, exist_ok=True)
     build_toolchain(gcc_dir_full_path, binutils_dir_full_path, tc_platform_root_path,
@@ -377,8 +386,8 @@ def main():
 
     if not args.keep_sources:
         print("Removing source directories...")
-        shutil.rmtree(gcc_dir)
-        shutil.rmtree(binutils_dir)
+        shutil.rmtree(gcc_dir_full_path)
+        shutil.rmtree(binutils_dir_full_path)
 
     print("Done!")
 
