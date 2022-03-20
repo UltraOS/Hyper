@@ -12,6 +12,7 @@
 #include "allocator.h"
 #include "virtual_memory.h"
 #include "handover.h"
+#include "hyper.h"
 
 #undef MSG_FMT
 #define MSG_FMT(msg) "ULTRA-PROT: " msg
@@ -393,7 +394,6 @@ struct handover_info {
     size_t memory_map_handover_key;
     u64 attribute_array_address;
 };
-#define LOAD_NAME_STRING "HyperLoader v0.1"
 
 static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void *buf)
 {
@@ -424,16 +424,16 @@ static void *write_context_header(struct ultra_boot_context *ctx, uint32_t** att
 
 static void *write_platform_info(struct ultra_platform_info_attribute *pi, enum service_provider sp, u64 rsdp_address)
 {
-    struct string_view loader_name_str = SV(LOAD_NAME_STRING);
+    struct string_view brand_str = HYPER_BRAND_STRING;
 
     pi->header.type = ULTRA_ATTRIBUTE_PLATFORM_INFO;
     pi->header.size = sizeof(struct ultra_platform_info_attribute);
     pi->platform_type = sp == SERVICE_PROVIDER_BIOS ? ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI;
-    pi->loader_major = 0;
-    pi->loader_minor = 1;
+    pi->loader_major = HYPER_MAJOR;
+    pi->loader_minor = HYPER_MINOR;
     pi->acpi_rsdp_address = rsdp_address;
 
-    memcpy(pi->loader_name, loader_name_str.text, loader_name_str.size + 1);
+    memcpy(pi->loader_name, brand_str.text, brand_str.size + 1);
 
     return ++pi;
 }
