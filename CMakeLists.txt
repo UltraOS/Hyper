@@ -51,13 +51,15 @@ add_subdirectory(loader)
 
 if (PLATFORM MATCHES "bios")
     add_subdirectory(bios)
+
     set(MBR_FULL_PATH "${MBR_PATH}/${MBR_BINARY}")
     set(STAGE2_FULL_PATH "${STAGE2_PATH}/${STAGE2_BINARY}")
 
-    add_custom_command(
-        OUTPUT ${PROJECT_SOURCE_DIR}/installer/hyper_install
-        COMMAND /bin/bash ${PROJECT_SOURCE_DIR}/installer/build.sh ${MBR_FULL_PATH} ${STAGE2_FULL_PATH}
-        DEPENDS ${MBR_FULL_PATH} ${STAGE2_BINARY}
+    include(ExternalProject)
+    ExternalProject_Add(installer
+        SOURCE_DIR ${PROJECT_SOURCE_DIR}/installer
+        CMAKE_ARGS -DMBR_PATH=${MBR_FULL_PATH} -DSTAGE2_PATH=${STAGE2_FULL_PATH}
+        INSTALL_COMMAND cmake -E echo "Skipping install step."
     )
-    add_custom_target(installer ALL DEPENDS ${PROJECT_SOURCE_DIR}/installer/hyper_install)
+    ExternalProject_Add_StepDependencies(installer build ${MBR_FULL_PATH} ${STAGE2_FULL_PATH})
 endif()
