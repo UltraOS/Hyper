@@ -18,7 +18,7 @@ endif ()
 
 if (NOT WIN32)
     execute_process(
-        COMMAND ${CMAKE_SOURCE_DIR}/toolchain/build.py ${PLATFORM}
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${PLATFORM}
         RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
         OUTPUT_FILE "/dev/stdout"
     )
