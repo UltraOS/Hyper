@@ -267,32 +267,29 @@ static bool fetch_vga_info(struct super_vga_info* vga_info)
 
 #define MEMORY_MODEL_DIRECT_COLOR 0x06
 
-static bool validate_video_mode(struct mode_information *m, bool use_linear)
+static u16 mode_fb_format(struct mode_information *m, bool use_linear)
 {
+    u8 r_shift, g_shift, b_shift, x_shift;
+
     if (m->memory_model_type != MEMORY_MODEL_DIRECT_COLOR)
-        return false;
+        return FB_FORMAT_INVALID;
 
+    r_shift = use_linear ? m->red_mask_shift_linear : m->red_mask_shift;
+    g_shift = use_linear ? m->green_mask_shift_linear : m->green_mask_shift;
+    b_shift =  use_linear ? m->blue_mask_shift_linear : m->blue_mask_shift;
+    x_shift = use_linear ? m->reserved_mask_shift_linear : m->reserved_mask_shift;
+
+    // We only expose 8 bits per value framebuffer formats, so filter everything else out.
     if ((use_linear ? m->blue_mask_size_linear : m->blue_mask_size) != 8)
-        return false;
-    if ((use_linear ? m->blue_mask_shift_linear : m->blue_mask_shift) != 0)
-        return false;
+        return FB_FORMAT_INVALID;
     if ((use_linear ? m->green_mask_size_linear : m->green_mask_size) != 8)
-        return false;
-    if ((use_linear ? m->green_mask_shift_linear : m->green_mask_shift) != 8)
-        return false;
+        return FB_FORMAT_INVALID;
     if ((use_linear ? m->red_mask_size_linear : m->red_mask_size) != 8)
-        return false;
-    if ((use_linear ? m->red_mask_shift_linear : m->red_mask_shift) != 16)
-        return false;
+        return FB_FORMAT_INVALID;
+    if (m->bits_per_pixel == 32 && ((use_linear ? m->reserved_mask_size_linear : m->reserved_mask_size) != 8))
+        return FB_FORMAT_INVALID;
 
-    if (m->bits_per_pixel == 32) {
-        if ((use_linear ? m->reserved_mask_size_linear : m->reserved_mask_size) != 8)
-            return false;
-        if ((use_linear ? m->reserved_mask_shift_linear : m->reserved_mask_shift) != 24)
-            return false;
-    }
-
-    return true;
+    return fb_format_from_mask_shifts_8888(r_shift, g_shift, b_shift, x_shift, m->bits_per_pixel);
 }
 
 static void fetch_all_video_modes()
@@ -318,13 +315,15 @@ static void fetch_all_video_modes()
 
     while (*video_modes_list != 0xFFFF) {
         u16 mode_id = *video_modes_list++;
+        u16 fb_format;
         u32 buffer_idx;
 
         memzero(&info, sizeof(info));
         if (!fetch_mode_info(mode_id, &info))
             return;
 
-        if (!validate_video_mode(&info, vesa_detected_major >= 3))
+        fb_format = mode_fb_format(&info, vesa_detected_major >= 3);
+        if (fb_format == FB_FORMAT_INVALID)
             continue;
 
         buffer_idx = video_mode_count++;
@@ -333,12 +332,15 @@ static void fetch_all_video_modes()
             return;
         }
 
+        print_info("video-mode[%u] %ux%u fmt: %s\n", buffer_idx, info.width, info.height,
+                   fb_format_as_str(fb_format));
+
         video_modes[buffer_idx] = (struct video_mode) {
             .width = info.width,
             .height = info.height,
             .bpp = info.bits_per_pixel,
-            .format = FB_FORMAT_XRGB8888, // FIXME: support other formats
-            .id = mode_id
+            .format = fb_format,
+            .id = (mode_id << 16) | buffer_idx
         };
     }
 }
@@ -406,27 +408,25 @@ static bool do_set_mode(u16 id)
 static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
 {
     struct mode_information info = { 0 };
+    u16 mode_id = id >> 16;
+    u16 mode_idx = id & 0xFFFF;
+    struct video_mode *vm;
 
-    if (!fetch_mode_info(id, &info))
+    BUG_ON(mode_idx >= video_mode_count);
+    vm = &video_modes[mode_idx];
+
+    if (!fetch_mode_info(mode_id, &info))
         return false;
 
-    if (!do_set_mode(id))
+    if (!do_set_mode(mode_id))
         return false;
 
-    out_framebuffer->width = info.width;
-    out_framebuffer->height = info.height;
+    out_framebuffer->width = vm->width;
+    out_framebuffer->height = vm->height;
     out_framebuffer->pitch = (vesa_detected_major >= 3) ? info.bytes_per_scanline_linear : info.bytes_per_scanline;
-    out_framebuffer->bpp = info.bits_per_pixel;
+    out_framebuffer->bpp = vm->bpp;
     out_framebuffer->physical_address = info.framebuffer_address;
-
-    if (info.bits_per_pixel == 24) {
-        out_framebuffer->format = FB_FORMAT_RGB888;
-    } else if (info.bits_per_pixel == 32) {
-        out_framebuffer->format = FB_FORMAT_XRGB8888;
-    } else {
-        out_framebuffer->format = FB_FORMAT_INVALID;
-        print_warn("set video mode with unsupported format (%d bpp)\n", info.bits_per_pixel);
-    }
+    out_framebuffer->format = vm->format;
 
     legacy_tty_available = false;
     return true;
