@@ -48,6 +48,40 @@ struct disk_services {
 #define FB_FORMAT_RGBX8888 3
 #define FB_FORMAT_XRGB8888 4
 
+static inline const char *fb_format_as_str(u16 fmt)
+{
+    switch (fmt) {
+    case FB_FORMAT_RGB888:
+        return "rgb888";
+    case FB_FORMAT_BGR888:
+        return "bgr888";
+    case FB_FORMAT_RGBX8888:
+        return "rgbx8888";
+    case FB_FORMAT_XRGB8888:
+        return "xrgb8888";
+    case FB_FORMAT_INVALID:
+    default:
+        return "<invalid>";
+    }
+}
+
+static inline u16 fb_format_from_mask_shifts_8888(u8 r_shift, u8 g_shift, u8 b_shift, u8 x_shift, u8 bpp)
+{
+    if (bpp == 24) {
+        if (b_shift == 0 && g_shift == 8 && r_shift == 16)
+            return FB_FORMAT_RGB888;
+        if (r_shift == 0 && g_shift == 8 && b_shift == 16)
+            return FB_FORMAT_BGR888;
+    } else if (bpp == 32) {
+        if (x_shift == 0 && b_shift == 8 && g_shift == 16 && r_shift == 24)
+            return FB_FORMAT_RGBX8888;
+        if (b_shift == 0 && g_shift == 8 && r_shift == 16 && x_shift == 24)
+            return FB_FORMAT_XRGB8888;
+    }
+
+    return FB_FORMAT_INVALID;
+}
+
 struct video_mode {
     u32 width;
     u32 height;
