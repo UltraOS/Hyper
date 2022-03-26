@@ -870,7 +870,7 @@ static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct 
     cfg_find(cfg, offset + 1, key, 2, &res);
 
     if (res.count > 1 && unique)
-        oops("%pSV must be unique", &key);
+        oops("%pSV must be unique\n", &key);
 
     if (!res.count)
         return false;

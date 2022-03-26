@@ -18,7 +18,7 @@ static bool released = false;
 static void emplace_range(const struct physical_range *r)
 {
     if (entry_count >= BUFFER_CAPACITY)
-        oops("out memory map of slot capacity");
+        oops("out of memory map slot capacity\n");
 
     entries_buffer[entry_count++] = *r;
 }
@@ -34,7 +34,7 @@ static void emplace_range_at(size_t index, const struct physical_range *r)
     }
 
     if (entry_count >= BUFFER_CAPACITY)
-        oops("out of memory map slot capacity");
+        oops("out of memory map slot capacity\n");
 
     bytes_to_move = (entry_count - index) * sizeof(struct physical_range);
     ++entry_count;
@@ -71,7 +71,7 @@ static void load_e820()
 
         if (is_carry_set(&regs)) {
             if (first_call)
-                oops("E820 call unsupported by the BIOS");
+                oops("E820 call unsupported by the BIOS\n");
 
             // end of list
             break;
@@ -80,19 +80,19 @@ static void load_e820()
         first_call = false;
 
         if (regs.eax != ASCII_SMAP)
-            oops("E820 call failed, invalid signature %u", regs.eax);
+            oops("E820 call failed, invalid signature %u\n", regs.eax);
 
         // Restore registers to expected state
         regs.eax = 0xE820;
         regs.edx = ASCII_SMAP;
 
         if (entry.size_in_bytes == 0) {
-            print_warn("E820 returned an empty range, skipped");
+            print_warn("E820 returned an empty range, skipped\n");
             continue;
         }
 
         if (regs.ecx == sizeof(entry) && !(entry.attributes & 1)) {
-            print_warn("E820 attribute reserved bit not set, skipped");
+            print_warn("E820 attribute reserved bit not set, skipped\n");
             continue;
         }
 
@@ -234,10 +234,10 @@ static u64 allocate_top_down(size_t page_count, u64 upper_limit, u32 type)
     u64 range_end;
 
     if (bytes_to_allocate <= page_count)
-        oops("invalid allocation size of %zu pages", page_count);
+        oops("invalid allocation size of %zu pages\n", page_count);
 
     if (released)
-        oops("use-after-release: allocate_top_down()");
+        oops("use-after-release: allocate_top_down()\n");
 
     map_key++;
 
@@ -274,7 +274,7 @@ static u64 allocate_top_down(size_t page_count, u64 upper_limit, u32 type)
 
 static void fail_on_allocation(size_t page_count, u64 lower_limit, u64 upper_limit)
 {
-    oops("invalid allocate_within() call %zu pages within:\n0x%016llX -> 0x%016llX",
+    oops("invalid allocate_within() call %zu pages within:\n0x%016llX -> 0x%016llX\n",
          page_count, lower_limit, upper_limit);
 }
 
@@ -320,10 +320,10 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
     struct physical_range allocated_range;
 
     if (bytes_to_allocate <= page_count)
-        oops("invalid allocation size of %zu pages", page_count);
+        oops("invalid allocation size of %zu pages\n", page_count);
 
     if (released)
-        oops("use-after-release: allocate_within()");
+        oops("use-after-release: allocate_within()\n");
 
     map_key++;
 
@@ -393,7 +393,7 @@ static u64 allocate_pages_at(u64 address, size_t count, u32 type)
 
 static void on_invalid_free(u64 address, size_t count)
 {
-   oops("invalid free at 0x%016llX pages: %zu", address, count);
+   oops("invalid free at 0x%016llX pages: %zu\n", address, count);
 }
 
 static void free_pages(u64 address, size_t count)
@@ -405,7 +405,7 @@ static void free_pages(u64 address, size_t count)
     };
 
     if (released)
-        oops("use-after-release: free_pages()");
+        oops("use-after-release: free_pages()\n");
 
     map_key++;
 
@@ -425,7 +425,7 @@ static size_t copy_map(void *buf, size_t capacity, size_t elem_size,
     size_t i;
 
     if (released)
-        oops("use-after-release: copy_map()");
+        oops("use-after-release: copy_map()\n");
 
     if (capacity == 0)
         return entry_count;

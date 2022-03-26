@@ -37,7 +37,7 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le, st
     }
 
     if (!parse_path(string_path, &opts->path))
-        oops("invalid binary path %pSV", &string_path);
+        oops("invalid binary path %pSV\n", &string_path);
 }
 
 static uint32_t module_get_size(struct config *cfg, struct value *module_value)
@@ -51,7 +51,7 @@ static uint32_t module_get_size(struct config *cfg, struct value *module_value)
 
     if (value_is_string(&size_value)) {
         if (!sv_equals(size_value.as_string, SV("auto")))
-            oops("invalid value for module/size \"%pSV\"", &size_value.as_string);
+            oops("invalid value for module/size \"%pSV\"\n", &size_value.as_string);
         return 0;
     }
 
@@ -70,7 +70,7 @@ static uint32_t module_get_type(struct config *cfg, struct value *module_value)
     if (sv_equals(type_value.as_string, SV("memory")))
         return ULTRA_MODULE_TYPE_MEMORY;
 
-    oops("invalid value for module/type \"%pSV\"", &type_value.as_string);
+    oops("invalid value for module/type \"%pSV\"\n", &type_value.as_string);
 }
 
 static u64 module_get_load_address(struct config *cfg, struct value *module_value)
@@ -84,7 +84,7 @@ static u64 module_get_load_address(struct config *cfg, struct value *module_valu
 
     if (value_is_string(&load_at_value)) {
         if (!sv_equals(load_at_value.as_string, SV("auto")))
-            oops("invalid value for module/load-at \"%pSV\"", &load_at_value.as_string);
+            oops("invalid value for module/load-at \"%pSV\"\n", &load_at_value.as_string);
         return 0;
     }
 
@@ -118,7 +118,7 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
         snprintf(attrs->name, sizeof(attrs->name), "unnamed_module%d", module_idx);
     } else {
         if (module_name.size >= sizeof(attrs->name))
-            oops("module name \"%pSV\" is too long (%zu vs max %zu)",
+            oops("module name \"%pSV\" is too long (%zu vs max %zu)\n",
                  &module_name, module_name.size, sizeof(attrs->name) - 1);
 
         memcpy(attrs->name, module_name.text, module_name.size);
@@ -137,15 +137,15 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
             cfg_oops_no_mandatory_key(SV("path"));
 
         if (!parse_path(str_path, &path))
-            oops("invalid module path %pSV", &str_path);
+            oops("invalid module path %pSV\n", &str_path);
 
         fse = fs_by_full_path(&path);
         if (!fse)
-            oops("no such disk/partition %pSV", &str_path);
+            oops("no such disk/partition %pSV\n", &str_path);
 
         module_file = fse->fs->open(fse->fs, path.path_within_partition);
         if (!module_file)
-            oops("no such file %pSV", &path.path_within_partition);
+            oops("no such file %pSV\n", &path.path_within_partition);
 
         bytes_to_read = module_file->size;
 
@@ -164,13 +164,13 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
             module_data = allocate_critical_pages_with_type(module_pages, ULTRA_MEMORY_TYPE_MODULE);
 
         if (!module_file->read(module_file, module_data, 0, bytes_to_read))
-            oops("failed to read module file");
+            oops("failed to read module file\n");
 
         memzero(module_data + bytes_to_read, (module_pages * PAGE_SIZE) - bytes_to_read);
         fse->fs->close(fse->fs, module_file);
     } else { // module_type == ULTRA_MODULE_TYPE_MEMORY
         if (!module_size)
-            oops("module size cannot be 0 for type \"memory\"");
+            oops("module size cannot be 0 for type \"memory\"\n");
 
         module_pages = CEILING_DIVIDE(module_size, PAGE_SIZE);
 
@@ -211,27 +211,27 @@ void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel
 
     f = fse->fs->open(fse->fs, info->bin_opts.path.path_within_partition);
     if (!f)
-        oops("failed to open %pSV", &info->bin_opts.path.path_within_partition);
+        oops("failed to open %pSV\n", &info->bin_opts.path.path_within_partition);
 
     file_data = allocate_critical_bytes(f->size);
 
     if (!f->read(f, file_data, 0, f->size))
-        oops("failed to read file");
+        oops("failed to read file\n");
 
     bitness = elf_bitness(file_data, f->size);
 
     if (!bitness || (bitness != 32 && bitness != 64))
-        oops("invalid ELF bitness");
+        oops("invalid ELF bitness\n");
 
     if (info->bin_opts.allocate_anywhere && bitness != 64)
-        oops("allocate-anywhere is only allowed for 64 bit kernels");
+        oops("allocate-anywhere is only allowed for 64 bit kernels\n");
 
     if (bitness == 64 && !cpu_supports_long_mode())
-        oops("attempted to load a 64 bit kernel on a CPU without long mode support");
+        oops("attempted to load a 64 bit kernel on a CPU without long mode support\n");
 
     if (!elf_load(file_data, f->size, bitness == 64, info->bin_opts.allocate_anywhere,
                   ULTRA_MEMORY_TYPE_KERNEL_BINARY, &res))
-        oops("failed to load kernel binary: %s", res.error_msg);
+        oops("failed to load kernel binary: %s\n", res.error_msg);
 
     info->bin_info = res.info;
 }
@@ -269,7 +269,7 @@ void video_mode_from_value(struct config *cfg, struct value *val, struct request
         }
 
         if (!sv_equals(val->as_string, SV("auto")))
-            oops("invalid value for \"video-mode\": %pSV", &val->as_string);
+            oops("invalid value for \"video-mode\": %pSV\n", &val->as_string);
 
         return;
     }
@@ -291,7 +291,7 @@ void video_mode_from_value(struct config *cfg, struct value *val, struct request
         else if (sv_equals_caseless(format_str, SV("xrgb8888")))
             mode->format = FB_FORMAT_XRGB8888;
         else if (!sv_equals_caseless(format_str, SV("auto")))
-            oops("Unsupported video-mode format '%pSV'", &format_str);
+            oops("Unsupported video-mode format '%pSV'\n", &format_str);
     }
 
     if (cfg_get_string(cfg, val, SV("constraint"), &constraint_str)) {
@@ -300,7 +300,7 @@ void video_mode_from_value(struct config *cfg, struct value *val, struct request
         else if (sv_equals(constraint_str, SV("exactly")))
             mode->constraint = VIDEO_MODE_CONSTRAINT_EXACTLY;
         else
-            oops("invalid video mode constraint %pSV", &constraint_str);
+            oops("invalid video mode constraint %pSV\n", &constraint_str);
     }
 }
 
@@ -358,14 +358,14 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
     }
 
     if (!did_pick) {
-        oops("failed to pick a video mode according to constraints (%ux%u %u bpp)",
+        oops("failed to pick a video mode according to constraints (%ux%u %u bpp)\n",
              rm.width, rm.height, rm.bpp);
     }
 
     print_info("picked video mode %ux%u @ %u bpp\n", picked_vm.width, picked_vm.height, picked_vm.bpp);
 
     if (!vs->set_mode(picked_vm.id, &fb))
-        oops("failed to set picked video mode");
+        oops("failed to set picked video mode\n");
 
     BUILD_BUG_ON(sizeof(*out_fb) != sizeof(fb));
     memcpy(out_fb, &fb, sizeof(fb));
@@ -668,20 +668,20 @@ u64 pick_stack(struct config *cfg, struct loadable_entry *le)
 
         if (has_alloc_at && value_is_string(&alloc_at_val)) {
             if (!sv_equals(alloc_at_val.as_string, SV("anywhere")))
-                oops("invalid value for \"allocate-at\": %pSV", &alloc_at_val.as_string);
+                oops("invalid value for \"allocate-at\": %pSV\n", &alloc_at_val.as_string);
         } else if (has_alloc_at) { // unsigned
             address = alloc_at_val.as_unsigned;
         }
 
         if (has_size && value_is_string(&size_val)) {
             if (!sv_equals(size_val.as_string, SV("auto")))
-                oops("invalid value for \"size\": %pSV", &size_val.as_string);
+                oops("invalid value for \"size\": %pSV\n", &size_val.as_string);
         } else if (has_size) { // unsigned
             size = size_val.as_unsigned;
         }
     } else if (has_val) { // string
         if (!sv_equals(val.as_string, SV("auto")))
-            oops("invalid value for \"stack\": %pSV", &val.as_string);
+            oops("invalid value for \"stack\": %pSV\n", &val.as_string);
     }
 
     size_t pages = CEILING_DIVIDE(size, PAGE_SIZE);
@@ -737,7 +737,7 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
     cfg_get_bool(cfg, le, SV("null-guard"), &null_guard);
 
     if (!is_higher_half_kernel && is_higher_half_exclusive)
-        oops("Higher half exclusive mode is only allowed for higher half kernels");
+        oops("Higher half exclusive mode is only allowed for higher half kernels\n");
 
     spec.higher_half_pointers = is_higher_half_exclusive;
     spec.cmdline_present = cfg_get_string(cfg, le, SV("cmdline"), &spec.cmdline);

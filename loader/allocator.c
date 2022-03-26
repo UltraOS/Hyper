@@ -44,7 +44,7 @@ NORETURN
 static void on_failed_critical_allocation(u64 address, size_t count, u32 type)
 {
     log_allocation_failure(address, count, type, false);
-    for (;;);
+    loader_abort();
 }
 
 static void *do_allocate_with_type_at(u64 address, size_t count, u32 type, bool critical)

@@ -12,6 +12,30 @@ SIZEOF_REGISTER_STATE: equ 40
 
 section .real_code
 
+global bios_jmp_to_reset_vector
+bios_jmp_to_reset_vector:
+BITS 32
+    jmp REAL_MODE_CODE_SELECTOR:.real_mode_transition
+
+.real_mode_transition:
+BITS 16
+    mov ax, REAL_MODE_DATA_SELECTOR
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
+    mov eax, cr0
+    and eax, ~PROTECTED_MODE_BIT
+    mov cr0, eax
+
+    jmp 0x0:.real_mode_code
+
+.real_mode_code:
+    jmp 0xFFFF:0x0000
+
+
 ; NOTE: this function assumes all pointers are located within the first 64K of memory.
 ; NOTE(2): this function is not reentrant and uses global state.
 ; ---------------------------------------------------------------------------------------
@@ -22,6 +46,7 @@ section .real_code
 ; esp + 0  [ret]
 global bios_call
 bios_call:
+BITS 32
     ; save arguments so that we don't have to access the stack
     mov al, [esp + 4]
     mov [.call_number], al

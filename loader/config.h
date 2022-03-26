@@ -154,7 +154,7 @@ bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value 
 NORETURN
 static inline void cfg_oops_no_mandatory_key(struct string_view key)
 {
-    oops("couldn't find mandatory key \"%pSV\" in the config file!", &key);
+    oops("couldn't find mandatory key \"%pSV\" in the config file!\n", &key);
 }
 
 #define CFG_MANDATORY_GET(type, cfg, obj, key, out_ptr)                              \

@@ -252,4 +252,6 @@ struct services {
     enum service_provider provider;
 };
 
+NORETURN void loader_abort();
+
 void loader_entry(struct services *services);

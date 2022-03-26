@@ -26,8 +26,16 @@ struct real_mode_addr {
 
 static inline bool is_carry_set(const struct real_mode_regs *regs)
 {
-    return regs->flags & 1;
+    return regs->flags & (1 << 0);
 }
+
+static inline bool is_zero_set(const struct real_mode_regs *regs)
+{
+    return regs->flags & (1 << 6);
+}
+
+NORETURN
+void bios_jmp_to_reset_vector();
 
 void bios_call(u32 number, const struct real_mode_regs *in, struct real_mode_regs *out);
 

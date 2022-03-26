@@ -120,7 +120,7 @@ bool map_huge_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, 
 NORETURN
 static void on_critical_mapping_failed(u64 virtual_base, u64 physical_base, size_t pages, bool huge)
 {
-    panic("Out of memory while attempting to map %zu critical pages at 0x%llX (physical 0x%llX) huge: %d",
+    panic("Out of memory while attempting to map %zu critical pages at 0x%llX (physical 0x%llX) huge: %d\n",
           pages, virtual_base, physical_base, huge);
 }
 

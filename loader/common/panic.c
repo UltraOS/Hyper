@@ -9,7 +9,7 @@ void panic(const char *reason, ...)
     vprintlvl(LOG_LEVEL_ERR, reason, vlist);
     va_end(vlist);
 
-    for (;;);
+    loader_abort();
 }
 
 void oops(const char *reason, ...)
@@ -21,5 +21,5 @@ void oops(const char *reason, ...)
     vprintlvl(LOG_LEVEL_ERR, reason, vlist);
     va_end(vlist);
 
-    for (;;);
+    loader_abort();
 }

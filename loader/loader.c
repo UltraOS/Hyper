@@ -52,13 +52,13 @@ void init_config(struct config *out_cfg)
 
     cfg_file = find_config_file(&fe);
     if (!cfg_file)
-        oops("Couldn't find hyper.cfg anywhere on disk!");
+        oops("Couldn't find hyper.cfg anywhere on disk!\n");
 
     set_origin_fs(fe);
     cfg_data = allocate_critical_bytes(cfg_file->size);
 
     if (!cfg_file->read(cfg_file, cfg_data, 0, cfg_file->size))
-        oops("failed to read config file");
+        oops("failed to read config file\n");
 
     cfg_view = (struct string_view) {
         .text = cfg_data,
@@ -67,7 +67,7 @@ void init_config(struct config *out_cfg)
 
     if (!cfg_parse(cfg_view, out_cfg)) {
         cfg_pretty_print_error(&out_cfg->last_error, cfg_view);
-        for (;;);
+        loader_abort();
     }
 }
 
@@ -118,12 +118,12 @@ void pick_loadable_entry(struct config *cfg, struct loadable_entry *le)
 
     if (!cfg_get_global_string(cfg, DEFAULT_ENTRY_KEY, &loadable_entry_name)) {
         if (!cfg_first_loadable_entry(cfg, le))
-            oops("configuration file must contain at least one loadable entry");
+            oops("configuration file must contain at least one loadable entry\n");
         return;
     }
 
     if (!cfg_get_loadable_entry(cfg, loadable_entry_name, le))
-        oops("no loadable entry \"%pSV\"", &loadable_entry_name);
+        oops("no loadable entry \"%pSV\"\n", &loadable_entry_name);
 }
 
 #define PROTOCOL_KEY SV("protocol")
@@ -134,7 +134,7 @@ enum load_protocol get_load_protocol(struct config *cfg, struct loadable_entry *
     CFG_MANDATORY_GET(string, cfg, entry, PROTOCOL_KEY, &protocol_name);
 
     if (!sv_equals_caseless(protocol_name, SV("ultra")))
-        oops("unsupported load protocol: %pSV", &protocol_name);
+        oops("unsupported load protocol: %pSV\n", &protocol_name);
 
     return LOAD_PROTOCOL_ULTRA;
 }

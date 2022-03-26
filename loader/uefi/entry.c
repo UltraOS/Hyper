@@ -37,6 +37,31 @@ static bool uefi_exit_all_services(struct services *sv, size_t map_key)
     return true;
 }
 
+void loader_abort()
+{
+    UINTN idx;
+    EFI_INPUT_KEY key;
+    EFI_STATUS sts;
+
+    // Empty any pending keystrokes
+    for (;;) {
+        sts = g_st->ConIn->ReadKeyStroke(g_st->ConIn, &key);
+        if (sts != EFI_SUCCESS)
+            break;
+    }
+
+    if (sts == EFI_UNSUPPORTED) {
+        print_err("Loading aborted! Exiting in 10 seconds...\n");
+        g_st->BootServices->Stall(10 * 1000 * 1000);
+    } else {
+        print_err("Loading aborted! Press any key to continue...\n");
+        g_st->BootServices->WaitForEvent(1, &g_st->ConIn->WaitForKey, &idx);
+    }
+
+    g_st->BootServices->Exit(g_img, EFI_ABORTED, 0, NULL);
+    for (;;);
+}
+
 EFI_STATUS EFIAPI EfiMain(
     IN EFI_HANDLE ImageHandle,
     IN EFI_SYSTEM_TABLE *SystemTable
