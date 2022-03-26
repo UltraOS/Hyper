@@ -35,8 +35,12 @@ static bool uefi_set_mode(u32 id, struct framebuffer *out_framebuffer)
 {
     EFI_STATUS ret;
     EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *mode_info;
-    BUG_ON(!gfx);
+    struct video_mode *vm;
 
+    BUG_ON(!gfx);
+    BUG_ON(id >= mode_count);
+
+    vm = &video_modes[id];
     print_info("setting video mode %u...\n", id);
 
     ret = gfx->SetMode(gfx, id);
@@ -66,12 +70,9 @@ static bool uefi_set_mode(u32 id, struct framebuffer *out_framebuffer)
         .width = mode_info->HorizontalResolution,
         .height = mode_info->VerticalResolution,
         .physical_address = gfx->Mode->FrameBufferBase,
-
-        // This is sort of hardcoded for now because we only accept BGRA modes
-        // TODO: unhardcode
-        .pitch = mode_info->PixelsPerScanLine * 4,
-        .bpp = 32,
-        .format = FB_FORMAT_XRGB8888,
+        .pitch = mode_info->PixelsPerScanLine * (vm->bpp / 8),
+        .bpp = vm->bpp,
+        .format = vm->format,
     };
     return true;
 }
@@ -230,7 +231,9 @@ static void gfx_modes_init()
         return;
 
     for (i = 0; i < gfx->Mode->MaxMode; ++i) {
+        u16 fb_format, bpp;
         EFI_STATUS ret = gfx->QueryMode(gfx, i, &mode_size, &mode_info);
+
         if (EFI_ERROR(ret)) {
             struct string_view err_msg = uefi_status_to_string(ret);
             print_warn("QueryMode(%zu) failed: %pSV\n", i, &err_msg);
@@ -243,18 +246,47 @@ static void gfx_modes_init()
             continue;
         }
 
-        print_info("video-mode[%zu] %ux%u fmt: %u\n", i, mode_info->HorizontalResolution,
-                   mode_info->VerticalResolution, mode_info->PixelFormat);
+        if (mode_info->PixelFormat == PixelBitMask) {
+            EFI_PIXEL_BITMASK *pb = &mode_info->PixelInformation;
+            u8 r_shift, g_shift, b_shift, x_shift;
 
-        // We don't support other modes for now, so skip it
-        if (mode_info->PixelFormat != PixelBlueGreenRedReserved8BitPerColor)
+            if (__builtin_popcount(pb->RedMask) != 8)
+                continue;
+            if (__builtin_popcount(pb->GreenMask) != 8)
+                continue;
+            if (__builtin_popcount(pb->BlueMask) != 8)
+                continue;
+            if (pb->ReservedMask) {
+                if (__builtin_popcount(pb->ReservedMask) != 8)
+                    continue;
+                bpp = 32;
+            } else {
+                bpp = 24;
+            }
+
+            r_shift = __builtin_clz(pb->RedMask);
+            g_shift = __builtin_clz(pb->GreenMask);
+            b_shift = __builtin_clz(pb->BlueMask);
+            x_shift = pb->ReservedMask ? __builtin_clz(pb->ReservedMask) : 0;
+
+            fb_format = fb_format_from_mask_shifts_8888(r_shift, g_shift, b_shift, x_shift, bpp);
+            if (fb_format == FB_FORMAT_INVALID)
+                continue;
+        } else if (mode_info->PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
+            fb_format = FB_FORMAT_XRGB8888;
+            bpp = 32;
+        } else {
             continue;
+        }
+
+        print_info("video-mode[%zu] %ux%u fmt: %s\n", i, mode_info->HorizontalResolution,
+                   mode_info->VerticalResolution, fb_format_as_str(fb_format));
 
         video_modes[mode_count++] = (struct video_mode) {
             .width = mode_info->HorizontalResolution,
             .height = mode_info->VerticalResolution,
-            .bpp = 32,
-            .format = FB_FORMAT_XRGB8888, // FIXME: support other formats
+            .bpp = bpp,
+            .format = fb_format,
             .id = i
         };
     }
