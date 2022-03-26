@@ -421,7 +421,7 @@ void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id)
         return;
 
     if (!sv->read_blocks(d->handle, mbr_buf, 0, blocks_to_read))
-        return;
+        goto out;
 
     gpt_buf = mbr_buf + (1ul << d->block_shift);
     if (*(u64*)gpt_buf == GPT_SIGNATURE) {
