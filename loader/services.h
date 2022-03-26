@@ -6,6 +6,9 @@ struct disk {
     u64 sectors;
     void *handle;
     u8 block_shift;
+
+#define DISK_STS_REMOVABLE (1 << 0)
+    u8 status;
 };
 
 struct disk_services {

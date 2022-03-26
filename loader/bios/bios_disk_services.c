@@ -1,7 +1,9 @@
 #include "bios_disk_services.h"
 #include "bios_call.h"
+#include "common/format.h"
 #include "common/log.h"
 #include "common/string.h"
+#include "common/string_view.h"
 #include "common/minmax.h"
 
 #undef MSG_FMT
@@ -19,6 +21,7 @@ static u8 transfer_buffer[TRANSFER_BUFFER_CAPACITY];
 
 #define BDA_DISK_COUNT_ADDRESS 0x0475
 
+#define REMOVABLE_DRIVE (1 << 2)
 struct PACKED drive_parameters {
     u16 buffer_size;
     u16 flags;
@@ -27,7 +30,8 @@ struct PACKED drive_parameters {
     u32 sectors;
     u64 total_sector_count;
     u16 bytes_per_sector;
-    u32 edd_config_parameters;
+    u16 edd_config_offset;
+    u16 edd_config_segment;
     u16 signature;
     u8 device_path_length;
     u8 reserved[3];
@@ -51,18 +55,74 @@ struct PACKED disk_address_packet {
 };
 BUILD_BUG_ON(sizeof(struct drive_parameters) != 0x42);
 
+struct PACKED enhanced_disk_drive_parameter_table {
+    u16 io_base_address;
+    u16 control_port_address;
+    u8 drive_flags;
+    u8 reserved_1;
+    u8 drive_irq;
+    u8 multisector_transfer_count;
+    u8 dma_control;
+    u8 programmed_io_control;
+
+#define DRIVE_OPTION_REMOVABLE (1 << 5)
+#define DRIVE_OPTION_ATAPI     (1 << 6)
+    u16 drive_options;
+
+    u16 reserved_2;
+    u8 extension_revision;
+    u8 checksum;
+};
+BUILD_BUG_ON(sizeof(struct enhanced_disk_drive_parameter_table) != 16);
+
+#define IS_TRANSLATED_DPT(dpt) ((dpt->control_port_address & 0xFF00) == 0xA000)
+
+static void pretty_print_drive_info(u8 drive_idx, u64 sectors, u32 bytes_per_sector, bool is_removable)
+{
+    char sectors_buf[32];
+    if (sectors == 0xFFFFFFFFFFFFFFFF) {
+        struct string_view unknown = SV("<unknown>");
+        memcpy(sectors_buf, unknown.text, unknown.size + 1);
+    } else {
+        snprintf(sectors_buf, 32, "%llu", sectors);
+    }
+
+    print_info("drive: 0x%X -> sectors: %s, bps: %hu, removable: %s\n",
+               drive_idx, sectors_buf, bytes_per_sector,
+               is_removable ? "yes" : "no");
+}
+
+static bool edpt_is_removable_disk(struct enhanced_disk_drive_parameter_table *edpt)
+{
+    bool is_atapi, is_removable;
+
+    if (IS_TRANSLATED_DPT(edpt))
+        return false; // We don't know
+
+    is_removable = edpt->drive_options & DRIVE_OPTION_REMOVABLE;
+    is_atapi = edpt->drive_options & DRIVE_OPTION_ATAPI;
+
+    if (!is_removable && is_atapi) {
+        print_warn("ATAPI drive declared non-removable, assuming it is");
+        return true;
+    }
+
+    return is_removable;
+}
+
+#define DRIVE_PARAMS_V2 0x1E
+
 static void fetch_all_disks()
 {
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0715.htm
     struct real_mode_regs regs;
     struct drive_parameters drive_params;
-    u8 detected_disks = 0, drive_index;
-    u8 number_of_disks = *(volatile u8*)BDA_DISK_COUNT_ADDRESS;
-    print_info("BIOS-detected disks: %d\n", number_of_disks);
-
-    BUG_ON(number_of_disks == 0);
+    u8 detected_non_removable_disks = 0, drive_index;
+    u8 number_of_bios_detected_disks = *(volatile u8*)BDA_DISK_COUNT_ADDRESS;
+    print_info("BIOS-detected disks: %d\n", number_of_bios_detected_disks);
 
     for (drive_index = 0x80; drive_index < 0xFF; ++drive_index) {
+        bool is_removable = false;
         memzero(&regs, sizeof(regs));
         memzero(&drive_params, sizeof(drive_params));
 
@@ -70,6 +130,7 @@ static void fetch_all_disks()
         regs.edx = drive_index;
         regs.esi = (u32)&drive_params;
         drive_params.buffer_size = sizeof(drive_params);
+        drive_params.flags = 0;
 
         bios_call(0x13, &regs, &regs);
 
@@ -83,32 +144,48 @@ static void fetch_all_disks()
             continue;
 
         if (unlikely(__builtin_popcount(drive_params.bytes_per_sector) != 1)) {
-            print_warn("Skipping a non-power-of-two block size (%u) disk %X\n",
+            print_warn("skipping a non-power-of-two block size (%u) disk %X\n",
                        drive_params.bytes_per_sector, drive_index);
             continue;
         }
 
         if (unlikely(drive_params.bytes_per_sector > PAGE_SIZE)) {
-            print_warn("Disk %X block size is too large (%u), skipped\n",
+            print_warn("disk %X block size is too large (%u), skipped\n",
                        drive_index, drive_params.bytes_per_sector);
             continue;
         }
 
-        print_info("detected drive: 0x%X -> sectors: %llu, bytes per sector: %hu\n",
-                   drive_index, drive_params.total_sector_count, drive_params.bytes_per_sector);
+        is_removable = drive_params.flags & REMOVABLE_DRIVE;
+
+        // VMWare doesn't report removable device in the main drive parameters, check EDD instead
+        if (drive_params.buffer_size >= DRIVE_PARAMS_V2 &&
+           (drive_params.edd_config_offset != 0x0000 || drive_params.edd_config_segment != 0x0000) &&
+           (drive_params.edd_config_offset != 0xFFFF || drive_params.edd_config_segment != 0xFFFF)) {
+            void *edpt = from_real_mode_addr(drive_params.edd_config_segment,
+                                             drive_params.edd_config_offset);
+            is_removable |= edpt_is_removable_disk(edpt);
+        }
+
+        pretty_print_drive_info(drive_index, drive_params.total_sector_count,
+                                drive_params.bytes_per_sector, is_removable);
+
+        // Removable disks are not reported in BDA_DISK_COUNT_ADDRESS, so we accept any amount
+        if (!is_removable) {
+            if (unlikely(detected_non_removable_disks >= number_of_bios_detected_disks)) {
+                print_warn("skipping unexpected drive 0x%X\n", drive_index);
+                continue;
+            }
+
+            detected_non_removable_disks++;
+        }
 
         disks_buffer[disk_count++] = (struct disk) {
             .sectors = drive_params.total_sector_count,
             .handle = (void*)((ptr_t)drive_index),
             .block_shift = __builtin_ffs(drive_params.bytes_per_sector) - 1,
+            .status = is_removable ? DISK_STS_REMOVABLE : 0
         };
-
-        if (++detected_disks == number_of_disks)
-            return;
     }
-
-    print_warn("BIOS reported more disks than was detected? (%d vs %d)\n",
-               detected_disks, number_of_disks);
 }
 
 static struct disk *disk_from_handle(void *handle)
@@ -125,10 +202,13 @@ static struct disk *disk_from_handle(void *handle)
     return NULL;
 }
 
-static bool check_read(const struct real_mode_regs *regs)
+static bool check_read(const struct disk *d, const struct real_mode_regs *regs)
 {
     if (is_carry_set(regs) || ((regs->eax & 0xFF00) != 0x0000)) {
-        print_warn("disk read failed, (ret=%u)\n", regs->eax);
+        // Don't print a warning for removable drives, it's expected
+        if (!(d->status & DISK_STS_REMOVABLE))
+            print_warn("disk read failed, (ret=%u)\n", regs->eax);
+
         return false;
     }
 
@@ -179,7 +259,7 @@ static bool do_read(const struct disk *d, void *buffer, u64 offset, size_t bytes
         packet.buffer_offset = tb_addr.offset;
 
         bios_call(0x13, &regs, &regs);
-        if (!check_read(&regs))
+        if (!check_read(d, &regs))
             return false;
 
         bytes_to_copy = MIN(bytes_for_this_read, bytes);

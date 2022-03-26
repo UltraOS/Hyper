@@ -10,6 +10,7 @@
 struct uefi_disk {
     u64 sectors;
     u8 block_shift;
+    u8 status;
     EFI_BLOCK_IO_PROTOCOL *bio;
     EFI_DISK_IO_PROTOCOL *dio;
 };
@@ -27,7 +28,8 @@ static void uefi_query_disk(size_t idx, struct disk *out_disk)
     *out_disk = (struct disk) {
         .sectors = d->sectors,
         .handle = d,
-        .block_shift = d->block_shift
+        .block_shift = d->block_shift,
+        .status = d->status
     };
 }
 
@@ -142,6 +144,7 @@ static void enumerate_disks()
         disks[disk_count++] = (struct uefi_disk) {
             .sectors = bio->Media->LastBlock + 1,
             .block_shift = __builtin_ffs(bio->Media->BlockSize) - 1,
+            .status = bio->Media->RemovableMedia ? DISK_STS_REMOVABLE : 0,
             .bio = bio,
             .dio = dio
         };
