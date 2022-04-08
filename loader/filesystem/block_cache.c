@@ -128,6 +128,19 @@ static enum completion_result block_cache_try_complete_req(struct block_cache *b
     return br->bytes_to_copy == 0 ? CR_FULL : CR_PARTIAL;
 }
 
+static bool req_exec(struct block_cache *bc, struct block_req *br)
+{
+    for (;;) {
+        enum completion_result res = block_cache_try_complete_req(bc, br);
+
+        if (res == CR_FULL)
+            return true;
+
+        if (!block_cache_refill(bc, br->coords.base_block))
+            return false;
+    }
+}
+
 bool block_cache_read(struct block_cache *bc, void *buf, u64 byte_off, size_t count)
 {
     struct block_req br = {
@@ -136,15 +149,21 @@ bool block_cache_read(struct block_cache *bc, void *buf, u64 byte_off, size_t co
     };
     byte_offsets_to_block_coords(bc, byte_off, count, &br.coords);
 
-    for (;;) {
-        enum completion_result res = block_cache_try_complete_req(bc, &br);
+    return req_exec(bc, &br);
+}
 
-        if (res == CR_FULL)
-            return true;
+bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block, size_t count)
+{
+    struct block_req br = {
+        .coords = {
+            .base_block = block,
+            .block_count = count
+        },
+        .buf = buf,
+        .bytes_to_copy = count << bc->block_shift,
+    };
 
-        if (!block_cache_refill(bc, br.coords.base_block))
-            return false;
-    }
+    return req_exec(bc, &br);
 }
 
 bool block_cache_take_ref(struct block_cache *bc, void **buf, u64 byte_off, size_t count)

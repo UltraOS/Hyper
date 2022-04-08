@@ -36,6 +36,13 @@ bool block_cache_refill(struct block_cache *bc, u64 base_block);
 bool block_cache_read(struct block_cache *bc, void *buf, u64 byte_off, size_t count);
 
 /*
+ * Read data at 'block' with 'count' blocks and store in 'buf'.
+ * bc->refill_blocks_cb() is called as needed to satisfy the request.
+ */
+bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block, size_t count);
+
+
+/*
  * Cache data at 'byte_off' with 'count' and return the pointer to the internal
  * buffer where the cached data at 'byte_off' is located.
  */
