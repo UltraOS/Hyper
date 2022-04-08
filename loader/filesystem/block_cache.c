@@ -85,16 +85,16 @@ static void block_coords_offset_by(struct block_coords *bc, u64 blocks)
     bc->first_block_byte_off = 0;
 }
 
-static void byte_offsets_to_block_coords(struct block_cache *bc, u64 byte_off, size_t count,
+static void byte_offsets_to_block_coords(struct block_cache *bc, u64 byte_off, size_t byte_cnt,
                                          struct block_coords *out)
 {
-    BUG_ON(count == 0);
+    BUG_ON(byte_cnt == 0);
 
     out->base_block = byte_off >> bc->block_shift;
     out->first_block_byte_off = byte_off & (bc->block_size - 1);
 
-    out->block_count = MAX(count >> bc->block_shift, 1ul);
-    out->block_count += out->first_block_byte_off && (count > (bc->block_size - out->first_block_byte_off));
+    out->block_count = ALIGN_UP(out->first_block_byte_off + byte_cnt, bc->block_size);
+    out->block_count >>= bc->block_shift;
 }
 
 struct block_req {
