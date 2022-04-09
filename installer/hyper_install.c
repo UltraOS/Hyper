@@ -88,8 +88,8 @@ void read_mbr_partition_list(FILE *img, struct mbr_partition_entry *buffer)
 void ensure_stage2_fits(struct mbr_partition_entry *partitions)
 {
     size_t i;
-    uint32_t lowest_block = UINT32_MAX;
-    size_t gap_size;
+    uint64_t lowest_block = UINT64_MAX;
+    uint64_t gap_size;
 
     for (i = 0; i < MBR_PARTITION_COUNT; ++i) {
         uint32_t first_block = partitions[i].first_block;
@@ -97,6 +97,9 @@ void ensure_stage2_fits(struct mbr_partition_entry *partitions)
         if (first_block && (first_block < lowest_block))
             lowest_block = first_block;
     }
+
+    if (lowest_block == UINT64_MAX)
+        panic("Please create at least one partition before attempting to install");
 
     gap_size = (lowest_block - 1) * MBR_BLOCK_SIZE;
 
