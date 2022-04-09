@@ -6,6 +6,7 @@ installer/build
 installer/tmp
 installer/src
 installer/mbr_embedded.c
+installer/iso_mbr_embedded.c
 installer/stage2_embedded.c
 installer/hyper_install
 installer/hyper_install.exe
