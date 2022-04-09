@@ -11,6 +11,11 @@ struct disk {
     u8 status;
 };
 
+static inline u32 disk_block_size(const struct disk *d)
+{
+    return 1 << d->block_shift;
+}
+
 struct disk_services {
     /*
      * Retrieves information about a disk at idx.
