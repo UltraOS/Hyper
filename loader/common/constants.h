@@ -11,6 +11,7 @@
 #define ALIGN_DOWN(x, val)       ALIGN_DOWN_MASK(x, (typeof(x))(val) - 1)
 
 #define PAGE_SIZE 4096
+#define PAGE_SHIFT 12
 #define PAGE_ROUND_UP(size)   ALIGN_UP(size, PAGE_SIZE)
 #define PAGE_ROUND_DOWN(size) ALIGN_DOWN(size, PAGE_SIZE)
 
