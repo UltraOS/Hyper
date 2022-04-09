@@ -59,7 +59,15 @@ if (PLATFORM MATCHES "bios")
 
     set(MBR_FULL_PATH "${MBR_PATH}/${MBR_BINARY}")
     set(ISO_MBR_FULL_PATH "${MBR_PATH}/${ISO_MBR_BINARY}")
+    set(ISO_BOOT_REC_FULL_PATH "${MBR_PATH}/${ISO_BOOT_REC_BINARY}")
     set(STAGE2_FULL_PATH "${STAGE2_PATH}/${STAGE2_BINARY}")
+
+    add_custom_command(
+        OUTPUT ${STAGE2_PATH}/hyper_iso_boot
+        COMMAND cat ${ISO_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH} > ${STAGE2_PATH}/hyper_iso_boot
+        DEPENDS ${ISO_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH}
+    )
+    add_custom_target(hyper_iso_boot ALL DEPENDS ${STAGE2_PATH}/hyper_iso_boot)
 
     include(ExternalProject)
     ExternalProject_Add(installer
