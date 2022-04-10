@@ -74,12 +74,22 @@ void init_config(struct config *out_cfg)
 void init_all_disks(struct disk_services* ds)
 {
     size_t disk_index;
+    struct block_cache bc;
+    void *buf = allocate_pages(1);
+    if (unlikely(!buf))
+        return;
 
     for (disk_index = 0; disk_index < ds->disk_count; ++disk_index) {
-         struct disk d;
-         ds->query_disk(disk_index, &d);
-         fs_detect_all(ds, &d, disk_index);
+        struct disk d;
+        ds->query_disk(disk_index, &d);
+
+        block_cache_init(&bc, ds->read_blocks, d.handle, d.block_shift,
+                         buf, PAGE_SIZE >> d.block_shift);
+
+        fs_detect_all(ds, &d, disk_index, &bc);
     }
+
+    free_pages(buf, 1);
 }
 
 static struct string_view search_paths[] = {

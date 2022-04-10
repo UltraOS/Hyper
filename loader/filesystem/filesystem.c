@@ -9,6 +9,7 @@
 #include "common/helpers.h"
 #include "common/minmax.h"
 #include "allocator.h"
+#include "filesystem/block_cache.h"
 #include "filesystem/fat/fat.h"
 
 #undef MSG_FMT
@@ -26,6 +27,25 @@ struct disk_services *filesystem_set_backend(struct disk_services* sv)
 struct disk_services *filesystem_backend()
 {
     return backend;
+}
+
+void check_read(struct file *f, u64 offset, u32 size)
+{
+    u64 final_offset = offset + size;
+
+    if (unlikely(size == 0))
+        goto die;
+
+    if (unlikely(final_offset < offset))
+        goto die;
+
+    if (unlikely(final_offset > f->size))
+        goto die;
+
+    return;
+
+die:
+    panic("BUG: invalid read at offset %llu with size %u", offset, size);
 }
 
 bool split_prefix_and_path(struct string_view str, struct string_view *prefix, struct string_view *path)
@@ -210,12 +230,13 @@ bool parse_path(struct string_view path, struct full_path *out_path)
     return true;
 }
 
-struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range, void *first_page)
+struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range,
+                                 struct block_cache *bc)
 {
     if (!backend)
         return NULL;
 
-    return try_create_fat(d, lba_range, first_page);
+    return try_create_fat(d, lba_range, bc);
 }
 
 struct PACKED mbr_partition_entry {
@@ -236,55 +257,47 @@ enum {
 #define OFFSET_TO_MBR_PARTITION_LIST 0x01BE
 
 void initialize_from_mbr(struct disk_services *sv, const struct disk *d, u32 disk_id,
-                         void *mbr_buffer, size_t base_index, size_t sector_offset)
+                         struct block_cache *bc, size_t base_index, u64 sector_offset)
 {
-    struct mbr_partition_entry *partition = mbr_buffer + OFFSET_TO_MBR_PARTITION_LIST;
+    struct mbr_partition_entry partitions[4];
+    u64 part_abs_byte_off = (sector_offset << d->block_shift) + OFFSET_TO_MBR_PARTITION_LIST;
     bool is_ebr = base_index != 0;
     size_t i, max_partitions = is_ebr ? 2 : 4;
 
-    for (i = 0; i < max_partitions; ++i, ++partition) {
-        size_t real_partition_offset = sector_offset + partition->first_block;
-        struct range lba_range = { real_partition_offset, real_partition_offset + partition->block_count };
-        void *partition_page;
+    if (!block_cache_read(bc, partitions, part_abs_byte_off, sizeof(partitions)))
+        return;
+
+    for (i = 0; i < max_partitions; ++i) {
+        struct mbr_partition_entry *p = &partitions[i];
+        u64 real_partition_offset = sector_offset + p->first_block;
+        struct range lba_range = {
+            real_partition_offset,
+            real_partition_offset + p->block_count
+        };
         struct filesystem *fs = NULL;
 
-        if (partition->type == MBR_EMPTY_PARTITION)
+        if (p->type == MBR_EMPTY_PARTITION)
             continue;
 
-        if (partition->type == MBR_EBR_PARTITION) {
+        if (p->type == MBR_EBR_PARTITION) {
             if (is_ebr && i == 0) {
                 print_warn("EBR with chain at index 0");
                 break;
             }
 
-            partition_page = allocate_pages(1);
-            if (!partition_page)
-                break;
-
-            if (sv->read_blocks(d->handle, partition_page, real_partition_offset, PAGE_SIZE >> d->block_shift)) {
-                initialize_from_mbr(sv, d, disk_id, partition_page, base_index + (is_ebr ? 1 : 4),
-                                    real_partition_offset);
-            }
-            free_pages(partition_page, 1);
+            initialize_from_mbr(sv, d, disk_id, bc, base_index + (is_ebr ? 1 : 4),
+                                real_partition_offset);
             continue;
         }
 
         if (i == 1 && is_ebr) {
-            print_warn("EBR with a non-EBR entry at index 1 (0x%X)", partition->type);
+            print_warn("EBR with a non-EBR entry at index 1 (0x%X)", p->type);
             break;
         }
 
-        partition_page = allocate_pages(1);
-        if (unlikely(!partition_page))
-            break;
-
-        if (sv->read_blocks(d->handle, partition_page, lba_range.begin, PAGE_SIZE >> d->block_shift))
-            fs = fs_try_detect(d, lba_range, partition_page);
-
+        fs = fs_try_detect(d, lba_range, bc);
         if (fs)
             add_mbr_fs_entry(d->handle, disk_id, base_index + i, fs);
-
-        free_pages(partition_page, 1);
     }
 }
 
@@ -304,9 +317,10 @@ struct gpt_header {
     u32 NumberOfPartitionEntries;
     u32 SizeOfPartitionEntry;
     u32 PartitionEntryArrayCRC32;
-    u8  Reserved1[512 - 92];
+    u32 Reserved1;
+    // u8 Reserved1[512 - 92]; A bit useless, comment out for now
 };
-BUILD_BUG_ON(sizeof(struct gpt_header) != 512);
+BUILD_BUG_ON(sizeof(struct gpt_header) != 96);
 
 struct gpt_partition_entry {
     struct guid PartitionTypeGUID;
@@ -318,85 +332,68 @@ struct gpt_partition_entry {
 };
 BUILD_BUG_ON(sizeof(struct gpt_partition_entry) != 128);
 
-
 #define UNUSED_PARTITION_GUID \
     { 0x00000000, 0x0000, 0x0000, { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } };
 static struct guid unused_part_guid = UNUSED_PARTITION_GUID;
 
 struct gpt_part_ctx {
-    struct disk_services *sv;
+    struct block_cache *bc;
     struct guid *disk_guid;
-    struct gpt_partition_entry *pe;
+    struct gpt_partition_entry pe;
     struct disk *d;
-    size_t part_idx;
     u32 disk_id;
-    void *part_page;
+    size_t part_idx;
 };
 
 void process_gpt_partition(struct gpt_part_ctx *ctx)
 {
     struct filesystem *fs = NULL;
-    struct gpt_partition_entry *pe = ctx->pe;
-    struct disk *d = ctx->d;
-    struct range lba_range = { pe->StartingLBA, pe->EndingLBA };
+    struct range lba_range;
 
-    if (guid_compare(&unused_part_guid, &pe->PartitionTypeGUID) == 0)
+    if (guid_compare(&unused_part_guid, &ctx->pe.PartitionTypeGUID) == 0)
         return;
 
-    if (ctx->sv->read_blocks(d->handle, ctx->part_page, lba_range.begin, PAGE_SIZE >> d->block_shift))
-        fs = fs_try_detect(d, lba_range, ctx->part_page);
+    lba_range = (struct range) {
+        ctx->pe.StartingLBA,
+        ctx->pe.EndingLBA
+    };
+
+    fs = fs_try_detect(ctx->d, lba_range, ctx->bc);
     if (!fs)
         return;
 
-    add_gpt_fs_entry(d->handle, ctx->disk_id, ctx->part_idx, ctx->disk_guid, &pe->UniquePartitionGUID, fs);
+    add_gpt_fs_entry(ctx->d->handle, ctx->disk_id, ctx->part_idx,
+                     ctx->disk_guid, &ctx->pe.UniquePartitionGUID, fs);
 }
 
-void initialize_from_gpt(struct disk_services *sv, struct disk *d, u32 disk_id,
-                         void *gpt_buffer, u64 buf_lba_end)
+void initialize_from_gpt(struct disk *d, u32 disk_id, struct block_cache *bc)
 {
-    struct gpt_header *hdr = gpt_buffer;
-    struct gpt_part_ctx part_ctx = {
-        .sv = sv,
-        .disk_guid = &hdr->DiskGUID,
-        .d = d,
-        .disk_id = disk_id,
-    };
-    u64 current_lba = hdr->PartitionEntryLBA;
+    struct gpt_header hdr;
+    struct gpt_part_ctx part_ctx;
+    u64 current_off;
 
-    if (unlikely(hdr->NumberOfPartitionEntries == 0)) {
-        print_warn("Empty GPT disk %u?\n", disk_id);
+    if (!block_cache_read(bc, &hdr, 1 << d->block_shift, sizeof(struct gpt_header)))
+        return;
+
+    if (hdr.SizeOfPartitionEntry < sizeof(struct gpt_partition_entry)) {
+        print_warn("invalid GPT partition entry size %u, skipped (disk %u)\n",
+                   hdr.SizeOfPartitionEntry, disk_id);
         return;
     }
 
-    if (unlikely(hdr->PartitionEntryLBA >= d->sectors)) {
-        print_warn("GPT PartitionEntryLBA is out of bounds: lba %lld\n", hdr->PartitionEntryLBA);
-        return;
-    }
+    part_ctx.bc = bc;
+    part_ctx.disk_guid = &hdr.DiskGUID;
+    part_ctx.d = d;
+    part_ctx.disk_id = disk_id;
+    current_off = hdr.PartitionEntryLBA << d->block_shift;
 
-    part_ctx.part_page = allocate_pages(1);
-    if (unlikely(!part_ctx.part_page))
-        return;
-
-    // Already have some read
-    if (buf_lba_end > current_lba) {
-        u64 blocks_processed = buf_lba_end - current_lba;
-        size_t entries_to_process = (blocks_processed << d->block_shift) / hdr->SizeOfPartitionEntry;
-        entries_to_process = MIN(entries_to_process, hdr->NumberOfPartitionEntries);
-
-        gpt_buffer += (current_lba - 1) << d->block_shift;
-
-        for (; part_ctx.part_idx < entries_to_process; gpt_buffer += hdr->SizeOfPartitionEntry, part_ctx.part_idx++) {
-            part_ctx.pe = gpt_buffer;
-            process_gpt_partition(&part_ctx);
-        }
-
-        if (part_ctx.part_idx == hdr->NumberOfPartitionEntries)
+    for (part_ctx.part_idx = 0; part_ctx.part_idx < hdr.NumberOfPartitionEntries; ++part_ctx.part_idx) {
+        if (!block_cache_read(bc, &part_ctx.pe, current_off, sizeof(struct gpt_partition_entry)))
             return;
 
-        current_lba += blocks_processed;
+        process_gpt_partition(&part_ctx);
+        current_off += hdr.SizeOfPartitionEntry;
     }
-
-    // TODO: Slow path, have to read additional blocks
 }
 
 // "EFI PART"
@@ -405,37 +402,26 @@ void initialize_from_gpt(struct disk_services *sv, struct disk *d, u32 disk_id,
 #define MBR_SIGNATURE 0xAA55
 #define OFFSET_TO_MBR_SIGNATURE 510
 
-void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id)
+void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id,
+                   struct block_cache *bc)
 {
-    void *mbr_buf, *gpt_buf;
+    u8 signature[8];
 
-    /*
-     * Read at least 2 sectors to include the GPT header,
-     * but don't read less than a page, that's wasteful.
-     */
-    u32 blocks_to_read = MAX(2, PAGE_SIZE >> d->block_shift);
-    u32 pages_to_read = (blocks_to_read << d->block_shift) / PAGE_SIZE;
-
-    mbr_buf = allocate_pages(pages_to_read);
-    if (!mbr_buf)
+    if (!block_cache_read(bc, signature, disk_block_size(d), sizeof(u64)))
         return;
 
-    if (!sv->read_blocks(d->handle, mbr_buf, 0, blocks_to_read))
-        goto out;
-
-    gpt_buf = mbr_buf + (1ul << d->block_shift);
-    if (*(u64*)gpt_buf == GPT_SIGNATURE) {
-        initialize_from_gpt(sv, d, disk_id, gpt_buf, blocks_to_read);
-        goto out;
+    if (*(u64*)signature == GPT_SIGNATURE) {
+        initialize_from_gpt(d, disk_id, bc);
+        return;
     }
 
-    if (*(u16*)(mbr_buf + OFFSET_TO_MBR_SIGNATURE) == MBR_SIGNATURE) {
-        initialize_from_mbr(sv, d, disk_id, mbr_buf, 0, 0);
-        goto out;
+    if (!block_cache_read(bc, signature, OFFSET_TO_MBR_SIGNATURE, sizeof(u16)))
+        return;
+
+    if (*(u16*)signature == MBR_SIGNATURE) {
+        initialize_from_mbr(sv, d, disk_id, bc, 0, 0);
+        return;
     }
 
     print_warn("unpartitioned drive %p skipped\n", d->handle);
-
-out:
-    free_pages(mbr_buf, pages_to_read);
 }

@@ -1,4 +1,5 @@
 #include "fat.h"
+#include "structures.h"
 #include "common/log.h"
 #include "common/constants.h"
 #include "common/helpers.h"
@@ -740,7 +741,7 @@ static bool directory_next_entry(struct fat_directory *dir, struct fat_directory
     }
 }
 
-static bool fat_file_read(struct file *base_file, void* buffer, u32 offset, u32 size)
+static bool fat_file_read(struct file *base_file, void *buffer, u64 offset, u32 size)
 {
     struct fat_file *file = container_of(base_file, struct fat_file, f);
     struct fat_filesystem *fs = container_of(file->f.fs, struct fat_filesystem, f);
@@ -750,7 +751,7 @@ static bool fat_file_read(struct file *base_file, void* buffer, u32 offset, u32 
     size_t bytes_to_read;
     u8 *byte_buffer = (u8*)buffer;
 
-    BUG_ON(size == 0);
+    check_read(base_file, offset, size);
 
     if (!file->range_count && !file_compute_contiguous_ranges(file))
         return false;
@@ -864,9 +865,8 @@ static void fat_file_free(struct fat_file *file, enum fat_type ft)
     free_bytes(file, sizeof(struct fat_file));
 }
 
-static void fat_close(struct filesystem *base_fs, struct file *f)
+static void fat_close(struct file *f)
 {
-    (void)base_fs;
     struct fat_file *file = container_of(f, struct fat_file, f);
     struct fat_filesystem *fs = container_of(file->f.fs, struct fat_filesystem, f);
 
@@ -981,13 +981,22 @@ static bool detect_fat(const struct disk *d, struct range lba_range, struct dos3
     return out_info->root_dir_cluster >= RESERVED_CLUSTER_COUNT;
 }
 
-struct filesystem *try_create_fat(const struct disk *d, struct range lba_range, void *first_page)
+struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
+                                  struct block_cache *bc)
 {
-    void *bpb = first_page + BPB_OFFSET;
+    void *bpb;
+    u64 abs_bpb_off = (lba_range.begin << d->block_shift) + BPB_OFFSET;
     struct fat_filesystem *fs;
     struct fat_info info = { 0 };
+    bool ok;
 
-    if (!detect_fat(d, lba_range, bpb, &info))
+    if (!block_cache_take_ref(bc, &bpb, abs_bpb_off, sizeof(struct fat32_ebpb)))
+        return NULL;
+
+    ok = detect_fat(d, lba_range, bpb, &info);
+    block_cache_release_ref(bc);
+
+    if (!ok)
         return NULL;
 
     print_info("detected fat%d with %d fats, %d sectors/cluster, %u sectors/fat\n",
@@ -995,7 +1004,7 @@ struct filesystem *try_create_fat(const struct disk *d, struct range lba_range, 
                info.sectors_per_fat);
 
     fs = allocate_bytes(sizeof(struct fat_filesystem));
-    if (!fs)
+    if (unlikely(!fs))
         return NULL;
 
     fs->f = (struct filesystem) {

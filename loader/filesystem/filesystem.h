@@ -4,6 +4,7 @@
 #include "common/types.h"
 #include "common/string_view.h"
 #include "common/range.h"
+#include "block_cache.h"
 
 #define MAX_PATH_SIZE 255
 
@@ -65,17 +66,18 @@ struct file {
     struct filesystem *fs;
     size_t size;
 
-    bool (*read)(struct file*, void *buffer, u32 offset, u32 bytes);
+    bool (*read)(struct file*, void *buffer, u64 offset, u32 bytes);
 };
+void check_read(struct file *f, u64 offset, u32 size);
 
 struct filesystem {
     struct disk d;
     struct range lba_range;
     struct file *(*open)(struct filesystem *fs, struct string_view path);
-    void (*close)(struct filesystem *fs, struct file*);
+    void (*close)(struct file*);
 };
 
-void fs_detect_all(struct disk_services *srvc, struct disk *d, u32 disk_id);
+void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id, struct block_cache *bc);
 
 bool split_prefix_and_path(struct string_view str, struct string_view *prefix, struct string_view *path);
 bool next_path_node(struct string_view* path, struct string_view* node);
