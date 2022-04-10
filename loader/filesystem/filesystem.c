@@ -11,6 +11,7 @@
 #include "allocator.h"
 #include "filesystem/block_cache.h"
 #include "filesystem/fat/fat.h"
+#include "filesystem/iso9660/iso9660.h"
 
 #undef MSG_FMT
 #define MSG_FMT(msg) "FS: " msg
@@ -402,10 +403,25 @@ void initialize_from_gpt(struct disk *d, u32 disk_id, struct block_cache *bc)
 #define MBR_SIGNATURE 0xAA55
 #define OFFSET_TO_MBR_SIGNATURE 510
 
+bool check_cd(const struct disk *d, u32 disk_id, struct block_cache *bc)
+{
+    struct filesystem *fs;
+
+    fs = try_create_iso9660(d, bc);
+    if (!fs)
+        return false;
+
+    add_raw_fs_entry(fs, disk_id, fs);
+    return true;
+}
+
 void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id,
                    struct block_cache *bc)
 {
-    u8 signature[8];
+    _Alignas(u64) u8 signature[8];
+
+    if (check_cd(d, disk_id, bc))
+        return;
 
     if (!block_cache_read(bc, signature, disk_block_size(d), sizeof(u64)))
         return;
