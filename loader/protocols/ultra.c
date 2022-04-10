@@ -167,7 +167,7 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
             oops("failed to read module file\n");
 
         memzero(module_data + bytes_to_read, (module_pages * PAGE_SIZE) - bytes_to_read);
-        fse->fs->close(fse->fs, module_file);
+        fse->fs->close(module_file);
     } else { // module_type == ULTRA_MODULE_TYPE_MEMORY
         if (!module_size)
             oops("module size cannot be 0 for type \"memory\"\n");
@@ -233,6 +233,7 @@ void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel
                   ULTRA_MEMORY_TYPE_KERNEL_BINARY, &res))
         oops("failed to load kernel binary: %s\n", res.error_msg);
 
+    fse->fs->close(f);
     info->bin_info = res.info;
 }
 
