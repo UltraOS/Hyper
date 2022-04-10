@@ -39,6 +39,7 @@ FILE(GLOB C_FILES "${PROJECT_SOURCE_DIR}/*c"                    "${PROJECT_SOURC
                   "${PROJECT_SOURCE_DIR}/elf/*c"                "${PROJECT_SOURCE_DIR}/elf/*h"
                   "${PROJECT_SOURCE_DIR}/filesystem/*c"         "${PROJECT_SOURCE_DIR}/filesystem/*h"
                   "${PROJECT_SOURCE_DIR}/filesystem/fat/*c"     "${PROJECT_SOURCE_DIR}/filesystem/fat/*h"
+                  "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*c" "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*h"
                   "${PROJECT_SOURCE_DIR}/protocols/*c"          "${PROJECT_SOURCE_DIR}/protocols/*h"
                   "${PROJECT_SOURCE_DIR}/${PLATFORM}/*c"        "${PROJECT_SOURCE_DIR}/${PLATFORM}/*h")
 
