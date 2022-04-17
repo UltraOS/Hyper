@@ -199,13 +199,14 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
 struct kernel_info {
     struct binary_options bin_opts;
     struct binary_info bin_info;
+    void *elf_blob;
+    size_t blob_size;
 };
 
 void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel_info *info)
 {
     const struct fs_entry *fse;
     struct file *f;
-    void *file_data;
     u8 bitness;
     struct load_result res = { 0 };
 
@@ -216,12 +217,13 @@ void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel
     if (!f)
         oops("failed to open %pSV\n", &info->bin_opts.path.path_within_partition);
 
-    file_data = allocate_critical_bytes(f->size);
+    info->blob_size = f->size;
+    info->elf_blob = allocate_critical_bytes(info->blob_size);
 
-    if (!f->read(f, file_data, 0, f->size))
+    if (!f->read(f, info->elf_blob, 0, info->blob_size))
         oops("failed to read file\n");
 
-    bitness = elf_bitness(file_data, f->size);
+    bitness = elf_bitness(info->elf_blob, info->blob_size);
 
     if (!bitness || (bitness != 32 && bitness != 64))
         oops("invalid ELF bitness\n");
@@ -232,7 +234,7 @@ void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel
     if (bitness == 64 && !cpu_supports_long_mode())
         oops("attempted to load a 64 bit kernel on a CPU without long mode support\n");
 
-    if (!elf_load(file_data, f->size, bitness == 64, info->bin_opts.allocate_anywhere,
+    if (!elf_load(info->elf_blob, info->blob_size, bitness == 64, info->bin_opts.allocate_anywhere,
                   ULTRA_MEMORY_TYPE_KERNEL_BINARY, &res))
         oops("failed to load kernel binary: %s\n", res.error_msg);
 
@@ -313,10 +315,10 @@ void video_mode_from_value(struct config *cfg, struct value *val, struct request
 #define DEFAULT_BPP 32
 
 bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
-                    struct video_services *vs, struct ultra_framebuffer *out_fb)
+                    struct ultra_framebuffer *out_fb)
 {
     struct value video_mode_val;
-    struct video_mode picked_vm, *mode_list;
+    struct video_mode picked_vm;
     size_t mode_count, mode_idx;
     bool did_pick = false;
     struct resolution native_res = {
@@ -340,23 +342,24 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
     if (rm.none)
         return false;
 
-    vs->query_resolution(&native_res);
-    mode_list = vs->list_modes(&mode_count);
+    vs_query_native_resolution(&native_res);
+    mode_count = vs_get_mode_count();
 
     for (mode_idx = 0; mode_idx < mode_count; ++mode_idx) {
-        struct video_mode *m = &mode_list[mode_idx];
+        struct video_mode m;
+        vs_query_mode(mode_idx, &m);
 
-        if (rm.format != FB_FORMAT_INVALID && m->format != rm.format)
+        if (rm.format != FB_FORMAT_INVALID && m.format != rm.format)
             continue;
 
-        if (rm.constraint == VIDEO_MODE_CONSTRAINT_EXACTLY && VM_EQUALS(*m, rm)) {
-            picked_vm = *m;
+        if (rm.constraint == VIDEO_MODE_CONSTRAINT_EXACTLY && VM_EQUALS(m, rm)) {
+            picked_vm = m;
             did_pick = true;
             break;
         }
 
-        if (VM_GREATER_OR_EQUAL(*m, rm) && VM_LESS_OR_EQUAL(*m, native_res)) {
-            picked_vm = *m;
+        if (VM_GREATER_OR_EQUAL(m, rm) && VM_LESS_OR_EQUAL(m, native_res)) {
+            picked_vm = m;
             did_pick = true;
         }
     }
@@ -387,8 +390,7 @@ struct attribute_array_spec {
     struct string_view cmdline;
     struct kernel_info kern_info;
 
-    struct ultra_module_info_attribute *modules;
-    size_t module_count;
+    struct dynamic_buffer module_buf;
 
     u64 stack_address;
     ptr_t acpi_rsdp_address;
@@ -426,18 +428,15 @@ static void *write_context_header(struct ultra_boot_context *ctx, uint32_t** att
     return ++ctx;
 }
 
-static void *write_platform_info(struct ultra_platform_info_attribute *pi, enum service_provider sp, u64 rsdp_address)
+static void *write_platform_info(struct ultra_platform_info_attribute *pi, u64 rsdp_address)
 {
-    struct string_view brand_str = HYPER_BRAND_STRING;
-
     pi->header.type = ULTRA_ATTRIBUTE_PLATFORM_INFO;
     pi->header.size = sizeof(struct ultra_platform_info_attribute);
-    pi->platform_type = sp == SERVICE_PROVIDER_BIOS ? ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI;
+    pi->platform_type = services_get_provider() == SERVICE_PROVIDER_BIOS ? ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI;
     pi->loader_major = HYPER_MAJOR;
     pi->loader_minor = HYPER_MINOR;
     pi->acpi_rsdp_address = rsdp_address;
-
-    memcpy(pi->loader_name, brand_str.text, brand_str.size + 1);
+    sv_terminated_copy(pi->loader_name, HYPER_BRAND_STRING);
 
     return ++pi;
 }
@@ -503,8 +502,8 @@ static void *write_memory_map_header(struct ultra_memory_map_attribute *mm, size
     return ++mm;
 }
 
-void build_attribute_array(const struct attribute_array_spec *spec, enum service_provider sp,
-                           struct memory_services *ms, struct handover_info *hi)
+void build_attribute_array(const struct attribute_array_spec *spec,
+                           struct handover_info *hi)
 {
     u32 cmdline_aligned_length = 0;
     size_t mm_entry_count, bytes_needed = 0;
@@ -514,16 +513,13 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
     if (spec->cmdline_present) {
         cmdline_aligned_length += sizeof(struct ultra_attribute_header);
         cmdline_aligned_length += spec->cmdline.size + 1;
-        size_t remainder = cmdline_aligned_length % 8;
-
-        if (remainder)
-            cmdline_aligned_length += 8 - remainder;
+        cmdline_aligned_length = ALIGN_UP(cmdline_aligned_length, 8);
     }
 
     bytes_needed += sizeof(struct ultra_boot_context);
     bytes_needed += sizeof(struct ultra_platform_info_attribute);
     bytes_needed += sizeof(struct ultra_kernel_info_attribute);
-    bytes_needed += spec->module_count * sizeof(struct ultra_module_info_attribute);
+    bytes_needed += spec->module_buf.size * sizeof(struct ultra_module_info_attribute);
     bytes_needed += cmdline_aligned_length;
     bytes_needed += spec->fb_present * sizeof(struct ultra_framebuffer_attribute);
     bytes_needed += sizeof(struct ultra_memory_map_attribute);
@@ -558,17 +554,17 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
     attr_ptr = (void*)(ptr_t)hi->attribute_array_address;
     attr_ptr = write_context_header(attr_ptr, &attr_count);
 
-    attr_ptr = write_platform_info(attr_ptr, sp, spec->acpi_rsdp_address);
+    attr_ptr = write_platform_info(attr_ptr, spec->acpi_rsdp_address);
     *attr_count += 1;
 
     attr_ptr = write_kernel_info_attribute(attr_ptr, &spec->kern_info);
     *attr_count += 1;
 
-    if (spec->module_count) {
-        size_t bytes_for_modules = spec->module_count * sizeof(struct ultra_module_info_attribute);
-        memcpy(attr_ptr, spec->modules, bytes_for_modules);
+    if (spec->module_buf.size) {
+        size_t bytes_for_modules = spec->module_buf.size * sizeof(struct ultra_module_info_attribute);
+        memcpy(attr_ptr, spec->module_buf.buf, bytes_for_modules);
         attr_ptr += bytes_for_modules;
-        *attr_count += spec->module_count;
+        *attr_count += spec->module_buf.size;
     }
 
     if (spec->cmdline_present) {
@@ -699,41 +695,62 @@ u64 pick_stack(struct config *cfg, struct loadable_entry *le)
     return address;
 }
 
-#define MODULES_PER_PAGE (PAGE_SIZE / sizeof(struct ultra_module_info_attribute))
+static struct ultra_module_info_attribute *module_alloc(struct dynamic_buffer *buf)
+{
+    void *out = dynamic_buffer_slot_alloc(buf);
+    DIE_ON(!out);
 
-void load_all_modules(struct config *cfg, struct loadable_entry *le, struct attribute_array_spec *spec)
+    return out;
+}
+
+static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le, struct attribute_array_spec *spec)
+{
+    bool kernel_as_module = false;
+    struct ultra_module_info_attribute *mi;
+
+    cfg_get_bool(cfg, le, SV("kernel-as-module"), &kernel_as_module);
+    if (!kernel_as_module)
+        return false;
+
+    mi = module_alloc(&spec->module_buf);
+    *mi = (struct ultra_module_info_attribute) {
+        .header = {
+            ULTRA_ATTRIBUTE_MODULE_INFO,
+            sizeof(struct ultra_module_info_attribute)
+        },
+        .type = ULTRA_MODULE_TYPE_FILE,
+        .address = (ptr_t)spec->kern_info.elf_blob,
+        .size = spec->kern_info.blob_size
+    };
+    sv_terminated_copy(mi->name, SV("__KERNEL__"));
+
+    return true;
+}
+
+static void load_all_modules(struct config *cfg, struct loadable_entry *le, struct attribute_array_spec *spec)
 {
     struct value module_value;
-    size_t modules_capacity = MODULES_PER_PAGE;
 
     if (!cfg_get_first_one_of(cfg, le, SV("module"), VALUE_STRING | VALUE_OBJECT, &module_value))
         return;
 
-    spec->modules = allocate_critical_pages(1);
     do {
-        struct ultra_module_info_attribute *mi;
-
-        if (++spec->module_count == modules_capacity) {
-            void *new_modules = allocate_critical_pages((modules_capacity / MODULES_PER_PAGE) + 1);
-            memcpy(new_modules, spec->modules, modules_capacity);
-            free_pages(spec->modules, modules_capacity / MODULES_PER_PAGE);
-            spec->modules = new_modules;
-            modules_capacity += MODULES_PER_PAGE;
-        }
-        mi = &spec->modules[spec->module_count - 1];
-
+        struct ultra_module_info_attribute *mi = module_alloc(&spec->module_buf);
         module_load(cfg, &module_value, mi);
+
         if (spec->higher_half_pointers)
             mi->address += DIRECT_MAP_BASE;
     } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
 }
 
-void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct services *sv)
+void ultra_protocol_load(struct config *cfg, struct loadable_entry *le)
 {
     struct attribute_array_spec spec = { 0 };
     struct handover_info hi;
     u64 pt;
     bool handover_res, is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
+
+    dynamic_buffer_init(&spec.module_buf, sizeof(struct ultra_module_info_attribute), true);
 
     load_kernel(cfg, le, &spec.kern_info);
     is_higher_half_kernel = spec.kern_info.bin_info.entrypoint_address >= HIGHER_HALF_BASE;
@@ -746,9 +763,14 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
     spec.higher_half_pointers = is_higher_half_exclusive;
     spec.cmdline_present = cfg_get_string(cfg, le, SV("cmdline"), &spec.cmdline);
 
-    load_all_modules(cfg, le, &spec);
+    if (!load_kernel_as_module(cfg, le, &spec)) {
+        free_bytes(spec.kern_info.elf_blob, spec.kern_info.blob_size);
+        spec.kern_info.elf_blob = NULL;
+        spec.kern_info.blob_size = 0;
+    }
 
-    pt = build_page_table(&spec.kern_info.bin_info, sv->ms->get_highest_memory_map_address(),
+    load_all_modules(cfg, le, &spec);
+    pt = build_page_table(&spec.kern_info.bin_info, ms_get_highest_map_address(),
                           is_higher_half_exclusive, null_guard);
     spec.stack_address = pick_stack(cfg, le);
     spec.acpi_rsdp_address = services_find_rsdp();
