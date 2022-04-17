@@ -58,3 +58,9 @@ static inline bool sv_pop_one(struct string_view *str, char *c)
     sv_offset_by(str, 1);
     return true;
 }
+
+static inline void sv_terminated_copy(char *dst, struct string_view sv)
+{
+    memcpy(dst, sv.text, sv.size);
+    dst[sv.size] = '\0';
+}
