@@ -11,8 +11,10 @@
 
 static u32 cfg_entry_offset(struct config* cfg, struct config_entry* e)
 {
-    BUG_ON(e < cfg->buffer);
-    return e - cfg->buffer;
+    struct config_entry *b = cfg->entries_buf.buf;
+
+    BUG_ON(e < b);
+    return e - b;
 }
 
 static struct config_entry* cfg_next_entry(struct config* cfg, struct config_entry* e)
@@ -22,7 +24,7 @@ static struct config_entry* cfg_next_entry(struct config* cfg, struct config_ent
     if (e->next == 0)
         return NULL;
 
-    return &cfg->buffer[cfg_entry_offset(cfg, e) + e->next];
+    return dynamic_buffer_get_slot(&cfg->entries_buf, cfg_entry_offset(cfg, e) + e->next);
 }
 
 #ifdef CFG_DEBUG
@@ -131,45 +133,30 @@ struct config_parser {
 bool cfg_emplace(struct config_parser *p, struct config_entry *e, u32 depth)
 {
     struct config *cfg = p->cfg;
+    struct dynamic_buffer *buf = &cfg->entries_buf;
     struct config_entry *new_entry;
     size_t i;
 
-    if (cfg->size == cfg->capacity) {
-        size_t new_cap = cfg->capacity + (PAGE_SIZE / sizeof(struct config_entry));
-        void *new_buf = allocate_bytes(new_cap * sizeof(struct config_entry));
-        if (unlikely(!new_buf))
-            return false;
-
-        if (cfg->capacity) {
-            memcpy(new_buf, cfg->buffer, cfg->size * sizeof(struct config_entry));
-            free_bytes(cfg->buffer, cfg->capacity * sizeof(struct config_entry));
-        }
-
-        cfg->buffer = new_buf;
-        cfg->capacity = new_cap;
-    }
-
-    i = cfg->size++;
-    new_entry = &cfg->buffer[i];
+    new_entry = dynamic_buffer_slot_alloc(buf);
     *new_entry = *e;
 
     if (e->t == CONFIG_ENTRY_LOADABLE_ENTRY) {
         if (!cfg->first_loadable_entry_offset)
-            cfg->first_loadable_entry_offset = cfg->size;
-        cfg->last_loadable_entry_offset = cfg->size;
+            cfg->first_loadable_entry_offset = buf->size;
+        cfg->last_loadable_entry_offset = buf->size;
     } else if (e->t == CONFIG_ENTRY_VALUE) {
-        new_entry->as_value.cfg_off = i;
+        new_entry->as_value.cfg_off = buf->size - 1;
     } else {
         BUG();
     }
 
     if (p->depth_to_offset[depth]) {
         u32 old_idx = p->depth_to_offset[depth] - 1;
-        struct config_entry *old_entry = &cfg->buffer[old_idx];
-        old_entry->next = (cfg->size - 1) - old_idx;
+        struct config_entry *old_entry = dynamic_buffer_get_slot(&cfg->entries_buf, old_idx);
+        old_entry->next = (buf->size - 1) - old_idx;
     }
 
-    p->depth_to_offset[depth] = cfg->size;
+    p->depth_to_offset[depth] = buf->size;
     for (i = depth + 1; i < MAX_DEPTH && p->depth_to_offset[i]; ++i)
         p->depth_to_offset[i] = 0;
 
@@ -656,6 +643,7 @@ bool cfg_parse(struct string_view src, struct config *cfg)
     bool ret = true;
 
     memzero(p.cfg, sizeof(struct config));
+    dynamic_buffer_init(&cfg->entries_buf, sizeof(struct config_entry), true);
 
     // Skip whitespace/comments at the beginning of config
     if (unlikely(!cfg_skip_empty_lines(&p, true)))
@@ -715,10 +703,7 @@ bool cfg_parse(struct string_view src, struct config *cfg)
 
     err_out:
     ret = false;
-    if (cfg->capacity) {
-        free_bytes(cfg->buffer, cfg->capacity * sizeof(struct config_entry));
-        cfg->size = cfg->capacity = 0;
-    }
+    dynamic_buffer_release(&cfg->entries_buf);
 
     out:
 #ifdef CFG_DEBUG
@@ -756,7 +741,7 @@ bool cfg_get_loadable_entry(struct config *cfg, struct string_view key, struct l
     if (cfg->first_loadable_entry_offset == 0)
         return false;
 
-    struct config_entry *ent = &cfg->buffer[cfg->first_loadable_entry_offset - 1];
+    struct config_entry *ent = dynamic_buffer_get_slot(&cfg->entries_buf, cfg->first_loadable_entry_offset - 1);
 
     while (ent) {
         if (sv_equals(ent->key, key)) {
@@ -778,7 +763,7 @@ bool cfg_first_loadable_entry(struct config *cfg, struct loadable_entry *val)
     if (cfg->first_loadable_entry_offset == 0)
         return false;
 
-    struct config_entry *ent = &cfg->buffer[cfg->first_loadable_entry_offset - 1];
+    struct config_entry *ent = dynamic_buffer_get_slot(&cfg->entries_buf, cfg->first_loadable_entry_offset - 1);
 
     *val = (struct loadable_entry) {
         .name = ent->key,
@@ -795,11 +780,11 @@ struct find_result {
 
 static void cfg_find(struct config *cfg, size_t offset, struct string_view key, size_t max, struct find_result *res)
 {
-    BUG_ON(offset >= cfg->size);
+    BUG_ON(offset >= cfg->entries_buf.size);
     memzero(res, sizeof(struct find_result));
 
     for (;;) {
-        struct config_entry *ent = &cfg->buffer[offset];
+        struct config_entry *ent = dynamic_buffer_get_slot(&cfg->entries_buf, offset);
 
         if (ent->t != CONFIG_ENTRY_VALUE)
             break;
@@ -862,7 +847,7 @@ static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct 
                          enum value_type mask, struct value *val)
 {
     BUG_ON(!mask);
-    BUG_ON((ssize_t)offset != -1 && offset >= (cfg->size ? cfg->size - 1 : 0));
+    BUG_ON((ssize_t)offset != -1 && offset >= (cfg->entries_buf.size ? cfg->entries_buf.size - 1 : 0));
 
     struct find_result res;
     struct config_entry *ent;
@@ -875,7 +860,7 @@ static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct 
     if (!res.count)
         return false;
 
-    ent = &cfg->buffer[res.first];
+    ent = dynamic_buffer_get_slot(&cfg->entries_buf, res.first);
 
     if (!is_of_type(ent->as_value.type, mask))
         oops_on_unexpected_type(key, ent->as_value.type, mask);
@@ -886,7 +871,7 @@ static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct 
 
 bool cfg_get_next_one_of(struct config *cfg, enum value_type mask, struct value *val, bool oops_on_non_matching_type)
 {
-    struct config_entry *entry = &cfg->buffer[val->cfg_off];
+    struct config_entry *entry = dynamic_buffer_get_slot(&cfg->entries_buf, val->cfg_off);
     struct string_view key = entry->key;
 
     for (;;) {

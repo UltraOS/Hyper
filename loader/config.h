@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/string_view.h"
+#include "common/dynamic_buffer.h"
 
 struct loadable_entry {
     struct string_view name;
@@ -107,9 +108,7 @@ struct config {
     size_t first_loadable_entry_offset;
     size_t last_loadable_entry_offset;
 
-    struct config_entry *buffer;
-    size_t capacity;
-    size_t size;
+    struct dynamic_buffer entries_buf;
 };
 
 bool cfg_parse(struct string_view text, struct config *cfg);
