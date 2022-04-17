@@ -1,5 +1,6 @@
 #include <stdarg.h>
 #include "attributes.h"
+#include "types.h"
 
 int vsnprintf(char *restrict buffer, size_t capacity, const char *fmt, va_list vlist);
 

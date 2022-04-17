@@ -1,5 +1,6 @@
 #pragma once
 
+#include "types.h"
 #include "bug.h"
 
 #define LOWER_TO_UPPER_OFFSET ('a' - 'A')

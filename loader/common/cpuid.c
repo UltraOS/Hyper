@@ -11,7 +11,7 @@ void cpuid(u32 function, struct cpuid_res *id)
 #define EXTENDED_PROCESSOR_INFO_FUNCTION_NUMBER 0x80000001
 #define LONG_MODE_BIT (1 << 29)
 
-bool cpu_supports_long_mode()
+bool cpu_supports_long_mode(void)
 {
     struct cpuid_res id = { 0 };
 

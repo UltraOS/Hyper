@@ -38,13 +38,13 @@ static int extract_message_level(const char **msg_ptr)
 static enum color get_color_for_level(enum log_level level)
 {
     switch (level) {
-        default:
-        case LOG_LEVEL_INFO:
-            return COLOR_GRAY;
-        case LOG_LEVEL_WARN:
-            return COLOR_YELLOW;
-        case LOG_LEVEL_ERR:
-            return COLOR_RED;
+    default:
+    case LOG_LEVEL_INFO:
+        return COLOR_GRAY;
+    case LOG_LEVEL_WARN:
+        return COLOR_YELLOW;
+    case LOG_LEVEL_ERR:
+        return COLOR_RED;
     }
 }
 

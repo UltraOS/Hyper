@@ -10,4 +10,4 @@ struct cpuid_res {
 };
 
 void cpuid(u32 function, struct cpuid_res *id);
-bool cpu_supports_long_mode();
+bool cpu_supports_long_mode(void);
