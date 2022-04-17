@@ -55,7 +55,7 @@ static bool dir_consume_bytes(struct iso9660_dir *dir, u64 bytes)
     return true;
 }
 
-struct su_iteration_ctx {
+struct susp_iteration_ctx {
     struct iso9660_fs *fs;
 
     // Inline directory SU area
@@ -82,7 +82,7 @@ struct iso9660_dir_entry {
     char name[ISO9660_MAX_NAME_LEN];
     u8 name_length;
 
-#define DE_SUBDIRECTORY    (1 << 1)
+#define DE_SUBDIRECTORY (1 << 0)
     u8 flags;
 
     u32 first_block;
@@ -188,7 +188,7 @@ static bool directory_fetch_raw_entry(struct iso9660_dir *dir, struct iso_dir_re
         if (dir_eof(dir))
             return false;
 
-        aligned_off = ALIGN_UP(dir->cur_off, 1 << dir->fs->block_shift);
+        aligned_off = ALIGN_UP(dir->cur_off, ISO9660_LOGICAL_SECTOR_SIZE);
         rec_len_max = MIN(dir->size, aligned_off) - dir->cur_off;
         if (rec_len_max == 0)
             rec_len_max = 255;
@@ -265,23 +265,18 @@ static bool dir_read_multiext_size(struct iso9660_dir *dir, u64 *out_file_size)
     }
 }
 
-static void su_invalidate_ctx(struct su_iteration_ctx *ctx)
-{
-    memzero(ctx, sizeof(*ctx));
-}
-
-static void su_finalize_ctx(struct su_iteration_ctx *ctx)
+static void susp_iteration_abort(struct susp_iteration_ctx *ctx)
 {
     if (ctx->is_in_ca && ctx->cur_off)
         block_cache_release_ref(&ctx->fs->ca_cache);
 
-    su_invalidate_ctx(ctx);
+    memzero(ctx, sizeof(*ctx));
 }
 
-static bool su_switch_to_next_ca(struct su_iteration_ctx *ctx)
+static bool susp_switch_to_next_ca(struct susp_iteration_ctx *ctx)
 {
     if (!ctx->next_ca_len) {
-        su_finalize_ctx(ctx);
+        susp_iteration_abort(ctx);
         return false;
     }
 
@@ -295,8 +290,8 @@ static bool su_switch_to_next_ca(struct su_iteration_ctx *ctx)
     return true;
 }
 
-#define LEN_SUE_IDX 2
-#define VER_SUE_IDX 3
+#define SUE_LEN_IDX 2
+#define SUE_VER_IDX 3
 
 /*
  * If the remaining allocated space following the last recorded System Use Entry in a System
@@ -305,84 +300,63 @@ static bool su_switch_to_next_ca(struct su_iteration_ctx *ctx)
  */
 #define SUE_MIN_LEN 4
 
-static void on_invalid_su_entry_len(struct su_iteration_ctx *ctx, size_t reported_len, size_t expected_len)
+static bool do_fetch_next_su_entry(struct susp_iteration_ctx *ctx, char **out_ptr)
 {
-    print_warn("invalid SU entry len %zu, expected max %zu\n", reported_len, expected_len);
-    su_invalidate_ctx(ctx);
-}
-
-static bool next_inline_su_entry(struct su_iteration_ctx *ctx, char **out_ptr)
-{
-    size_t bytes_left = ctx->len - ctx->cur_off;
-
-    char *su_ptr = ctx->inline_data + ctx->cur_off;
-    u8 reported_len = su_ptr[LEN_SUE_IDX];
-
-    if (reported_len > bytes_left) {
-        on_invalid_su_entry_len(ctx, reported_len, bytes_left);
-        return false;
-    }
-
-    ctx->cur_off += reported_len;
-    bytes_left = ctx->len - ctx->cur_off;
-
-    if (bytes_left < SUE_MIN_LEN)
-        ctx->cur_off = ctx->len;
-
-    *out_ptr = su_ptr;
-    return true;
-}
-
-static bool next_ca_su_entry(struct su_iteration_ctx *ctx, char **out_ptr)
-{
-    struct block_cache *cache = &ctx->fs->ca_cache;
-    size_t bytes_left = ctx->len - ctx->cur_off;
     u64 take_off = ctx->base_off + ctx->cur_off;
-    char *su_ptr;
+    size_t bytes_left = ctx->len - ctx->cur_off;
+    struct block_cache *ca_cache = &ctx->fs->ca_cache;
     u8 reported_len;
+    char *sue;
 
-    if (ctx->is_in_ca && ctx->cur_off)
-        block_cache_release_ref(&ctx->fs->ca_cache);
+    if (ctx->is_in_ca) {
+        if (ctx->cur_off)
+            block_cache_release_ref(ca_cache);
 
-    if (!block_cache_take_ref(cache, (void**)&su_ptr, take_off, LEN_SUE_IDX + 1))
-        goto err_out;
+        // Force EOF current continuation area if disk read fails
+        if (!block_cache_take_ref(ca_cache, (void**)&sue, take_off, SUE_LEN_IDX + 1)) {
+            ctx->cur_off = ctx->len;
+            return false;
+        }
+    } else {
+        sue = ctx->inline_data + take_off;
+    }
 
-    reported_len = su_ptr[LEN_SUE_IDX];
-    block_cache_release_ref(cache);
+    reported_len = sue[SUE_LEN_IDX];
+    if (ctx->is_in_ca)
+        block_cache_release_ref(ca_cache);
 
-    if (reported_len > bytes_left) {
-        on_invalid_su_entry_len(ctx, reported_len, bytes_left);
+    if (reported_len > bytes_left || reported_len < SUE_MIN_LEN) {
+        print_warn("invalid SU entry len %d, expected a length in range 4...%zu)\n",
+                   reported_len, bytes_left);
+        ctx->cur_off = ctx->len;
         return false;
     }
 
     ctx->cur_off += reported_len;
+
     bytes_left = ctx->len - ctx->cur_off;
     if (bytes_left < SUE_MIN_LEN)
         ctx->cur_off = ctx->len;
 
-    if (!block_cache_take_ref(cache, (void**)&su_ptr, take_off, reported_len))
-        goto err_out;
+    if (ctx->is_in_ca)
+        return block_cache_take_ref(ca_cache, (void**)out_ptr, take_off, reported_len);
 
-    *out_ptr = su_ptr;
+    *out_ptr = sue;
     return true;
-
-err_out:
-    su_invalidate_ctx(ctx);
-    return false;
 }
 
-#define SU_SIG(a, b) ((a) | ((u16)(b) << 8))
+#define SUE_SIG(a, b) ((a) | ((u16)(b) << 8))
 
-static u16 su_get_signature(const char *sue)
+static u16 sue_get_signature(const char *sue)
 {
-    return SU_SIG(sue[0], sue[1]);
+    return SUE_SIG(sue[0], sue[1]);
 }
 
 static bool sue_validate_version(const char *sue)
 {
-    if (sue[VER_SUE_IDX] != 1) {
+    if (sue[SUE_VER_IDX] != 1) {
         struct string_view ver_view = { sue, 2 };
-        print_warn("unexpected '%pSV' version %d\n", &ver_view, sue[VER_SUE_IDX]);
+        print_warn("unexpected '%pSV' version %d\n", &ver_view, sue[SUE_VER_IDX]);
         return false;
     }
 
@@ -391,10 +365,10 @@ static bool sue_validate_version(const char *sue)
 
 static bool sue_validate_len(const char *sue, u8 expected)
 {
-    if (sue[LEN_SUE_IDX] != expected) {
+    if (sue[SUE_LEN_IDX] != expected) {
         struct string_view ver_view = { sue, 2 };
         print_warn("unexpected '%pSV' len %d, expected %d\n", &ver_view,
-                   sue[LEN_SUE_IDX], expected);
+                   sue[SUE_LEN_IDX], expected);
         return false;
     }
 
@@ -407,7 +381,7 @@ static bool sue_validate_len(const char *sue, u8 expected)
 #define SUE_CE_OFF_IDX   12
 #define SUE_CE_LEN_IDX   20
 
-static void su_handle_ce(struct su_iteration_ctx *ctx, char *sue)
+static void susp_handle_ce(struct susp_iteration_ctx *ctx, char *sue)
 {
     if (!sue_validate_version(sue))
         return;
@@ -420,40 +394,49 @@ static void su_handle_ce(struct su_iteration_ctx *ctx, char *sue)
 
     ctx->next_ca_off = ecma119_get_733(&sue[SUE_CE_BLOCK_IDX]) << ctx->fs->block_shift;
     ctx->next_ca_off += ecma119_get_733(&sue[SUE_CE_OFF_IDX]);
-    print("next ca off is %llu\n", ctx->next_ca_off);
+    print_dbg(ISO9660_DEBUG, "next continuation area offset is %llu\n", ctx->next_ca_off);
 
     ctx->next_ca_len = ecma119_get_733(&sue[SUE_CE_LEN_IDX]);
 }
 
-static bool next_su_entry(struct su_iteration_ctx *ctx, char **out_ptr)
+static bool next_su_entry(struct susp_iteration_ctx *ctx, char **out_ptr)
 {
     bool res;
 
-    if (ctx->cur_off == ctx->len && !su_switch_to_next_ca(ctx))
-        return false;
+    for (;;) {
+        if (ctx->cur_off == ctx->len && !susp_switch_to_next_ca(ctx))
+            return false;
 
-    res = ctx->is_in_ca ? next_ca_su_entry(ctx, out_ptr) :
-                          next_inline_su_entry(ctx, out_ptr);
+        res = do_fetch_next_su_entry(ctx, out_ptr);
 
-    struct string_view su = { *out_ptr, 2};
-    print_info("SU: %pSV, off %llu, len: %zu\n", &su, ctx->cur_off, ctx->len);
+        /*
+         * If fetch fails for this particular entry we don't want to instantly
+         * abort iteration, as there might be a valid continuation area pending.
+         * Instead, let the first line of this loop handle it.
+         */
+        if (!res)
+            continue;
 
-    if (res) {
+        if (ISO9660_DEBUG) {
+            struct string_view su = { *out_ptr, 2 };
+            print_info("found an SU entry: '%pSV', offset: %llu, area length: %zu\n",
+                       &su, ctx->cur_off, ctx->len);
+        }
+
         // Continuation area
-        if (su_get_signature(*out_ptr) == SU_SIG('C', 'E')) {
-            su_handle_ce(ctx, *out_ptr);
-            return next_su_entry(ctx, out_ptr);
+        if (sue_get_signature(*out_ptr) == SUE_SIG('C', 'E')) {
+            susp_handle_ce(ctx, *out_ptr);
+            continue;
         }
 
         // SU field terminator
-        if (su_get_signature(*out_ptr) == SU_SIG('S', 'T') &&
-            sue_validate_version(*out_ptr)) {
-            su_switch_to_next_ca(ctx);
-            return next_su_entry(ctx, out_ptr);
+        if (sue_get_signature(*out_ptr) == SUE_SIG('S', 'T')) {
+            susp_switch_to_next_ca(ctx);
+            continue;
         }
-    }
 
-    return res;
+        return true;
+    }
 }
 
 #define SUE_NM_FLAGS_IDX 4
@@ -465,7 +448,7 @@ static bool next_su_entry(struct su_iteration_ctx *ctx, char **out_ptr)
 
 static bool find_rock_ridge_name(struct iso9660_fs *fs, char *su_area, size_t su_len, char *out, u8 *out_len)
 {
-    struct su_iteration_ctx sctx = {
+    struct susp_iteration_ctx sctx = {
         .fs = fs,
         .inline_data = su_area,
         .len = su_len,
@@ -477,13 +460,13 @@ static bool find_rock_ridge_name(struct iso9660_fs *fs, char *su_area, size_t su
     while (next_su_entry(&sctx, &sue)) {
         u8 this_len, max_len;
 
-        if (su_get_signature(sue) != SU_SIG('N', 'M'))
+        if (sue_get_signature(sue) != SUE_SIG('N', 'M'))
             continue;
 
         if (!sue_validate_version(sue))
             goto out;
 
-        this_len = sue[LEN_SUE_IDX];
+        this_len = sue[SUE_LEN_IDX];
         if (this_len < SUE_NM_MIN_LEN) {
             print_warn("invalid 'NM' len %d\n", this_len);
             goto out;
@@ -513,42 +496,46 @@ static bool find_rock_ridge_name(struct iso9660_fs *fs, char *su_area, size_t su
     ret = *out_len != 0;
 
 out:
-    su_invalidate_ctx(&sctx);
+    susp_iteration_abort(&sctx);
     return ret;
 }
 
 static void *record_get_su_area(struct iso_dir_record *rec, size_t *out_len)
 {
-    size_t ident_len = ecma119_get_711(rec->identifier_length_711);
+    u8 ident_len = ecma119_get_711(rec->identifier_length_711);
+    int su_len;
 
     if ((ident_len & 1) == 0)
         ident_len++;
 
-    *out_len = ecma119_get_711(rec->record_length_711) - ident_len - sizeof(struct iso_dir_record);
+    su_len = ecma119_get_711(rec->record_length_711);
+    su_len -= ident_len;
+    su_len -= sizeof(struct iso_dir_record);
+
+    // Corrupted record
+    if (unlikely(su_len < 0))
+        su_len = 0;
+
+    *out_len = su_len;
     return rec->identifier + ident_len;
 }
 
 #define ISO9660_CURDIR_NAME_BYTE 0
 #define ISO9660_PARDIR_NAME_BYTE 1
 
-static bool record_read_identifier(struct iso_dir_record *rec, char *out, u8 *out_len)
+static bool is_dot_record(struct iso_dir_record *rec)
+{
+    return rec->identifier[0] == ISO9660_CURDIR_NAME_BYTE;
+}
+
+static bool is_dotdot_record(struct iso_dir_record *rec)
+{
+    return rec->identifier[0] == ISO9660_PARDIR_NAME_BYTE;
+}
+
+static void record_read_identifier(struct iso_dir_record *rec, char *out, u8 *out_len)
 {
     u8 i, ident_len = ecma119_get_711(rec->identifier_length_711);
-    if (!ident_len)
-        return false;
-
-    if (rec->identifier[0] == ISO9660_CURDIR_NAME_BYTE) {
-        out[0] = '.';
-        *out_len = 1;
-        return true;
-    }
-
-    if (rec->identifier[0] == ISO9660_PARDIR_NAME_BYTE) {
-        out[0] = '.';
-        out[1] = '.';
-        *out_len = 2;
-        return true;
-    }
 
     for (i = 0; i < ident_len; ++i) {
         char cur = rec->identifier[i];
@@ -566,11 +553,26 @@ static bool record_read_identifier(struct iso_dir_record *rec, char *out, u8 *ou
     }
 
     *out_len = i;
-    return true;
 }
 
 static bool get_record_name(struct iso9660_fs *fs, struct iso_dir_record *rec, char *out, u8 *out_len)
 {
+    if (!ecma119_get_711(rec->identifier_length_711))
+        return false;
+
+    if (is_dot_record(rec)) {
+        out[0] = '.';
+        *out_len = 1;
+        return true;
+    }
+
+    if (is_dotdot_record(rec)) {
+        out[0] = '.';
+        out[1] = '.';
+        *out_len = 2;
+        return true;
+    }
+
     if (fs->su_off != 0xFF) {
         size_t su_len;
         void *su_area = record_get_su_area(rec, &su_len);
@@ -582,7 +584,8 @@ static bool get_record_name(struct iso9660_fs *fs, struct iso_dir_record *rec, c
             return true;
     }
 
-    return record_read_identifier(rec, out, out_len);
+    record_read_identifier(rec, out, out_len);
+    return true;
 }
 
 static bool directory_next_entry(struct iso9660_dir *dir, struct iso9660_dir_entry *out_ent)
@@ -600,19 +603,21 @@ static bool directory_next_entry(struct iso9660_dir *dir, struct iso9660_dir_ent
         out_ent->size = ecma119_get_733(dr->data_length_733);
 
         if (!get_record_name(dir->fs, dr, out_ent->name, &out_ent->name_length))
-            return false;
-
-        struct string_view name = {out_ent->name, out_ent->name_length};
-        print("found dir name %pSV\n", &name);
+            continue;
 
         if ((flags & ISO9660_MULTI_EXT) && !dir_read_multiext_size(dir, &out_ent->size))
-            return false;
+            continue;
 
         if ((flags & ISO9660_ASSOC_FILE) || (flags & ISO9660_HIDDEN_DIR))
             continue;
 
         if (flags & ISO9660_SUBDIR)
             out_ent->flags |= DE_SUBDIRECTORY;
+
+        if (ISO9660_DEBUG) {
+            struct string_view name = { out_ent->name, out_ent->name_length };
+            print_info("found a directory record: '%pSV'\n", &name);
+        }
 
         return true;
     }
@@ -687,19 +692,19 @@ bool iso9660_refill_blocks(void *fs, void *buf, u64 block, size_t count)
 #define SUE_SP_CHECK_BYTE0 0xBE
 #define SUE_SP_CHECK_BYTE1 0xEF
 
-static void su_init_from_sp_sue(struct iso9660_fs *fs, const char *sue)
+static bool susp_init_from_sp_sue(struct iso9660_fs *fs, const char *sue)
 {
     u8 cb0, cb1;
 
     if (!sue_validate_version(sue))
-        return;
+        return false;
 
     cb0 = sue[SUE_SP_CHECK_BYTE0_IDX];
     cb1 = sue[SUE_SP_CHECK_BYTE1_IDX];
 
     if (cb0 != SUE_SP_CHECK_BYTE0 || cb1 != SUE_SP_CHECK_BYTE1) {
         print_warn("invalid SP check bytes 0x%02X%02X, expected 0xBEEF\n", cb0, cb1);
-        return;
+        return false;
     }
 
     fs->su_off = sue[SUE_SP_LEN_SKP_IDX];
@@ -707,16 +712,60 @@ static void su_init_from_sp_sue(struct iso9660_fs *fs, const char *sue)
         print_warn("bogus 'SP' LEN_SKP value %d, assuming 0", fs->su_off);
         fs->su_off = 0;
     }
+    return true;
 }
 
-static bool su_init(struct iso9660_fs *fs)
+
+#define SUE_ER_LEN_ID_IDX 4
+#define SUE_ER_LEN_DES_IDX 5
+#define SUE_ER_LEN_SRC_IDX 6
+#define SUE_ER_EXT_IDENT_IDX 8
+
+static bool susp_check_er_sue(const char *sue)
+{
+    size_t real_len, expected_len;
+    struct string_view ext_view;
+
+    if (!sue_validate_version(sue))
+        return false;
+
+    real_len = sue[SUE_LEN_IDX];
+
+    expected_len = 8;
+    expected_len += sue[SUE_ER_LEN_ID_IDX];
+    expected_len += sue[SUE_ER_LEN_DES_IDX];
+    expected_len += sue[SUE_ER_LEN_SRC_IDX];
+
+    /*
+     * The number in this field shall be 8 + LEN_ID +
+     * LEN_DES + LEN_SRC for this version.
+     * ----------------------------------------------
+     * We allow the length to be more though.
+     */
+    if (real_len < expected_len) {
+        print_warn("Invalid 'ER' length, expected at least %zu, got %zu\n",
+                   expected_len, real_len);
+        return false;
+    }
+
+    ext_view = (struct string_view) {
+        .text = &sue[SUE_ER_EXT_IDENT_IDX],
+        .size = sue[SUE_ER_LEN_ID_IDX]
+    };
+    print_info("SUSP extension id: '%pSV'\n", &ext_view);
+
+    return true;
+}
+
+static bool susp_init(struct iso9660_fs *fs)
 {
     struct iso_dir_record *dr;
-    struct su_iteration_ctx sc = {
+    struct susp_iteration_ctx sc = {
         .fs = fs,
     };
     void *ca_cache_buf;
     char *su_entry;
+    bool found_sp = false, found_er = false;
 
     struct iso9660_dir d = {
         .fs = fs,
@@ -727,29 +776,42 @@ static bool su_init(struct iso9660_fs *fs)
     if (!directory_fetch_raw_entry(&d, &dr))
         return false;
 
-    sc.inline_data = record_get_su_area(dr, &sc.len);
-    if (sc.len < SUE_MIN_LEN)
-        return true;
-
-    if (!next_su_entry(&sc, &su_entry))
-        return true;
-
-    // Managed to fetch a valid SUE, but it's not 'SP'
-    if (su_get_signature(su_entry) != SU_SIG('S', 'P')) {
-        struct string_view sig_view = { su_entry, 2 };
-        print_warn("invalid SUE signature, expected 'SP' got '%pSV', assuming LEN_SKP of 0\n", &sig_view);
-        goto su_supported_out;
-    }
-
-    su_init_from_sp_sue(fs, su_entry);
-
-su_supported_out:
     ca_cache_buf = allocate_pages(CA_CACHE_SIZE >> PAGE_SHIFT);
     if (unlikely(!ca_cache_buf))
         return false;
 
     block_cache_init(&fs->ca_cache, iso9660_refill_blocks, fs, fs->f.d.block_shift,
                      ca_cache_buf, CA_CACHE_SIZE >> fs->f.d.block_shift);
+
+    sc.inline_data = record_get_su_area(dr, &sc.len);
+    if (sc.len < SUE_MIN_LEN)
+        return true;
+
+    while (next_su_entry(&sc, &su_entry)) {
+        switch (sue_get_signature(su_entry)) {
+        case SUE_SIG('S', 'P'):
+            if (!susp_init_from_sp_sue(fs, su_entry))
+                goto out_no_susp;
+
+            found_sp = true;
+            break;
+
+        case SUE_SIG('E', 'R'):
+            if (!susp_check_er_sue(su_entry))
+                goto out_no_susp;
+
+            found_er = true;
+            break;
+        }
+    }
+
+    if (found_sp && found_er)
+        return true;
+
+out_no_susp:
+    fs->su_off = 0xFF;
+    free_pages(ca_cache_buf, CA_CACHE_SIZE >> PAGE_SHIFT);
+    memzero(&fs->ca_cache, sizeof(struct block_cache));
     return true;
 }
 
@@ -774,7 +836,7 @@ static struct filesystem *iso9660_init(const struct disk *d, struct iso_pvd *pvd
         block_shift = 9;
         break;
     default:
-        print_warn("invalid block size %u, ignoring\n", block_size);
+        print_warn("invalid/unsupported block size %u, ignoring\n", block_size);
         return NULL;
     }
 
@@ -819,7 +881,7 @@ static struct filesystem *iso9660_init(const struct disk *d, struct iso_pvd *pvd
     block_cache_init(&fs->dir_cache, iso9660_refill_blocks, fs, fs->f.d.block_shift,
                      dir_cache, DIRECTORY_CACHE_SIZE >> fs->f.d.block_shift);
 
-    if (!su_init(fs))
+    if (!susp_init(fs))
         goto err_out;
 
     print_info("detected with block size %u, volume size %u\n", block_size, volume_size);
