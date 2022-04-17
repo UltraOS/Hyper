@@ -30,9 +30,8 @@ enum disk_identifier {
 enum partition_identifier {
     PARTITION_IDENTIFIER_INVALID,
     PARTITION_IDENTIFIER_RAW,
-    PARTITION_IDENTIFIER_MBR_INDEX,
-    PARTITION_IDENTIFIER_GPT_INDEX,
-    PARTITION_IDENTIFIER_GPT_UUID,
+    PARTITION_IDENTIFIER_INDEX,
+    PARTITION_IDENTIFIER_UUID,
     PARTITION_IDENTIFIER_ORIGIN
 };
 
@@ -54,7 +53,6 @@ struct full_path {
     struct string_view path_within_partition;
 };
 
-bool parse_guid(struct string_view *guid, struct guid*);
 bool parse_path(struct string_view path, struct full_path *out_path);
 
 struct filesystem;

@@ -73,27 +73,20 @@ bool next_path_node(struct string_view *path, struct string_view *node)
     return true;
 }
 
-#define CHARS_PER_GUID 32
-#define CHARS_PER_HEX_BYTE 2
-
-static bool extract_numeric_prefix(struct string_view *str, struct string_view *prefix, bool allow_hex, size_t size)
+static bool path_consume_numeric_sequence(struct string_view *str, u32 *out)
 {
-    prefix->text = str->text;
-    prefix->size = 0;
+    struct string_view prefix_str = { str->text, 0 };
 
     for (;;) {
         char c;
-
-        if (size && prefix->size == size)
-            break;
 
         if (sv_empty(*str))
             break;
 
         c = tolower(str->text[0]);
 
-        if ((c >= '0' && c <= '9') || (allow_hex && (c >= 'a' && c <= 'z'))) {
-            sv_extend_by(prefix, 1);
+        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')) {
+            sv_extend_by(&prefix_str, 1);
             sv_offset_by(str, 1);
             continue;
         }
@@ -101,36 +94,126 @@ static bool extract_numeric_prefix(struct string_view *str, struct string_view *
         break;
     }
 
-    return !sv_empty(*str) && (size && str->size == size);
+    return !sv_empty(prefix_str) && str_to_u32_with_base(prefix_str, out, 16);
 }
 
-bool parse_guid(struct string_view *str, struct guid *guid)
+// 4 dashes + 32 characters, e.g E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A
+#define CHARS_PER_GUID (32 + 4)
+#define CHARS_PER_HEX_BYTE 2
+
+static bool consume_guid_part(struct string_view *str, void *out, u8 width, bool has_dash)
+{
+    u16 str_len = CHARS_PER_HEX_BYTE * width;
+    bool res;
+
+    switch (width) {
+    case 1:
+        res = str_to_u8_with_base((struct string_view) { str->text, str_len }, out, 16);
+        break;
+    case 2:
+        res = str_to_u16_with_base((struct string_view) { str->text, str_len }, out, 16);
+        break;
+    case 4:
+        res = str_to_u32_with_base((struct string_view) { str->text, str_len }, out, 16);
+        break;
+    default:
+        BUG();
+    }
+
+    sv_offset_by(str, str_len + has_dash);
+    return res;
+}
+
+static bool consume_guid(struct string_view *str, struct guid *guid)
 {
     size_t i;
 
-    if (str->size != CHARS_PER_GUID)
+    if (str->size < CHARS_PER_GUID)
         return false;
 
-    if (!str_to_u32((struct string_view) { str->text, 4 * CHARS_PER_HEX_BYTE }, &guid->data1))
+    if (!consume_guid_part(str, &guid->data1, sizeof(u32), true))
         return false;
-    sv_offset_by(str, 4 * CHARS_PER_HEX_BYTE);
 
-    if (!str_to_u16((struct string_view) { str->text, 2 * CHARS_PER_HEX_BYTE }, &guid->data2))
+    if (!consume_guid_part(str, &guid->data2, sizeof(u16), true))
         return false;
-    sv_offset_by(str, 2 * CHARS_PER_HEX_BYTE);
 
-    if (!str_to_u16((struct string_view) { str->text, 2 * CHARS_PER_HEX_BYTE }, &guid->data3))
+    if (!consume_guid_part(str, &guid->data3, sizeof(u16), true))
         return false;
-    sv_offset_by(str, 2 * CHARS_PER_HEX_BYTE);
 
     for (i = 0; i < 8; ++i) {
-        if (!str_to_u8((struct string_view) { str->text, 1 * CHARS_PER_HEX_BYTE }, &guid->data4[i]))
+        if (!consume_guid_part(str, &guid->data4[i], sizeof(u8), i == 1))
             return false;
-
-        sv_offset_by(str, 1 * CHARS_PER_HEX_BYTE);
     }
 
     return true;
+}
+
+static bool path_skip_dash(struct string_view *path)
+{
+    if (sv_empty(*path))
+        return false;
+
+    sv_offset_by(path, 1);
+    return true;
+}
+
+#define DISKUUID_STR SV("DISKUUID")
+#define DISK_STR     SV("DISK")
+
+static bool path_consume_disk_identifier(struct string_view *path, struct full_path *out_path)
+{
+    if (sv_starts_with(*path, DISKUUID_STR)) {
+        sv_offset_by(path, DISKUUID_STR.size);
+
+        if (!consume_guid(path, &out_path->disk_guid))
+            return false;
+
+        out_path->disk_id_type = DISK_IDENTIFIER_UUID;
+        return path_skip_dash(path);
+    }
+
+    if (sv_starts_with(*path, DISK_STR)) {
+        sv_offset_by(path, DISK_STR.size);
+
+        if (!path_consume_numeric_sequence(path, &out_path->disk_index))
+            return false;
+
+        out_path->disk_id_type = DISK_IDENTIFIER_INDEX;
+        return path_skip_dash(path);
+    }
+
+    return false;
+}
+
+#define PARTUUID_STR SV("PARTUUID-")
+#define PART_STR     SV("PART")
+
+static bool path_consume_partition_identifier(struct string_view *path, struct full_path *out_path)
+{
+    if (sv_starts_with(*path, PARTUUID_STR)) {
+        sv_offset_by(path, PARTUUID_STR.size);
+
+        out_path->partition_id_type = PARTITION_IDENTIFIER_UUID;
+        return consume_guid(path, &out_path->partition_guid);
+    }
+
+    if (sv_starts_with(*path, PART_STR)) {
+        sv_offset_by(path, PART_STR.size);
+
+        out_path->partition_id_type = PARTITION_IDENTIFIER_INDEX;
+        return path_consume_numeric_sequence(path, &out_path->partition_index);
+    }
+
+    if (sv_starts_with(*path, SV("::/"))) {
+        // GPT disks cannot be treated as unpartitioned media
+        if (out_path->disk_id_type != DISK_IDENTIFIER_INDEX)
+            return false;
+
+        out_path->partition_id_type = PARTITION_IDENTIFIER_RAW;
+        return true;
+    }
+
+    return false;
 }
 
 bool parse_path(struct string_view path, struct full_path *out_path)
@@ -145,60 +228,11 @@ bool parse_path(struct string_view path, struct full_path *out_path)
         return true;
     }
 
-    if (sv_starts_with(path, SV("DISKUUID"))) {
-        struct string_view prefix;
-
-        sv_offset_by(&path, 8);
-        if (!extract_numeric_prefix(&path, &prefix, true, CHARS_PER_GUID))
-            return false;
-
-        out_path->disk_id_type = DISK_IDENTIFIER_UUID;
-        if (!parse_guid(&prefix, &out_path->disk_guid))
-            return false;
-    } else if (sv_starts_with(path, SV("DISK"))) {
-        struct string_view prefix;
-
-        sv_offset_by(&path, 4);
-        if (!extract_numeric_prefix(&path, &prefix, false, 0))
-            return false;
-        if (!str_to_u32(prefix, &out_path->disk_index))
-            return false;
-
-        out_path->disk_id_type = DISK_IDENTIFIER_INDEX;
-    } else { // invalid prefix
+    if (!path_consume_disk_identifier(&path, out_path))
         return false;
-    }
 
-    if (sv_starts_with(path, SV("GPTUUID"))) {
-        struct string_view prefix;
-
-        sv_offset_by(&path, 7);
-        if (!extract_numeric_prefix(&path, &prefix, true, CHARS_PER_GUID))
-            return false;
-
-        out_path->partition_id_type = PARTITION_IDENTIFIER_GPT_UUID;
-        if (!parse_guid(&prefix, &out_path->partition_guid))
-            return false;
-    } else if (sv_starts_with(path, SV("MBR")) || sv_starts_with(path, SV("GPT"))) {
-        struct string_view prefix;
-
-        sv_offset_by(&path, 3);
-        if (!extract_numeric_prefix(&path, &prefix, false, 0))
-            return false;
-        if (!str_to_u32(prefix, &out_path->partition_index))
-            return false;
-
-        out_path->partition_id_type = path.text[0] == 'M' ? PARTITION_IDENTIFIER_MBR_INDEX :
-                                                            PARTITION_IDENTIFIER_GPT_INDEX;
-    } else if (sv_starts_with(path, SV("::/"))) {
-        // GPT disks cannot be treated as a raw device
-        if (out_path->disk_id_type != DISK_IDENTIFIER_INDEX)
-            return false;
-
-        out_path->partition_id_type = PARTITION_IDENTIFIER_RAW;
-    } else {
+    if (!path_consume_partition_identifier(&path, out_path))
         return false;
-    }
 
     if (!sv_starts_with(path, SV("::/")))
         return false;
