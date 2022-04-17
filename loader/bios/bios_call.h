@@ -35,7 +35,7 @@ static inline bool is_zero_set(const struct real_mode_regs *regs)
 }
 
 NORETURN
-void bios_jmp_to_reset_vector();
+void bios_jmp_to_reset_vector(void);
 
 void bios_call(u32 number, const struct real_mode_regs *in, struct real_mode_regs *out);
 

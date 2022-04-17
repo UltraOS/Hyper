@@ -7,6 +7,7 @@
 #include "common/log.h"
 #include "common/minmax.h"
 #include "common/ctype.h"
+#include "disk_services.h"
 #include "filesystem/block_cache.h"
 
 struct iso9660_fs {
@@ -132,11 +133,7 @@ out:
 
 static bool iso9660_read(struct iso9660_fs *fs, void *buf, u64 offset, size_t bytes)
 {
-    struct disk_services *sv = filesystem_backend();
-    if (unlikely(!sv))
-        return false;
-
-    return sv->read(fs->f.d.handle, buf, offset, bytes);
+    return ds_read(fs->f.d.handle, buf, offset, bytes);
 }
 
 static bool iso9660_read_file(struct file* f, void *buffer, u64 offset, u32 size)
@@ -680,12 +677,7 @@ void iso9660_close(struct file* f)
 bool iso9660_refill_blocks(void *fs, void *buf, u64 block, size_t count)
 {
     struct iso9660_fs *ifs = fs;
-    struct disk_services *ds = filesystem_backend();
-
-    if (unlikely(!ds))
-        return false;
-
-    return ds->read_blocks(ifs->f.d.handle, buf, block, count);
+    return ds_read_blocks(ifs->f.d.handle, buf, block, count);
 }
 
 #define SUE_SP_CHECK_BYTE0_IDX 4

@@ -1,3 +1,5 @@
+#define MSG_FMT(msg) "FS: " msg
+
 #include "filesystem.h"
 #include "filesystem_table.h"
 #include "common/string_view.h"
@@ -5,30 +7,11 @@
 #include "common/ctype.h"
 #include "common/conversions.h"
 #include "common/log.h"
-#include "common/constants.h"
 #include "common/helpers.h"
-#include "common/minmax.h"
-#include "allocator.h"
 #include "filesystem/block_cache.h"
 #include "filesystem/fat/fat.h"
 #include "filesystem/iso9660/iso9660.h"
 
-#undef MSG_FMT
-#define MSG_FMT(msg) "FS: " msg
-
-static struct disk_services *backend;
-
-struct disk_services *filesystem_set_backend(struct disk_services* sv)
-{
-    struct disk_services *prev = backend;
-    backend = sv;
-    return prev;
-}
-
-struct disk_services *filesystem_backend()
-{
-    return backend;
-}
 
 void check_read(struct file *f, u64 offset, u32 size)
 {
@@ -227,16 +210,12 @@ bool parse_path(struct string_view path, struct full_path *out_path)
     }
 
     out_path->path_within_partition = path;
-
     return true;
 }
 
 struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range,
                                  struct block_cache *bc)
 {
-    if (!backend)
-        return NULL;
-
     return try_create_fat(d, lba_range, bc);
 }
 
@@ -257,8 +236,8 @@ enum {
 
 #define OFFSET_TO_MBR_PARTITION_LIST 0x01BE
 
-void initialize_from_mbr(struct disk_services *sv, const struct disk *d, u32 disk_id,
-                         struct block_cache *bc, size_t base_index, u64 sector_offset)
+void initialize_from_mbr(const struct disk *d, struct block_cache *bc,
+                         size_t base_index, u64 sector_offset)
 {
     struct mbr_partition_entry partitions[4];
     u64 part_abs_byte_off = (sector_offset << d->block_shift) + OFFSET_TO_MBR_PARTITION_LIST;
@@ -286,7 +265,7 @@ void initialize_from_mbr(struct disk_services *sv, const struct disk *d, u32 dis
                 break;
             }
 
-            initialize_from_mbr(sv, d, disk_id, bc, base_index + (is_ebr ? 1 : 4),
+            initialize_from_mbr(d, bc, base_index + (is_ebr ? 1 : 4),
                                 real_partition_offset);
             continue;
         }
@@ -298,7 +277,7 @@ void initialize_from_mbr(struct disk_services *sv, const struct disk *d, u32 dis
 
         fs = fs_try_detect(d, lba_range, bc);
         if (fs)
-            add_mbr_fs_entry(d->handle, disk_id, base_index + i, fs);
+            add_mbr_fs_entry(d, base_index + i, fs);
     }
 }
 
@@ -342,7 +321,6 @@ struct gpt_part_ctx {
     struct guid *disk_guid;
     struct gpt_partition_entry pe;
     struct disk *d;
-    u32 disk_id;
     size_t part_idx;
 };
 
@@ -363,11 +341,11 @@ void process_gpt_partition(struct gpt_part_ctx *ctx)
     if (!fs)
         return;
 
-    add_gpt_fs_entry(ctx->d->handle, ctx->disk_id, ctx->part_idx,
-                     ctx->disk_guid, &ctx->pe.UniquePartitionGUID, fs);
+    add_gpt_fs_entry(ctx->d, ctx->part_idx, ctx->disk_guid,
+                     &ctx->pe.UniquePartitionGUID, fs);
 }
 
-void initialize_from_gpt(struct disk *d, u32 disk_id, struct block_cache *bc)
+void initialize_from_gpt(struct disk *d, struct block_cache *bc)
 {
     struct gpt_header hdr;
     struct gpt_part_ctx part_ctx;
@@ -378,14 +356,13 @@ void initialize_from_gpt(struct disk *d, u32 disk_id, struct block_cache *bc)
 
     if (hdr.SizeOfPartitionEntry < sizeof(struct gpt_partition_entry)) {
         print_warn("invalid GPT partition entry size %u, skipped (disk %u)\n",
-                   hdr.SizeOfPartitionEntry, disk_id);
+                   hdr.SizeOfPartitionEntry, d->id);
         return;
     }
 
     part_ctx.bc = bc;
     part_ctx.disk_guid = &hdr.DiskGUID;
     part_ctx.d = d;
-    part_ctx.disk_id = disk_id;
     current_off = hdr.PartitionEntryLBA << d->block_shift;
 
     for (part_ctx.part_idx = 0; part_ctx.part_idx < hdr.NumberOfPartitionEntries; ++part_ctx.part_idx) {
@@ -403,7 +380,7 @@ void initialize_from_gpt(struct disk *d, u32 disk_id, struct block_cache *bc)
 #define MBR_SIGNATURE 0xAA55
 #define OFFSET_TO_MBR_SIGNATURE 510
 
-bool check_cd(const struct disk *d, u32 disk_id, struct block_cache *bc)
+bool check_cd(const struct disk *d, struct block_cache *bc)
 {
     struct filesystem *fs;
 
@@ -411,23 +388,37 @@ bool check_cd(const struct disk *d, u32 disk_id, struct block_cache *bc)
     if (!fs)
         return false;
 
-    add_raw_fs_entry(fs, disk_id, fs);
+    add_raw_fs_entry(d, fs);
     return true;
 }
 
-void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id,
-                   struct block_cache *bc)
+void detect_raw(const struct disk *d, struct block_cache *bc)
+{
+    struct filesystem *fs;
+    struct range lba_range = { 0, d->sectors };
+
+    fs = fs_try_detect(d, lba_range, bc);
+    if (!fs)
+        return;
+
+    add_raw_fs_entry(d, fs);
+}
+
+void fs_detect_all(struct disk *d, struct block_cache *bc)
 {
     _Alignas(u64) u8 signature[8];
 
-    if (check_cd(d, disk_id, bc))
+    if (check_cd(d, bc))
+        return;
+
+    if (!block_cache_refill(bc, 0))
         return;
 
     if (!block_cache_read(bc, signature, disk_block_size(d), sizeof(u64)))
         return;
 
     if (*(u64*)signature == GPT_SIGNATURE) {
-        initialize_from_gpt(d, disk_id, bc);
+        initialize_from_gpt(d, bc);
         return;
     }
 
@@ -435,9 +426,9 @@ void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id,
         return;
 
     if (*(u16*)signature == MBR_SIGNATURE) {
-        initialize_from_mbr(sv, d, disk_id, bc, 0, 0);
+        initialize_from_mbr(d, bc, 0, 0);
         return;
     }
 
-    print_warn("unpartitioned drive %p skipped\n", d->handle);
+    detect_raw(d, bc);
 }

@@ -2,7 +2,7 @@
 
 #include "common/types.h"
 #include "common/range.h"
-#include "services.h"
+#include "memory_services.h"
 
 struct physical_range {
     union {

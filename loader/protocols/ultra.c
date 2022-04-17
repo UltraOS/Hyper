@@ -1,6 +1,5 @@
-#include "ultra.h"
-#include "ultra_protocol/ultra_protocol.h"
-#include "elf/elf.h"
+#define MSG_FMT(msg) "ULTRA-PROT: " msg
+
 #include "common/bug.h"
 #include "common/cpuid.h"
 #include "common/helpers.h"
@@ -8,14 +7,18 @@
 #include "common/format.h"
 #include "common/log.h"
 #include "common/minmax.h"
+#include "common/dynamic_buffer.h"
+
+#include "ultra.h"
+#include "ultra_protocol/ultra_protocol.h"
+#include "elf/elf.h"
 #include "filesystem/filesystem_table.h"
 #include "allocator.h"
 #include "virtual_memory.h"
 #include "handover.h"
 #include "hyper.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "ULTRA-PROT: " msg
+#include "services.h"
+#include "video_services.h"
 
 struct binary_options {
     struct full_path path;
@@ -365,7 +368,7 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
 
     print_info("picked video mode %ux%u @ %u bpp\n", picked_vm.width, picked_vm.height, picked_vm.bpp);
 
-    if (!vs->set_mode(picked_vm.id, &fb))
+    if (!vs_set_mode(picked_vm.id, &fb))
         oops("failed to set picked video mode\n");
 
     BUILD_BUG_ON(sizeof(*out_fb) != sizeof(fb));
@@ -533,14 +536,14 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
         size_t bytes_for_this_allocation, mm_entry_count_new, key = 0;
 
         // Add 1 to give some leeway for memory map growth after the next allocation
-        mm_entry_count = ms->copy_map(NULL, 0, 0, &key, NULL) + 1;
+        mm_entry_count = ms_copy_map(NULL, 0, 0, &key, NULL) + 1;
         bytes_for_this_allocation = bytes_needed + mm_entry_count * sizeof(struct ultra_memory_map_entry);
 
         // FIXME: this should probably do page granularity allocations
         hi->attribute_array_address = (u32)(ptr_t)allocate_critical_bytes(bytes_for_this_allocation);
 
         // Check if memory map had to grow to store the previous allocation
-        mm_entry_count_new = ms->copy_map(NULL, 0, 0, &key, NULL);
+        mm_entry_count_new = ms_copy_map(NULL, 0, 0, &key, NULL);
 
         if (mm_entry_count < mm_entry_count_new) {
             free_bytes((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
@@ -588,8 +591,8 @@ void build_attribute_array(const struct attribute_array_spec *spec, enum service
 
     attr_ptr = write_memory_map_header(attr_ptr, mm_entry_count);
     *attr_count += 1;
-    ms->copy_map(attr_ptr, mm_entry_count, sizeof(struct ultra_memory_map_entry),
-                 &hi->memory_map_handover_key, ultra_memory_map_entry_convert);
+    ms_copy_map(attr_ptr, mm_entry_count, sizeof(struct ultra_memory_map_entry),
+                &hi->memory_map_handover_key, ultra_memory_map_entry_convert);
     attr_ptr += mm_entry_count * sizeof(struct ultra_memory_map_entry);
 }
 
@@ -748,22 +751,22 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le, struct s
     pt = build_page_table(&spec.kern_info.bin_info, sv->ms->get_highest_memory_map_address(),
                           is_higher_half_exclusive, null_guard);
     spec.stack_address = pick_stack(cfg, le);
-    spec.acpi_rsdp_address = sv->get_rsdp();
+    spec.acpi_rsdp_address = services_find_rsdp();
 
-    /*
+   /*
     * Attempt to set video mode last, as we're not going to be able to use
     * legacy tty logging after that.
     */
-    spec.fb_present = set_video_mode(cfg, le, sv->vs, &spec.fb);
+    spec.fb_present = set_video_mode(cfg, le, &spec.fb);
 
     /*
      * We cannot allocate any memory after this call, as memory map is now
      * saved inside the attribute array.
      */
-    build_attribute_array(&spec, sv->provider, sv->ms, &hi);
+    build_attribute_array(&spec, &hi);
 
     // Exit all services before handover
-    handover_res = sv->exit_all_services(sv, hi.memory_map_handover_key);
+    handover_res = services_exit_all(hi.memory_map_handover_key);
     BUG_ON(!handover_res);
 
     if (is_higher_half_kernel) {

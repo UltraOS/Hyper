@@ -1,5 +1,3 @@
 #pragma once
 
-#include "services.h"
-
-struct video_services *video_services_init();
+void bios_video_services_init(void);

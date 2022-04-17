@@ -10,22 +10,29 @@ enum fse_type {
 
 struct fs_entry {
     void *disk_handle;
-    u32 disk_index;
-    u16 partition_index;
+    u32 disk_id;
+    u32 partition_index;
     u16 entry_type;
     struct guid disk_guid;
     struct guid partition_guid;
     struct filesystem *fs;
 };
 
-void add_raw_fs_entry(void *disk_handle, u32 disk_index, struct filesystem*);
-void add_mbr_fs_entry(void *disk_handle, u32 disk_index, u16 partition_index, struct filesystem*);
-void add_gpt_fs_entry(void *disk_handle, u32 disk_index, u16 partition_index,
-                      const struct guid *disk_guid, const struct guid *partition_guid, struct filesystem*);
+void fs_table_init();
+
+void add_raw_fs_entry(const struct disk *d, struct filesystem*);
+
+void add_mbr_fs_entry(const struct disk *d, u32 partition_index,
+                      struct filesystem*);
+
+void add_gpt_fs_entry(const struct disk *d, u32 partition_index,
+                      const struct guid *disk_guid,
+                      const struct guid *partition_guid,
+                      struct filesystem*);
 
 const struct fs_entry *fs_by_full_path(const struct full_path *path);
 
 void set_origin_fs(struct fs_entry*);
-const struct fs_entry *get_origin_fs();
+const struct fs_entry *get_origin_fs(void);
 
 struct fs_entry *list_fs_entries(size_t *count);

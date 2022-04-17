@@ -1,14 +1,14 @@
-#include "fat.h"
-#include "structures.h"
+#define MSG_FMT(msg) "FAT: " msg
+
 #include "common/log.h"
 #include "common/constants.h"
 #include "common/helpers.h"
 #include "common/minmax.h"
 #include "common/ctype.h"
+#include "fat.h"
+#include "structures.h"
 #include "allocator.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "FAT: " msg
+#include "disk_services.h"
 
 #define BPB_OFFSET 0x0B
 #define EBPB_OLD_SIGNATURE 0x28
@@ -268,13 +268,10 @@ static bool ensure_fat_view(struct fat_filesystem *fs)
 
 static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
 {
-    struct disk_services *srvc = filesystem_backend();
     struct disk *d = &fs->f.d;
     u32 first_block, blocks_to_read;
     index &= ~(FAT_VIEW_CAPACITY_FAT32 - 1);
 
-    if (unlikely(!srvc))
-        return false;
     if (!ensure_fat_view(fs))
         return false;
 
@@ -285,18 +282,15 @@ static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
     fs->fat_view_offset = index;
     first_block = fs->fat_lba_range.begin + (index >> (d->block_shift - FAT32_FAT_INDEX_SHIFT));
     blocks_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_BYTES >> d->block_shift);
-    return srvc->read_blocks(d->handle, fs->fat_view, first_block, blocks_to_read);
+    return ds_read_blocks(d->handle, fs->fat_view, first_block, blocks_to_read);
 }
 
 static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
 {
-    struct disk_services *srvc = filesystem_backend();
     struct disk *d = &fs->f.d;
     UNUSED(index); // we cache the entire fat anyway
 
     if (!ensure_fat_view(fs))
-        return false;
-    if (unlikely(!srvc))
         return false;
 
     // already have it cached
@@ -304,8 +298,8 @@ static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
         return true;
 
     fs->fat_view_offset = 0;
-    return srvc->read_blocks(d->handle, fs->fat_view, fs->fat_lba_range.begin,
-                             range_length(&fs->fat_lba_range));
+    return ds_read_blocks(d->handle, fs->fat_view, fs->fat_lba_range.begin,
+                          range_length(&fs->fat_lba_range));
 }
 
 static u32 extract_cached_fat_entry_at_index_fat12(struct fat_filesystem *fs, u32 index)
@@ -504,29 +498,21 @@ static u32 file_cluster_from_offset(struct fat_file *file, u32 offset, enum fat_
 
 static bool fat_read(struct fat_filesystem *fs, u32 cluster, u32 offset, u32 bytes, void* buffer)
 {
-    struct disk_services *srvc = filesystem_backend();
     u64 offset_to_read;
-
-    if (unlikely(!srvc))
-        return false;
 
     offset_to_read = fs->data_lba_range.begin;
     offset_to_read <<= fs->f.d.block_shift;
     offset_to_read += cluster << fs->cluster_shift;
     offset_to_read += offset;
 
-    return srvc->read(fs->f.d.handle, buffer, offset_to_read, bytes);
+    return ds_read(fs->f.d.handle, buffer, offset_to_read, bytes);
 }
 
 static bool fixed_root_directory_fetch_next_entry(struct fat_directory *dir, void *entry)
 {
     struct fat_filesystem *fs = dir->parent;
     struct disk *d = &fs->f.d;
-    struct disk_services *ds = filesystem_backend();
     u64 offset_to_read;
-
-    if (unlikely(!ds))
-        return false;
 
     if ((dir->current_offset / sizeof(struct fat_directory_entry)) == fs->root_dir_entries) {
        dir->flags |= DIR_EOF;
@@ -538,7 +524,7 @@ static bool fixed_root_directory_fetch_next_entry(struct fat_directory *dir, voi
     offset_to_read += dir->current_offset;
     dir->current_offset += sizeof(struct fat_directory_entry);
 
-    return ds->read(d->handle, entry, offset_to_read, sizeof(struct fat_directory_entry));
+    return ds_read(d->handle, entry, offset_to_read, sizeof(struct fat_directory_entry));
 }
 
 static bool directory_fetch_next_entry(struct fat_directory *dir, void* entry)
@@ -897,7 +883,7 @@ static bool check_fs_type(struct string_view expected, const char *actual)
     int res = memcmp(expected.text, actual, expected.size);
     if (res != 0) {
         struct string_view actual_view = { actual, expected.size };
-        print_warn("Unexpected file system type: %pSV\n", &actual_view);
+        print_warn("unexpected file system type: %pSV\n", &actual_view);
     }
 
     return res == 0;

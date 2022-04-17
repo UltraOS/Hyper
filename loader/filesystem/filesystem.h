@@ -1,6 +1,6 @@
 #pragma once
 
-#include "services.h"
+#include "disk_services.h"
 #include "common/types.h"
 #include "common/string_view.h"
 #include "common/range.h"
@@ -19,9 +19,6 @@ static inline int guid_compare(const struct guid *lhs, const struct guid *rhs)
 {
     return memcmp(lhs, rhs, sizeof(*rhs));
 }
-
-struct disk_services *filesystem_set_backend(struct disk_services*);
-struct disk_services *filesystem_backend();
 
 enum disk_identifier {
     DISK_IDENTIFIER_INVALID,
@@ -77,7 +74,7 @@ struct filesystem {
     void (*close)(struct file*);
 };
 
-void fs_detect_all(struct disk_services *sv, struct disk *d, u32 disk_id, struct block_cache *bc);
+void fs_detect_all(struct disk *d, struct block_cache *bc);
 
 bool split_prefix_and_path(struct string_view str, struct string_view *prefix, struct string_view *path);
 bool next_path_node(struct string_view* path, struct string_view* node);

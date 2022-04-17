@@ -1,7 +1,7 @@
 #pragma once
 
-#include "services.h"
+#include "common/types.h"
 
-struct memory_services *memory_services_init();
+void bios_memory_services_init(void);
 
-bool memory_services_release(size_t key);
+bool bios_memory_services_check_key(size_t key);

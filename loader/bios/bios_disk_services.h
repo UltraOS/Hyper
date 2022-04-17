@@ -1,5 +1,3 @@
 #pragma once
 
-#include "services.h"
-
-struct disk_services *disk_services_init();
+void bios_disk_services_init(void);

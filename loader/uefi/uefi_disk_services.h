@@ -1,5 +1,3 @@
 #pragma once
 
-#include "services.h"
-
-struct disk_services *disk_services_init();
+void uefi_disk_services_init(void);

@@ -1,21 +1,25 @@
-#include "bios_disk_services.h"
-#include "bios_call.h"
+#define MSG_FMT(msg) "BIOS-IO: " msg
+
 #include "common/format.h"
 #include "common/log.h"
 #include "common/string.h"
 #include "common/string_view.h"
 #include "common/minmax.h"
+#include "disk_services.h"
+#include "bios_call.h"
+#include "disk_services.h"
+#include "services_impl.h"
 #include "filesystem/block_cache.h"
 
-#undef MSG_FMT
-#define MSG_FMT(msg) "BIOS-IO: " msg
+#define DISK_BUFFER_CAPACITY 128
 
 struct bios_disk {
-    struct disk d;
-    u8 disk_id;
+    u64 sectors;
+    u8 id;
+    u8 block_shift;
+    u8 status;
 };
 
-#define DISK_BUFFER_CAPACITY 128
 static struct bios_disk disks_buffer[DISK_BUFFER_CAPACITY];
 static u8 disk_count;
 
@@ -96,8 +100,7 @@ static void pretty_print_drive_info(u8 drive_idx, u64 sectors, u32 bytes_per_sec
 {
     char sectors_buf[32];
     if (sectors == 0xFFFFFFFFFFFFFFFF) {
-        struct string_view unknown = SV("<unknown>");
-        memcpy(sectors_buf, unknown.text, unknown.size + 1);
+        sv_terminated_copy(sectors_buf, SV("<unknown>"));
     } else {
         snprintf(sectors_buf, 32, "%llu", sectors);
     }
@@ -127,7 +130,7 @@ static bool edpt_is_removable_disk(struct enhanced_disk_drive_parameter_table *e
 
 #define DRIVE_PARAMS_V2 0x1E
 
-static void fetch_all_disks()
+static void fetch_all_disks(void)
 {
     // https://oldlinux.superglobalmegacorp.com/Linux.old/docs/interrupts/int-html/rb-0715.htm
     struct real_mode_regs regs;
@@ -196,13 +199,10 @@ static void fetch_all_disks()
         }
 
         disks_buffer[drive_index - FIRST_DRIVE_INDEX] = (struct bios_disk) {
-            .d = {
-                .sectors = drive_params.total_sector_count,
-                .handle = (void*)((ptr_t)drive_index),
-                .block_shift = __builtin_ffs(drive_params.bytes_per_sector) - 1,
-                .status = is_removable ? DISK_STS_REMOVABLE : 0
-            },
-            .disk_id = drive_index
+            .sectors = drive_params.total_sector_count,
+            .id = drive_index,
+            .block_shift = __builtin_ffs(drive_params.bytes_per_sector) - 1,
+            .status = is_removable ? DISK_STS_REMOVABLE : 0
         };
         disk_count++;
     }
@@ -220,8 +220,8 @@ static bool check_read(const struct bios_disk *d, const struct real_mode_regs *r
 {
     if (is_carry_set(regs) || ((regs->eax & 0xFF00) != 0x0000)) {
         // Don't print a warning for removable drives, it's expected
-        if (!(d->d.status & DISK_STS_REMOVABLE))
-            print_warn("disk 0x%02X read failed, (ret=%u)\n", d->disk_id, regs->eax);
+        if (!(d->status & DISK_STS_REMOVABLE))
+            print_warn("disk 0x%02X read failed, (ret=%u)\n", d->id, regs->eax);
 
         return false;
     }
@@ -239,7 +239,7 @@ static bool bios_refill_blocks(void *dp, void *buffer, u64 block, size_t count)
     };
 
     struct real_mode_regs regs = {
-        .edx = d->disk_id,
+        .edx = d->id,
         .esi = (u32)&packet
     };
     struct real_mode_addr tb_addr;
@@ -256,32 +256,42 @@ static bool bios_refill_blocks(void *dp, void *buffer, u64 block, size_t count)
     return check_read(d, &regs);
 }
 
-static void query_disk(size_t idx, struct disk *out_disk)
+void ds_query_disk(size_t idx, struct disk *out_disk)
 {
+    SERVICE_FUNCTION();
     BUG_ON(idx >= disk_count);
+
+    struct bios_disk *d;
     u8 i = idx == next_enum_idx ? next_buf_idx : 0;
 
     for (; i < DISK_BUFFER_CAPACITY; ++i) {
-        if (disks_buffer[i].disk_id)
+        if (disks_buffer[i].id)
             break;
     }
 
     BUG_ON(i == DISK_BUFFER_CAPACITY);
     next_enum_idx = idx + 1;
     next_buf_idx = i + 1;
+    d = &disks_buffer[i];
 
-    *out_disk = disks_buffer[i].d;
+    *out_disk = (struct disk) {
+        .sectors = d->sectors,
+        .handle = (void*)((ptr_t)d->id),
+        .id = d->id,
+        .block_shift = d->block_shift,
+        .status = d->status
+    };
 }
 
 static void set_cache_to_disk(struct bios_disk *d)
 {
-    if (cache_last_disk_id == d->disk_id)
+    if (cache_last_disk_id == d->id)
         return;
 
-    cache_last_disk_id = d->disk_id;
+    cache_last_disk_id = d->id;
     tb_cache.user_ptr = d;
-    tb_cache.block_shift = d->d.block_shift;
-    tb_cache.block_size = disk_block_size(&d->d);
+    tb_cache.block_shift = d->block_shift;
+    tb_cache.block_size = 1 << d->block_shift;
     tb_cache.cache_block_cap = TRANSFER_BUFFER_CAPACITY >> tb_cache.block_shift;
     tb_cache.flags |= BC_EMPTY;
 }
@@ -294,31 +304,31 @@ static void switch_to_handle(void *handle)
     set_cache_to_disk(d);
 }
 
-static bool read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
+bool ds_read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
 {
+    SERVICE_FUNCTION();
+
     switch_to_handle(handle);
     return block_cache_read_blocks(&tb_cache, buffer, sector, blocks);
 }
 
-static bool read(void *handle, void *buffer, u64 offset, size_t bytes)
+bool ds_read(void *handle, void *buffer, u64 offset, size_t bytes)
 {
+    SERVICE_FUNCTION();
+
     switch_to_handle(handle);
     return block_cache_read(&tb_cache, buffer, offset, bytes);
 }
 
-static struct disk_services bios_disk_services = {
-    .query_disk = query_disk,
-    .read = read,
-    .read_blocks = read_blocks
-};
-
-struct disk_services *disk_services_init()
+u32 ds_get_disk_count(void)
 {
-    if (!disk_count) {
-        fetch_all_disks();
-        block_cache_init(&tb_cache, bios_refill_blocks, NULL, 0, transfer_buffer, 0);
-    }
+    SERVICE_FUNCTION();
 
-    bios_disk_services.disk_count = disk_count;
-    return &bios_disk_services;
+    return disk_count;
+}
+
+void bios_disk_services_init(void)
+{
+    fetch_all_disks();
+    block_cache_init(&tb_cache, bios_refill_blocks, NULL, 0, transfer_buffer, 0);
 }

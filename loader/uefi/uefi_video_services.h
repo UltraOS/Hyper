@@ -1,3 +1,3 @@
 #pragma once
 
-struct video_services *video_services_init();
+void uefi_video_services_init(void);

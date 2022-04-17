@@ -2,27 +2,31 @@
 #include "common/panic.h"
 #include "common/string.h"
 #include "services.h"
+#include "services_impl.h"
 
 #include "bios_memory_services.h"
 #include "bios_video_services.h"
 #include "bios_disk_services.h"
-#include "bios_find_rsdp.h"
 #include "bios_call.h"
 
 extern u8 a20_enabled;
 extern u8 section_bss_begin;
 extern u8 section_bss_end;
 
-static bool bios_exit_all_services(struct services *sv, size_t key)
+bool services_exit_all(size_t key)
 {
-    if (!memory_services_release(key))
-        return false;
+    SERVICE_FUNCTION();
 
-    *sv = (struct services) {};
-    return true;
+    services_offline = bios_memory_services_check_key(key);
+    return services_offline;
 }
 
-void loader_abort()
+enum service_provider services_get_provider(void)
+{
+    return SERVICE_PROVIDER_BIOS;
+}
+
+void loader_abort(void)
 {
     /*
      * INT 0x16, AH = 0x01
@@ -60,20 +64,16 @@ void loader_abort()
 
 void bios_entry(void)
 {
-    struct services s = {
-        .provider = SERVICE_PROVIDER_BIOS,
-        .get_rsdp = bios_find_rsdp,
-        .exit_all_services = bios_exit_all_services
-    };
-
     memzero(&section_bss_begin, &section_bss_end - &section_bss_begin);
 
-    s.vs = video_services_init();
-
+    bios_video_services_init();
     BUG_ON(!a20_enabled);
 
-    s.ms = memory_services_init();
-    s.ds = disk_services_init();
+    bios_memory_services_init();
+    bios_disk_services_init();
 
-    loader_entry(&s);
+    loader_entry();
+
+    // unreachable
+    loader_abort();
 }

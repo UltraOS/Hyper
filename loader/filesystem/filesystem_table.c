@@ -1,76 +1,57 @@
 #include "filesystem_table.h"
 #include "allocator.h"
 #include "common/constants.h"
+#include "common/dynamic_buffer.h"
 
-#define ENTRIES_PER_PAGE (PAGE_SIZE / sizeof(struct fs_entry))
-
-static struct fs_entry *entry_buffer;
 static struct fs_entry origin_fs;
-static size_t entry_buffer_capacity = 0;
-static size_t entry_buffer_size = 0;
+struct dynamic_buffer entry_buf;
 
-static bool ensure_has_capacity()
+void fs_table_init()
 {
-    size_t new_capacity;
-    void *new_buffer;
-
-    if (entry_buffer_size < entry_buffer_capacity)
-        return true;
-
-    new_capacity = entry_buffer_capacity + ENTRIES_PER_PAGE;
-    new_buffer = allocate_bytes(new_capacity * sizeof(struct fs_entry));
-    if (!new_buffer)
-        return false;
-
-    if (entry_buffer_size)
-        memcpy(new_buffer, entry_buffer, entry_buffer_size * sizeof(struct fs_entry));
-    if (entry_buffer)
-        free_bytes(entry_buffer, entry_buffer_capacity * sizeof(struct fs_entry));
-
-    entry_buffer = new_buffer;
-    entry_buffer_capacity = new_capacity;
-
-    return true;
+    dynamic_buffer_init(&entry_buf, sizeof(struct fs_entry), true);
 }
 
-void add_raw_fs_entry(void *disk_handle, u32 disk_index, struct filesystem *fs)
+void add_raw_fs_entry(const struct disk *d, struct filesystem *fs)
 {
-    if (!ensure_has_capacity())
+    struct fs_entry *fse = dynamic_buffer_slot_alloc(&entry_buf);
+    if (unlikely(!fse))
         return;
 
-    entry_buffer[entry_buffer_size++] = (struct fs_entry) {
-        .disk_index = disk_index,
-        .disk_handle = disk_handle,
+    *fse = (struct fs_entry) {
+        .disk_id = d->id,
+        .disk_handle = d->handle,
         .partition_index = 0,
         .entry_type = FSE_TYPE_RAW,
         .fs = fs
     };
 }
 
-void add_mbr_fs_entry(void* disk_handle, u32 disk_index, u16 partition_index, struct filesystem *fs)
+void add_mbr_fs_entry(const struct disk *d, u32 partition_index, struct filesystem *fs)
 {
-    if (!ensure_has_capacity())
+    struct fs_entry *fse = dynamic_buffer_slot_alloc(&entry_buf);
+    if (unlikely(!fse))
         return;
 
-    entry_buffer[entry_buffer_size++] = (struct fs_entry) {
-        .disk_handle = disk_handle,
-        .disk_index = disk_index,
+    *fse = (struct fs_entry) {
+        .disk_handle = d->handle,
+        .disk_id = d->id,
         .partition_index = partition_index,
         .entry_type = FSE_TYPE_MBR,
         .fs = fs
     };
 }
 
-void add_gpt_fs_entry(void* disk_handle, u32 disk_index, u16 partition_index,
+void add_gpt_fs_entry(const struct disk *d, u32 partition_index,
                       const struct guid *disk_guid, const struct guid *partition_guid,
                       struct filesystem *fs)
 {
-    if (!ensure_has_capacity())
+    struct fs_entry *fse = dynamic_buffer_slot_alloc(&entry_buf);
+    if (unlikely(!fse))
         return;
 
-    entry_buffer[entry_buffer_size++] = (struct fs_entry) {
-        .disk_handle = disk_handle,
-        .disk_index = disk_index,
+    *fse = (struct fs_entry) {
+        .disk_handle = d->handle,
+        .disk_id = d->id,
         .partition_index = partition_index,
         .entry_type = FSE_TYPE_GPT,
         .disk_guid = *disk_guid,
@@ -94,26 +75,25 @@ const struct fs_entry *fs_by_full_path(const struct full_path *path)
             path->partition_id_type == PARTITION_IDENTIFIER_RAW)
             return get_origin_fs();
 
-        disk_index = get_origin_fs()->disk_index;
+        disk_index = get_origin_fs()->disk_id;
         by_disk_index = true;
     } else if (path->disk_id_type == DISK_IDENTIFIER_INDEX) {
         disk_index = path->disk_index;
         by_disk_index = true;
     }
 
-    if (path->partition_id_type == PARTITION_IDENTIFIER_MBR_INDEX ||
-        path->partition_id_type == PARTITION_IDENTIFIER_GPT_INDEX) {
+    if (path->partition_id_type == PARTITION_IDENTIFIER_INDEX) {
         partition_index = path->partition_index;
         by_partition_index = true;
     } else if (path->partition_id_type == PARTITION_IDENTIFIER_RAW) {
         raw_partition = true;
     }
 
-    for (i = 0; i < entry_buffer_size; ++i) {
-        struct fs_entry *entry = &entry_buffer[i];
+    for (i = 0; i < entry_buf.size; ++i) {
+        struct fs_entry *entry = dynamic_buffer_get_slot(&entry_buf, i);
 
         if (by_disk_index) {
-            if (disk_index != entry->disk_index)
+            if (disk_index != entry->disk_id)
                 continue;
         } else if (guid_compare(&path->disk_guid, &entry->disk_guid)) {
             continue;
@@ -147,6 +127,6 @@ const struct fs_entry *get_origin_fs()
 
 struct fs_entry *list_fs_entries(size_t *count)
 {
-    *count = entry_buffer_size;
-    return entry_buffer;
+    *count = entry_buf.size;
+    return entry_buf.buf;
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "structures.h"
+#include "uefi_structures.h"
 #include "common/string_view.h"
 
 #define unlikely_efi_error(ret) unlikely(EFI_ERROR(ret))

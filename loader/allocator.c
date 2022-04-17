@@ -4,21 +4,15 @@
 #include "common/string.h"
 #include "common/constants.h"
 #include "common/string_view.h"
+#include "services.h"
+#include "memory_services.h"
 
-static struct memory_services *memory_backend;
 static u32 default_alloc_type = MEMORY_TYPE_RESERVED;
 
 u32 allocator_set_default_alloc_type(u32 type)
 {
     u32 prev = default_alloc_type;
     default_alloc_type = type;
-    return prev;
-}
-
-struct memory_services *allocator_set_backend(struct memory_services *b)
-{
-    struct memory_services *prev = memory_backend;
-    memory_backend = b;
     return prev;
 }
 
@@ -51,12 +45,10 @@ static void *do_allocate_with_type_at(u64 address, size_t count, u32 type, bool 
 {
     void *result;
 
-    BUG_ON(!memory_backend);
-
     if (!address) {
-        result = (void*)((ptr_t)memory_backend->allocate_pages(count, 4ull * GB, type));
+        result = (void*)((ptr_t)ms_allocate_pages(count, 4ull * GB, type));
     } else {
-        result = (void*)((ptr_t)memory_backend->allocate_pages_at(address, count, type));
+        result = (void*)((ptr_t)ms_allocate_pages_at(address, count, type));
     }
 
     if (result) {
@@ -127,8 +119,7 @@ void *allocate_critical_bytes(size_t count)
 
 void free_pages(void *address, size_t count)
 {
-    BUG_ON(!memory_backend);
-    memory_backend->free_pages((ptr_t)address, count);
+    ms_free_pages((ptr_t)address, count);
 }
 
 void free_bytes(void *address, size_t count)

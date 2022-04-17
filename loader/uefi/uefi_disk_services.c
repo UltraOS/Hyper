@@ -1,16 +1,18 @@
+#define MSG_FMT(msg) "UEFI-IO: " msg
+
+#include "common/log.h"
 #include "uefi_disk_services.h"
 #include "uefi_globals.h"
 #include "uefi_helpers.h"
-#include "structures.h"
-#include "common/log.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "UEFI-IO: " msg
+#include "uefi_structures.h"
+#include "disk_services.h"
+#include "services_impl.h"
 
 struct uefi_disk {
     u64 sectors;
     u8 block_shift;
     u8 status;
+    u8 id;
     EFI_BLOCK_IO_PROTOCOL *bio;
     EFI_DISK_IO_PROTOCOL *dio;
 };
@@ -18,8 +20,17 @@ struct uefi_disk {
 static struct uefi_disk *disks;
 static size_t disk_count;
 
-static void uefi_query_disk(size_t idx, struct disk *out_disk)
+u32 ds_get_disk_count(void)
 {
+    SERVICE_FUNCTION();
+
+    return (u32)disk_count;
+}
+
+void ds_query_disk(size_t idx, struct disk *out_disk)
+{
+    SERVICE_FUNCTION();
+
     struct uefi_disk *d;
     BUG_ON(idx >= disk_count);
 
@@ -28,13 +39,16 @@ static void uefi_query_disk(size_t idx, struct disk *out_disk)
     *out_disk = (struct disk) {
         .sectors = d->sectors,
         .handle = d,
+        .id = d->id,
         .block_shift = d->block_shift,
         .status = d->status
     };
 }
 
-static bool uefi_read(void *handle, void *buffer, u64 offset, size_t bytes)
+bool ds_read(void *handle, void *buffer, u64 offset, size_t bytes)
 {
+    SERVICE_FUNCTION();
+
     struct uefi_disk *d = handle;
     EFI_STATUS ret;
 
@@ -55,8 +69,10 @@ static bool uefi_read(void *handle, void *buffer, u64 offset, size_t bytes)
     return true;
 }
 
-static bool uefi_read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
+bool ds_read_blocks(void *handle, void *buffer, u64 sector, size_t blocks)
 {
+    SERVICE_FUNCTION();
+
     struct uefi_disk *d;
     UINT32 media_id, io_align;
     EFI_BLOCK_IO_PROTOCOL *bio;
@@ -71,7 +87,7 @@ static bool uefi_read_blocks(void *handle, void *buffer, u64 sector, size_t bloc
     if (io_align > 1 && ((ptr_t)buffer % io_align)) {
         print_warn("buffer 0x%016llX is unaligned to minimum IoAlign (%u), attempting a DISK_IO read instead!\n",
                    (ptr_t)buffer, io_align);
-        return uefi_read(handle, buffer, sector << d->block_shift, blocks << d->block_shift);
+        return ds_read(handle, buffer, sector << d->block_shift, blocks << d->block_shift);
     }
 
     ret = d->bio->ReadBlocks(bio, media_id, sector, blocks << d->block_shift, buffer);
@@ -84,13 +100,7 @@ static bool uefi_read_blocks(void *handle, void *buffer, u64 sector, size_t bloc
     return true;
 }
 
-static struct disk_services uefi_disk_services = {
-    .query_disk = uefi_query_disk,
-    .read = uefi_read,
-    .read_blocks = uefi_read_blocks
-};
-
-static void enumerate_disks()
+static void enumerate_disks(void)
 {
     EFI_HANDLE *handles;
     EFI_GUID block_io_guid = EFI_BLOCK_IO_PROTOCOL_GUID;
@@ -103,8 +113,8 @@ static void enumerate_disks()
         return;
     }
 
-    if (unlikely(!uefi_pool_alloc(EfiLoaderData, sizeof(struct disk_services),
-                  handle_count, (void**)&disks)))
+    if (unlikely(!uefi_pool_alloc(EfiLoaderData, sizeof(struct uefi_disk),
+                 handle_count, (void**)&disks)))
         return;
 
     for (i = 0; i < handle_count; ++i) {
@@ -143,6 +153,7 @@ static void enumerate_disks()
 
         disks[disk_count++] = (struct uefi_disk) {
             .sectors = bio->Media->LastBlock + 1,
+            .id = i,
             .block_shift = __builtin_ffs(bio->Media->BlockSize) - 1,
             .status = bio->Media->RemovableMedia ? DISK_STS_REMOVABLE : 0,
             .bio = bio,
@@ -154,10 +165,7 @@ static void enumerate_disks()
     }
 }
 
-struct disk_services *disk_services_init()
+void uefi_disk_services_init(void)
 {
     enumerate_disks();
-
-    uefi_disk_services.disk_count = disk_count;
-    return &uefi_disk_services;
 }

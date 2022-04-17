@@ -8,7 +8,7 @@
 #include "protocols/ultra.h"
 #include "config.h"
 
-void init_all_disks(struct disk_services* ds);
+void init_all_disks(void);
 void init_config(struct config *out_cfg);
 
 struct file *find_config_file(struct fs_entry **fe);
@@ -21,25 +21,23 @@ enum load_protocol {
 };
 enum load_protocol get_load_protocol(struct config *cfg, struct loadable_entry*);
 
-void loader_entry(struct services *svc)
+void loader_entry(void)
 {
     struct config cfg = { 0 };
     struct loadable_entry le;
     enum load_protocol prot;
 
-    logger_set_backend(svc->vs);
-    allocator_set_backend(svc->ms);
     allocator_set_default_alloc_type(MEMORY_TYPE_LOADER_RECLAIMABLE);
-    filesystem_set_backend(svc->ds);
+    fs_table_init();
 
-    init_all_disks(svc->ds);
+    init_all_disks();
     init_config(&cfg);
 
     pick_loadable_entry(&cfg, &le);
     prot = get_load_protocol(&cfg, &le);
 
     BUG_ON(prot != LOAD_PROTOCOL_ULTRA);
-    ultra_protocol_load(&cfg, &le, svc);
+    ultra_protocol_load(&cfg, &le);
 }
 
 // TODO: support chain-loading configs
@@ -71,22 +69,23 @@ void init_config(struct config *out_cfg)
     }
 }
 
-void init_all_disks(struct disk_services* ds)
+void init_all_disks(void)
 {
     size_t disk_index;
+    u32 disk_count = ds_get_disk_count();
     struct block_cache bc;
     void *buf = allocate_pages(1);
     if (unlikely(!buf))
         return;
 
-    for (disk_index = 0; disk_index < ds->disk_count; ++disk_index) {
+    for (disk_index = 0; disk_index < disk_count; ++disk_index) {
         struct disk d;
-        ds->query_disk(disk_index, &d);
+        ds_query_disk(disk_index, &d);
 
-        block_cache_init(&bc, ds->read_blocks, d.handle, d.block_shift,
+        block_cache_init(&bc, &ds_read_blocks, d.handle, d.block_shift,
                          buf, PAGE_SIZE >> d.block_shift);
 
-        fs_detect_all(ds, &d, disk_index, &bc);
+        fs_detect_all(&d, &bc);
     }
 
     free_pages(buf, 1);

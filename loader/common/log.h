@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdarg.h>
-#include "services.h"
+#include "common/attributes.h"
 
 // Inspired by linux kern_levels
 #define LOG_LEVEL_PREFIX "\x1"
@@ -16,7 +16,6 @@ enum log_level {
 };
 
 enum log_level logger_set_level(enum log_level level);
-struct video_services *logger_set_backend(struct video_services*);
 
 void vprintlvl(enum log_level, const char *msg, va_list vlist);
 void vprint(const char *msg, va_list vlist);

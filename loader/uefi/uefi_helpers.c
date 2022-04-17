@@ -1,10 +1,9 @@
+#define MSG_FMT(msg) "UEFI: " msg
+
 #include "uefi_helpers.h"
 #include "uefi_globals.h"
 
 #include "common/log.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "UEFI: " msg
 
 bool uefi_pool_alloc(EFI_MEMORY_TYPE type, size_t elem_size, size_t count, VOID **out)
 {

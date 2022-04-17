@@ -1,11 +1,12 @@
-#include "bios_video_services.h"
-#include "bios_call.h"
-#include "edid.h"
+#define MSG_FMT(msg) "BIOS-VBE: " msg
+
 #include "common/log.h"
 #include "common/string.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "BIOS-VBE: " msg
+#include "bios_video_services.h"
+#include "video_services.h"
+#include "services_impl.h"
+#include "bios_call.h"
+#include "edid.h"
 
 struct PACKED super_vga_info {
     u32 signature; // 'VBE2' request -> 'VESA' response
@@ -106,7 +107,7 @@ static size_t tty_x = 0;
 static size_t tty_y = 0;
 static bool legacy_tty_available = false;
 
-static void initialize_legacy_tty()
+static void initialize_legacy_tty(void)
 {
     // 80x25 color text, https://stanislavs.org/helppc/int_10-0.html
     struct real_mode_regs regs = {
@@ -144,7 +145,7 @@ static u16 color_as_attribute(enum color c)
     }
 }
 
-static void tty_scroll()
+static void tty_scroll(void)
 {
     volatile u16 *vga_memory = (volatile u16*)VGA_ADDRESS;
     size_t x, y;
@@ -159,7 +160,7 @@ static void tty_scroll()
         vga_memory[(TTY_ROWS - 1) * TTY_COLUMNS + x] = ' ';
 }
 
-static bool tty_write(const char *text, size_t count, enum color col)
+bool vs_write_tty(const char *text, size_t count, enum color col)
 {
     volatile u16 *vga_memory = (volatile u16*)VGA_ADDRESS;
     size_t i;
@@ -292,7 +293,7 @@ static u16 mode_fb_format(struct mode_information *m, bool use_linear)
     return fb_format_from_mask_shifts_8888(r_shift, g_shift, b_shift, x_shift, m->bits_per_pixel);
 }
 
-static void fetch_all_video_modes()
+static void fetch_all_video_modes(void)
 {
     struct super_vga_info vga_info = { 0 };
     struct mode_information info;
@@ -345,7 +346,7 @@ static void fetch_all_video_modes()
     }
 }
 
-void fetch_native_resolution()
+void fetch_native_resolution(void)
 {
     struct edid e = { 0 };
     u8 edid_checksum;
@@ -373,14 +374,24 @@ void fetch_native_resolution()
     print_info("detected native resolution %zux%zu\n", native_width, native_height);
 }
 
-static struct video_mode *list_modes(size_t *count)
+u32 vs_get_mode_count(void)
 {
-    *count = video_mode_count;
-    return video_modes;
+    SERVICE_FUNCTION();
+    return video_mode_count;
 }
 
-static bool query_resolution(struct resolution *out_resolution)
+void vs_query_mode(size_t idx, struct video_mode *out_mode)
 {
+    SERVICE_FUNCTION();
+    BUG_ON(idx >= video_mode_count);
+
+    *out_mode = video_modes[idx];
+}
+
+bool vs_query_native_resolution(struct resolution *out_resolution)
+{
+    SERVICE_FUNCTION();
+
     if (native_width == 0 || native_height == 0)
         return false;
 
@@ -405,8 +416,10 @@ static bool do_set_mode(u16 id)
     return check_vbe_call(0x4F02, &regs);
 }
 
-static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
+bool vs_set_mode(u32 id, struct framebuffer *out_framebuffer)
 {
+    SERVICE_FUNCTION();
+
     struct mode_information info = { 0 };
     u16 mode_id = id >> 16;
     u16 mode_idx = id & 0xFFFF;
@@ -432,45 +445,9 @@ static bool set_mode(u32 id, struct framebuffer *out_framebuffer)
     return true;
 }
 
-static struct video_services bios_video_services = {
-    .list_modes = list_modes,
-    .query_resolution = query_resolution,
-    .set_mode = set_mode,
-    .tty_write = tty_write
-};
-
-struct video_services *video_services_init()
+void bios_video_services_init(void)
 {
-    if (!legacy_tty_available)
-        initialize_legacy_tty();
-
-    logger_set_backend(&bios_video_services);
-
-    if (video_mode_count == 0) {
-        fetch_all_video_modes();
-        fetch_native_resolution();
-    }
-
-    return &bios_video_services;
+    initialize_legacy_tty();
+    fetch_all_video_modes();
+    fetch_native_resolution();
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

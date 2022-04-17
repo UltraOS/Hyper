@@ -1,12 +1,12 @@
-#include "structures.h"
+#define MSG_FMT(msg) "UEFI-GOP: " msg
+
+#include "common/log.h"
+#include "uefi_structures.h"
 #include "uefi_globals.h"
 #include "uefi_helpers.h"
-#include "services.h"
+#include "video_services.h"
+#include "services_impl.h"
 #include "edid.h"
-#include "common/log.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "UEFI-GOP: " msg
 
 static EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout = NULL;
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *gfx = NULL;
@@ -14,15 +14,25 @@ static size_t native_width = 0;
 static size_t native_height = 0;
 static struct video_mode *video_modes = NULL;
 static size_t mode_count = 0;
+static bool tty_available = false;
 
-static struct video_mode *uefi_list_modes(size_t *count)
+u32 vs_get_mode_count(void)
 {
-    *count = mode_count;
-    return video_modes;
+    return (u32)mode_count;
 }
 
-static bool uefi_query_resolution(struct resolution *out_resolution)
+void vs_query_mode(size_t idx, struct video_mode *out_mode)
 {
+    SERVICE_FUNCTION();
+    BUG_ON(idx >= mode_count);
+
+    *out_mode = video_modes[idx];
+}
+
+bool vs_query_native_resolution(struct resolution *out_resolution)
+{
+    SERVICE_FUNCTION();
+
     if (!native_height || !native_width)
         return false;
 
@@ -31,8 +41,10 @@ static bool uefi_query_resolution(struct resolution *out_resolution)
     return true;
 }
 
-static bool uefi_set_mode(u32 id, struct framebuffer *out_framebuffer)
+bool vs_set_mode(u32 id, struct framebuffer *out_framebuffer)
 {
+    SERVICE_FUNCTION();
+
     EFI_STATUS ret;
     EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *mode_info;
     struct video_mode *vm;
@@ -105,12 +117,14 @@ static UINTN as_efi_color(enum color c)
         w_off = 0;                                                           \
     } while (0)
 
-static bool uefi_tty_write(const char *text, size_t count, enum color col)
+bool vs_write_tty(const char *text, size_t count, enum color col)
 {
     static CHAR16 wide_buf[MAX_CHARS_PER_WRITE + 1];
     UINTN color = as_efi_color(col);
     size_t c_off, w_off = 0;
 
+    if (unlikely(!tty_available))
+        return false;
     if (unlikely(!count))
         return true;
     if (unlikely(conout->SetAttribute(conout, color) != EFI_SUCCESS))
@@ -135,14 +149,7 @@ static bool uefi_tty_write(const char *text, size_t count, enum color col)
     return conout->SetAttribute(conout, EFI_LIGHTGRAY) == EFI_SUCCESS;
 }
 
-static struct video_services uefi_video_services = {
-    .list_modes = uefi_list_modes,
-    .query_resolution = uefi_query_resolution,
-    .set_mode = uefi_set_mode,
-    .tty_write = uefi_tty_write
-};
-
-static void tty_init()
+static void tty_init(void)
 {
     EFI_STATUS res;
     INT32 mode;
@@ -150,10 +157,8 @@ static void tty_init()
     conout = g_st->ConOut;
 
     res = conout->Reset(conout, TRUE);
-    // TODO: handle better
-    BUG_ON(res != EFI_SUCCESS);
+    DIE_ON(EFI_ERROR(res));
 
-    // TODO: handle not being able to find a mode
     for (mode = 0; mode < conout->Mode->MaxMode; ++mode) {
         UINTN cols = 0, rows = 0;
 
@@ -167,11 +172,13 @@ static void tty_init()
         }
     }
 
+    DIE_ON(!max_rows || !max_cols);
+
     res = conout->SetMode(conout, best_mode);
-    // TODO: handle better
-    BUG_ON(res != EFI_SUCCESS);
+    DIE_ON(EFI_ERROR(res));
 
     conout->EnableCursor(conout, FALSE);
+    tty_available = true;
     print_info("set tty mode %zu cols x %zu rows\n", max_cols, max_rows);
 }
 
@@ -222,7 +229,7 @@ static EFI_HANDLE choose_gop_handle(EFI_HANDLE *handles, UINTN handle_count)
     return handles[0];
 }
 
-static void gfx_modes_init()
+static void gfx_modes_init(void)
 {
     EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *mode_info;
     size_t i, mode_size;
@@ -292,7 +299,7 @@ static void gfx_modes_init()
     }
 }
 
-static void gop_init()
+static void gop_init(void)
 {
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
     EFI_GUID active_edid_guid = EFI_EDID_ACTIVE_PROTOCOL_GUID;
@@ -343,11 +350,8 @@ static void gop_init()
     edid_init(edid_blob);
 }
 
-struct video_services *video_services_init()
+void uefi_video_services_init(void)
 {
-    logger_set_backend(&uefi_video_services);
     tty_init();
     gop_init();
-
-    return &uefi_video_services;
 }

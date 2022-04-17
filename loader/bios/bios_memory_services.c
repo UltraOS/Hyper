@@ -1,19 +1,19 @@
-#include "bios_memory_services.h"
-#include "physical_range.h"
-#include "bios_call.h"
+#define MSG_FMT(msg) "BIOS-MM: " msg
+
 #include "common/minmax.h"
 #include "common/bug.h"
 #include "common/log.h"
 #include "common/string.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "BIOS-MM: " msg
+#include "bios_memory_services.h"
+#include "memory_services.h"
+#include "services_impl.h"
+#include "physical_range.h"
+#include "bios_call.h"
 
 #define BUFFER_CAPACITY (PAGE_SIZE / sizeof(struct physical_range))
 static struct physical_range entries_buffer[BUFFER_CAPACITY];
 static size_t map_key = 0xDEADBEEF;
 static size_t entry_count = 0;
-static bool released = false;
 
 static void emplace_range(const struct physical_range *r)
 {
@@ -54,7 +54,7 @@ struct e820_entry {
 };
 
 // https://uefi.org/specs/ACPI/6.4/15_System_Address_Map_Interfaces/int-15h-e820h---query-system-address-map.html
-static void load_e820()
+static void load_e820(void)
 {
     struct physical_range range;
     struct e820_entry entry;
@@ -236,9 +236,6 @@ static u64 allocate_top_down(size_t page_count, u64 upper_limit, u32 type)
     if (bytes_to_allocate <= page_count)
         oops("invalid allocation size of %zu pages\n", page_count);
 
-    if (released)
-        oops("use-after-release: allocate_top_down()\n");
-
     map_key++;
 
     while (i-- > 0) {
@@ -313,6 +310,8 @@ static ssize_t first_range_that_contains(u64 value, bool allow_one_above)
 
 static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, u32 type)
 {
+    SERVICE_FUNCTION();
+
     u64 bytes_to_allocate = page_count * PAGE_SIZE;
     ssize_t range_index;
     struct range *picked_range = NULL;
@@ -321,9 +320,6 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
 
     if (bytes_to_allocate <= page_count)
         oops("invalid allocation size of %zu pages\n", page_count);
-
-    if (released)
-        oops("use-after-release: allocate_within()\n");
 
     map_key++;
 
@@ -381,13 +377,17 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
     return allocated_range.begin;
 }
 
-static u64 allocate_pages(size_t count, u64 upper_limit, u32 type)
+u64 ms_allocate_pages(size_t count, u64 upper_limit, u32 type)
 {
+    SERVICE_FUNCTION();
+
     return allocate_top_down(count, upper_limit, type);
 }
 
-static u64 allocate_pages_at(u64 address, size_t count, u32 type)
+u64 ms_allocate_pages_at(u64 address, size_t count, u32 type)
 {
+    SERVICE_FUNCTION();
+
     return allocate_within(count, address, address + (PAGE_SIZE * count), type);
 }
 
@@ -396,16 +396,13 @@ static void on_invalid_free(u64 address, size_t count)
    oops("invalid free at 0x%016llX pages: %zu\n", address, count);
 }
 
-static void free_pages(u64 address, size_t count)
+void ms_free_pages(u64 address, size_t count)
 {
     ssize_t range_index;
     struct physical_range freed_range = {
         .r = { address, address + (count * PAGE_SIZE) },
         .type = MEMORY_TYPE_FREE
     };
-
-    if (released)
-        oops("use-after-release: free_pages()\n");
 
     map_key++;
 
@@ -419,13 +416,12 @@ static void free_pages(u64 address, size_t count)
     allocate_out_of(&freed_range, range_index, true);
 }
 
-static size_t copy_map(void *buf, size_t capacity, size_t elem_size,
-                       size_t *out_key, entry_convert_func entry_convert)
+size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
+                   size_t *out_key, entry_convert_func entry_convert)
 {
-    size_t i;
+    SERVICE_FUNCTION();
 
-    if (released)
-        oops("use-after-release: copy_map()\n");
+    size_t i;
 
     if (capacity == 0)
         return entry_count;
@@ -457,21 +453,15 @@ static size_t copy_map(void *buf, size_t capacity, size_t elem_size,
     return entry_count;
 }
 
-bool memory_services_release(size_t key)
+bool bios_memory_services_check_key(size_t key)
 {
-    BUG_ON(released);
-
-    if (key != map_key)
-        return false;
-
-    released = true;
-    return true;
+    return key == map_key;
 }
 
 #define STAGE2_BASE_PAGE 0x00007000
 #define STAGE2_END_PAGE  0x00080000
 
-static void initialize_memory_map()
+static void initialize_memory_map(void)
 {
     size_t i;
     u64 res;
@@ -498,30 +488,19 @@ static void initialize_memory_map()
     correct_overlapping_ranges(0);
 
     // Try to allocate ourselves
-    res = allocate_pages_at(STAGE2_BASE_PAGE, (STAGE2_END_PAGE - STAGE2_BASE_PAGE) / PAGE_SIZE,
-                            MEMORY_TYPE_LOADER_RECLAIMABLE);
+    res = ms_allocate_pages_at(STAGE2_BASE_PAGE, (STAGE2_END_PAGE - STAGE2_BASE_PAGE) / PAGE_SIZE,
+                               MEMORY_TYPE_LOADER_RECLAIMABLE);
     if (res != STAGE2_BASE_PAGE)
         print_warn("failed to mark loader base 0x%08X as allocated\n", STAGE2_BASE_PAGE);
 }
 
-static u64 bios_get_highest_memory_map_address()
+u64 ms_get_highest_map_address(void)
 {
     BUG_ON(entry_count == 0);
     return entries_buffer[entry_count - 1].end;
 }
 
-static struct memory_services bios_ms = {
-    .allocate_pages_at = allocate_pages_at,
-    .allocate_pages = allocate_pages,
-    .free_pages = free_pages,
-    .copy_map = copy_map,
-    .get_highest_memory_map_address = bios_get_highest_memory_map_address
-};
-
-struct memory_services *memory_services_init()
+void bios_memory_services_init(void)
 {
-    if (!entry_count)
-        initialize_memory_map();
-
-    return &bios_ms;
+    initialize_memory_map();
 }

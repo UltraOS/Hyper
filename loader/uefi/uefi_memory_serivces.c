@@ -1,14 +1,12 @@
-#include "uefi_memory_serivces.h"
-#include "uefi_globals.h"
-#include "uefi_helpers.h"
-#include "common/constants.h"
-#include "services.h"
-#include "structures.h"
-#include "common/log.h"
-
-#undef MSG_FMT
 #define MSG_FMT(msg) "UEFI-MEMORY: " msg
 
+#include "common/constants.h"
+#include "common/log.h"
+#include "uefi_globals.h"
+#include "uefi_helpers.h"
+#include "memory_services.h"
+#include "services_impl.h"
+#include "uefi_structures.h"
 
 static void *internal_memory_map_buf = NULL;
 static size_t internal_map_byte_capacity = 0;
@@ -66,8 +64,10 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
     panic("don't know how to convert efi memory type 0x%08X into native\n", type);
 }
 
-static u64 uefi_allocate_pages_at(u64 address, size_t count, u32 type)
+u64 ms_allocate_pages_at(u64 address, size_t count, u32 type)
 {
+    SERVICE_FUNCTION();
+
     EFI_STATUS ret;
 
     ret = g_st->BootServices->AllocatePages(AllocateAddress, native_memory_type_to_efi(type), count, &address);
@@ -80,8 +80,10 @@ static u64 uefi_allocate_pages_at(u64 address, size_t count, u32 type)
     return address;
 }
 
-static u64 uefi_allocate_pages(size_t count, u64 upper_limit, u32 type)
+u64 ms_allocate_pages(size_t count, u64 upper_limit, u32 type)
 {
+    SERVICE_FUNCTION();
+
     EFI_STATUS ret;
     u64 address = upper_limit;
 
@@ -95,8 +97,10 @@ static u64 uefi_allocate_pages(size_t count, u64 upper_limit, u32 type)
     return address;
 }
 
-static void uefi_free_pages(u64 address, size_t count)
+void ms_free_pages(u64 address, size_t count)
 {
+    SERVICE_FUNCTION();
+
     EFI_STATUS ret = g_st->BootServices->FreePages(address, count);
     if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
@@ -114,7 +118,7 @@ static void internal_buf_ensure_capacity(size_t bytes)
     if (rounded_up_bytes <= internal_map_byte_capacity)
         return;
     if (internal_memory_map_buf)
-        uefi_free_pages((u64)internal_memory_map_buf, internal_map_byte_capacity / PAGE_SIZE);
+        ms_free_pages((u64)internal_memory_map_buf, internal_map_byte_capacity / PAGE_SIZE);
 
     ret = g_st->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, page_count, &addr);
     if (unlikely_efi_error(ret)) {
@@ -133,7 +137,7 @@ static EFI_MEMORY_DESCRIPTOR *memory_descriptor_at(size_t i)
     return internal_memory_map_buf + i * internal_descriptor_size;
 }
 
-static size_t fill_internal_memory_map_buffer()
+static size_t fill_internal_memory_map_buffer(void)
 {
     UINT32 descriptor_version;
     UINTN bytes_inout;
@@ -184,9 +188,11 @@ static size_t fill_internal_memory_map_buffer()
     return internal_map_entries;
 }
 
-static size_t uefi_copy_map(void *buf, size_t capacity, size_t elem_size,
-                            size_t *out_key, entry_convert_func entry_convert)
+size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
+                   size_t *out_key, entry_convert_func entry_convert)
 {
+    SERVICE_FUNCTION();
+
     /*
      * Only log errors after first call to GetMemoryMap,
      * as WriteString() is allowed to allocate.
@@ -221,25 +227,14 @@ static size_t uefi_copy_map(void *buf, size_t capacity, size_t elem_size,
     return internal_map_entries;
 }
 
-static u64 uefi_get_highest_memory_map_address()
+u64 ms_get_highest_map_address(void)
 {
+    SERVICE_FUNCTION();
+
     EFI_MEMORY_DESCRIPTOR *last_desc;
     if (!internal_map_entries)
         fill_internal_memory_map_buffer();
 
     last_desc = memory_descriptor_at(internal_map_entries - 1);
     return last_desc->PhysicalStart + last_desc->NumberOfPages * PAGE_SIZE;
-}
-
-static struct memory_services uefi_memory_services = {
-    .allocate_pages_at = uefi_allocate_pages_at,
-    .allocate_pages = uefi_allocate_pages,
-    .free_pages = uefi_free_pages,
-    .copy_map = uefi_copy_map,
-    .get_highest_memory_map_address = uefi_get_highest_memory_map_address
-};
-
-struct memory_services *memory_services_init()
-{
-    return &uefi_memory_services;
 }

@@ -1,21 +1,14 @@
 #include "log.h"
 #include "format.h"
 #include "string.h"
+#include "video_services.h"
 
-static struct video_services *log_backend = NULL;
 static enum log_level current_level = LOG_LEVEL_INFO;
 
 enum log_level logger_set_level(enum log_level level)
 {
     enum log_level prev = current_level;
     current_level = level;
-    return prev;
-}
-
-struct video_services *logger_set_backend(struct video_services *s)
-{
-    struct video_services *prev = log_backend;
-    log_backend = s;
     return prev;
 }
 
@@ -54,7 +47,7 @@ void vprintlvl(enum log_level level, const char *msg, va_list vlist)
     int chars;
     enum color col;
 
-    if (unlikely(!msg || !log_backend))
+    if (unlikely(!msg))
         return;
 
     if (level < current_level)
@@ -63,7 +56,7 @@ void vprintlvl(enum log_level level, const char *msg, va_list vlist)
     col = get_color_for_level(level);
 
     chars = vscnprintf(log_buf, sizeof(log_buf), msg, vlist);
-    log_backend->tty_write(log_buf, chars, col);
+    vs_write_tty(log_buf, chars, col);
 }
 
 void vprint(const char *msg, va_list vlist)

@@ -1,10 +1,9 @@
-#include "bios_find_rsdp.h"
+#define MSG_FMT(msg) "BIOS-ACPI: " msg
+
 #include "common/constants.h"
 #include "common/string.h"
 #include "common/log.h"
-
-#undef MSG_FMT
-#define MSG_FMT(msg) "BIOS-ACPI: " msg
+#include "services.h"
 
 #define RSDP_SIGNATURE "RSD PTR "
 #define RSDP_SIGNATURE_LEN 8
@@ -49,7 +48,7 @@ static ptr_t find_signature_in_range(u32 addr, u32 end)
     return 0;
 }
 
-ptr_t bios_find_rsdp()
+ptr_t services_find_rsdp(void)
 {
     u32 ebda_address = *(volatile u16*)BDA_EBDA_POINTER;
     ebda_address <<= 4;
