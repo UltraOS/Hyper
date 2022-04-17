@@ -40,6 +40,8 @@ static inline void dynamic_buffer_release(struct dynamic_buffer *db)
         return;
 
     free_bytes(db->buf, db->elem_size * db->capacity);
+    db->size = db->capacity = 0;
+    db->buf = NULL;
 }
 
 static inline void *dynamic_buffer_slot_alloc(struct dynamic_buffer *db)
