@@ -10,6 +10,8 @@
 #include "disk_services.h"
 #include "filesystem/block_cache.h"
 
+#define ISO9660_DEBUG 0
+
 struct iso9660_fs {
     struct filesystem f;
 
@@ -617,7 +619,8 @@ static bool directory_next_entry(struct iso9660_dir *dir, struct iso9660_dir_ent
 
         if (ISO9660_DEBUG) {
             struct string_view name = { out_ent->name, out_ent->name_length };
-            print_info("found a directory record: '%pSV'\n", &name);
+            print_info("found a dir record: '%pSV', first_block: %u, size: %llu\n",
+                       &name, out_ent->first_block, out_ent->size);
         }
 
         return true;
