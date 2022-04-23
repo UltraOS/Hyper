@@ -593,6 +593,7 @@ static bool directory_next_entry(struct iso9660_dir *dir, struct iso9660_dir_ent
     struct iso_dir_record *dr;
     u8 flags;
 
+    out_ent->flags = 0;
     for (;;) {
         if (!directory_fetch_raw_entry(dir, &dr))
             return false;
