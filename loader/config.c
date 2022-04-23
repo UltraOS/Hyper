@@ -701,11 +701,11 @@ bool cfg_parse(struct string_view src, struct config *cfg)
         }
     }
 
-    err_out:
+err_out:
     ret = false;
     dynamic_buffer_release(&cfg->entries_buf);
 
-    out:
+out:
 #ifdef CFG_DEBUG
     cfg_print_entries(cfg, 0, 0);
 #endif
@@ -846,11 +846,14 @@ static void oops_on_unexpected_type(struct string_view key, enum value_type type
 static bool cfg_find_ext(struct config *cfg, size_t offset, bool unique, struct string_view key,
                          enum value_type mask, struct value *val)
 {
+    struct find_result res;
+    struct config_entry *ent;
+
     BUG_ON(!mask);
     BUG_ON((ssize_t)offset != -1 && offset >= (cfg->entries_buf.size ? cfg->entries_buf.size - 1 : 0));
 
-    struct find_result res;
-    struct config_entry *ent;
+    if (cfg_empty(cfg))
+        return false;
 
     cfg_find(cfg, offset + 1, key, 2, &res);
 

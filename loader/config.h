@@ -111,6 +111,11 @@ struct config {
     struct dynamic_buffer entries_buf;
 };
 
+static inline bool cfg_empty(struct config *cfg)
+{
+    return cfg->entries_buf.size == 0;
+}
+
 bool cfg_parse(struct string_view text, struct config *cfg);
 void cfg_pretty_print_error(const struct config_error *err, struct string_view config_as_view);
 
