@@ -140,7 +140,7 @@ static bool iso9660_read_file(struct file* f, void *buffer, u64 offset, u32 size
 {
     struct iso9660_fs *fs = container_of(f->fs, struct iso9660_fs, f);
     struct iso9660_file *isf = container_of(f, struct iso9660_file, f);
-    u64 final_offset = (isf->first_block << f->fs->d.block_shift) + offset;
+    u64 final_offset = (isf->first_block << fs->block_shift) + offset;
 
     check_read(f, offset, size);
     return iso9660_read(fs, buffer, final_offset, size);
