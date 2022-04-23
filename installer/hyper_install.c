@@ -132,9 +132,9 @@ void write_hyper(FILE *img, struct mbr_partition_entry *mbr_partitions, bool is_
         write_stage2(img);
 }
 
-#define ISO9660_LOGICAL_BLOCK_SIZE 2048
+#define ISO9660_LOGICAL_SECTOR_SIZE 2048
 #define ISO9660_SYSTEM_AREA_BLOCKS 16
-#define ISO9660_PVD_OFF (ISO9660_LOGICAL_BLOCK_SIZE * ISO9660_SYSTEM_AREA_BLOCKS + 1)
+#define ISO9660_PVD_OFF (ISO9660_LOGICAL_SECTOR_SIZE * ISO9660_SYSTEM_AREA_BLOCKS + 1)
 #define ISO9660_IDENTIFIER "CD001"
 
 bool is_iso_disk(FILE *img)
@@ -178,14 +178,14 @@ int main(int argc, char **argv)
     }
     img = safe_open(argv[1], "r+b");
 
-    // Currently unsupported
-    ensure_no_gpt(img);
-
     read_mbr_partition_list(img, mbr_partitions);
     is_iso = is_iso_disk(img);
 
-    if (!is_iso)
+    if (!is_iso) {
+        // Currently unsupported
+        ensure_no_gpt(img);
         ensure_stage2_fits(mbr_partitions);
+    }
 
     write_hyper(img, mbr_partitions, is_iso);
     fclose(img);
