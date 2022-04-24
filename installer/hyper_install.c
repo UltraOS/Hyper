@@ -1,3 +1,5 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -56,7 +58,7 @@ FILE *safe_open(const char *path, const char *mode)
 
 void safe_read_at(FILE *f, size_t offset, void *buf, size_t bytes)
 {
-    if (fseek(f, offset, SEEK_SET) != 0)
+    if (fseek(f, (long)offset, SEEK_SET) != 0)
         panic("Failed to seek file to %zu:%s\n", offset, strerror(errno));
 
     if (fread(buf, 1, bytes, f) != bytes)
@@ -65,7 +67,7 @@ void safe_read_at(FILE *f, size_t offset, void *buf, size_t bytes)
 
 void safe_write_at(FILE *f, size_t offset, void *buf, size_t bytes)
 {
-    if (fseek(f, offset, SEEK_SET) != 0)
+    if (fseek(f, (long)offset, SEEK_SET) != 0)
         panic("Failed to seek file to %zu:%s\n", offset, strerror(errno));
 
     if (fwrite(buf, 1, bytes, f) != bytes)
