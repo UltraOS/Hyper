@@ -310,8 +310,6 @@ static ssize_t first_range_that_contains(u64 value, bool allow_one_above)
 
 static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, u32 type)
 {
-    SERVICE_FUNCTION();
-
     u64 bytes_to_allocate = page_count * PAGE_SIZE;
     ssize_t range_index;
     struct range *picked_range = NULL;
@@ -391,13 +389,10 @@ u64 ms_allocate_pages_at(u64 address, size_t count, u32 type)
     return allocate_within(count, address, address + (PAGE_SIZE * count), type);
 }
 
-static void on_invalid_free(u64 address, size_t count)
-{
-   oops("invalid free at 0x%016llX pages: %zu\n", address, count);
-}
-
 void ms_free_pages(u64 address, size_t count)
 {
+    SERVICE_FUNCTION();
+
     ssize_t range_index;
     struct physical_range freed_range = {
         .r = { address, address + (count * PAGE_SIZE) },
@@ -408,12 +403,16 @@ void ms_free_pages(u64 address, size_t count)
 
     range_index = first_range_that_contains(address, false);
     if (range_index < 0)
-        on_invalid_free(address, count);
+        goto die_on_invalid_free;
 
     if (!range_contains(&entries_buffer[range_index].r, &freed_range.r))
-        on_invalid_free(address, count);
+        goto die_on_invalid_free;
 
     allocate_out_of(&freed_range, range_index, true);
+    return;
+
+die_on_invalid_free:
+    oops("invalid free at 0x%016llX pages: %zu\n", address, count);
 }
 
 size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
