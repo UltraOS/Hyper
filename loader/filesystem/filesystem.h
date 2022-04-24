@@ -59,7 +59,7 @@ struct filesystem;
 
 struct file {
     struct filesystem *fs;
-    size_t size;
+    u64 size;
 
     bool (*read)(struct file*, void *buffer, u64 offset, u32 bytes);
 };

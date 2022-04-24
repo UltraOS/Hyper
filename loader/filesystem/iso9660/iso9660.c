@@ -148,7 +148,7 @@ static bool iso9660_read_file(struct file* f, void *buffer, u64 offset, u32 size
     return iso9660_read(fs, buffer, final_offset, size);
 }
 
-static struct file *iso9660_do_open_file(struct filesystem *fs, u32 first_block, u32 file_size)
+static struct file *iso9660_do_open_file(struct filesystem *fs, u32 first_block, u64 file_size)
 {
     struct iso9660_file *f = allocate_bytes(sizeof(struct iso9660_file));
     if (unlikely(!f))
@@ -634,7 +634,7 @@ static struct file *iso9660_open(struct filesystem *fs, struct string_view path)
 
     bool is_directory = true, node_found = false;
     u32 first_block = ifs->root_block;
-    u32 file_size = ifs->root_size;
+    u64 file_size = ifs->root_size;
 
     struct iso9660_dir dir = {
         .fs = ifs,
