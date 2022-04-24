@@ -10,9 +10,9 @@
 
 struct uefi_disk {
     u64 sectors;
+    u32 id;
     u8 block_shift;
     u8 status;
-    u8 id;
     EFI_BLOCK_IO_PROTOCOL *bio;
     EFI_DISK_IO_PROTOCOL *dio;
 };
