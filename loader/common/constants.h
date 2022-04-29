@@ -10,6 +10,9 @@
 #define ALIGN_DOWN_MASK(x, mask) ((x) & ~(mask))
 #define ALIGN_DOWN(x, val)       ALIGN_DOWN_MASK(x, (typeof(x))(val) - 1)
 
+#define IS_ALIGNED_MASK(x, mask) (((x) & (mask)) == 0)
+#define IS_ALIGNED(x, val)       IS_ALIGNED_MASK(x, (typeof(x))(val) - 1)
+
 #define PAGE_SIZE 4096
 #define PAGE_SHIFT 12
 #define PAGE_ROUND_UP(size)   ALIGN_UP(size, PAGE_SIZE)
