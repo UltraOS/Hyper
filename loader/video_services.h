@@ -76,7 +76,7 @@ struct framebuffer {
 /*
  * Number of video modes that can be queried.
  */
-u32 vs_get_mode_count();
+u32 vs_get_mode_count(void);
 
 /*
  * Retrieves information about a video mode at idx.
