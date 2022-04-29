@@ -206,7 +206,7 @@ static inline void cfg_ungetch(struct config_parser *p)
 
     p->pos.idx--;
 
-    if (p->src.text[p->pos.idx] == '\n') {;
+    if (p->src.text[p->pos.idx] == '\n') {
         p->pos.line--;
     } else if (p->pos.column != 0) {
         p->pos.column--;
