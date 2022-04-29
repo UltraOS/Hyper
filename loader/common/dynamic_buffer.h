@@ -28,7 +28,7 @@ static inline bool dynamic_buffer_init(struct dynamic_buffer *db, size_t elem_si
     return lazy ? true : dynamic_buffer_grow(db);
 }
 
-static void *dynamic_buffer_get_slot(struct dynamic_buffer *db, size_t i)
+static inline void *dynamic_buffer_get_slot(struct dynamic_buffer *db, size_t i)
 {
     BUG_ON(i >= db->size);
     return db->buf + (i * db->elem_size);
