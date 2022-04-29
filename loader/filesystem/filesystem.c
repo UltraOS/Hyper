@@ -247,8 +247,8 @@ bool parse_path(struct string_view path, struct full_path *out_path)
     return true;
 }
 
-struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range,
-                                 struct block_cache *bc)
+static struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range,
+                                        struct block_cache *bc)
 {
     return try_create_fat(d, lba_range, bc);
 }
@@ -270,8 +270,8 @@ enum {
 
 #define OFFSET_TO_MBR_PARTITION_LIST 0x01BE
 
-void initialize_from_mbr(const struct disk *d, struct block_cache *bc,
-                         size_t base_index, u64 sector_offset)
+static void initialize_from_mbr(const struct disk *d, struct block_cache *bc,
+                                size_t base_index, u64 sector_offset)
 {
     struct mbr_partition_entry partitions[4];
     u64 part_abs_byte_off = (sector_offset << d->block_shift) + OFFSET_TO_MBR_PARTITION_LIST;
@@ -358,7 +358,7 @@ struct gpt_part_ctx {
     size_t part_idx;
 };
 
-void process_gpt_partition(struct gpt_part_ctx *ctx)
+static void process_gpt_partition(struct gpt_part_ctx *ctx)
 {
     struct filesystem *fs = NULL;
     struct range lba_range;
@@ -379,7 +379,7 @@ void process_gpt_partition(struct gpt_part_ctx *ctx)
                      &ctx->pe.UniquePartitionGUID, fs);
 }
 
-void initialize_from_gpt(struct disk *d, struct block_cache *bc)
+static void initialize_from_gpt(struct disk *d, struct block_cache *bc)
 {
     struct gpt_header hdr;
     struct gpt_part_ctx part_ctx;
@@ -414,7 +414,7 @@ void initialize_from_gpt(struct disk *d, struct block_cache *bc)
 #define MBR_SIGNATURE 0xAA55
 #define OFFSET_TO_MBR_SIGNATURE 510
 
-bool check_cd(const struct disk *d, struct block_cache *bc)
+static bool check_cd(const struct disk *d, struct block_cache *bc)
 {
     struct filesystem *fs;
 
@@ -426,7 +426,7 @@ bool check_cd(const struct disk *d, struct block_cache *bc)
     return true;
 }
 
-void detect_raw(const struct disk *d, struct block_cache *bc)
+static void detect_raw(const struct disk *d, struct block_cache *bc)
 {
     struct filesystem *fs;
     struct range lba_range = { 0, d->sectors };
