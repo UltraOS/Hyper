@@ -18,7 +18,7 @@ struct fs_entry {
     struct filesystem *fs;
 };
 
-void fs_table_init();
+void fs_table_init(void);
 
 void add_raw_fs_entry(const struct disk *d, struct filesystem*);
 

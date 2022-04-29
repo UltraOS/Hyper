@@ -6,7 +6,7 @@
 static struct fs_entry origin_fs;
 static struct dynamic_buffer entry_buf;
 
-void fs_table_init()
+void fs_table_init(void)
 {
     dynamic_buffer_init(&entry_buf, sizeof(struct fs_entry), true);
 }
