@@ -201,7 +201,7 @@ static void fetch_all_disks(void)
         disks_buffer[drive_index - FIRST_DRIVE_INDEX] = (struct bios_disk) {
             .sectors = drive_params.total_sector_count,
             .id = drive_index,
-            .block_shift = __builtin_ffs(drive_params.bytes_per_sector) - 1,
+            .block_shift = __builtin_ctz(drive_params.bytes_per_sector),
             .status = is_removable ? DISK_STS_REMOVABLE : 0
         };
         disk_count++;
