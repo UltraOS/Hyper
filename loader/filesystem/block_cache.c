@@ -154,7 +154,19 @@ bool block_cache_read(struct block_cache *bc, void *buf, u64 byte_off, size_t co
 
 bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block, size_t count)
 {
-    struct block_req br = {
+    struct block_req br;
+
+    // No reason to make this request go through cache
+    if (count > bc->cache_block_cap && (bc->flags & BC_DIRECT_IO)) {
+        if (bc->refill_blocks_cb(bc->user_ptr, buf, block, count))
+            return true;
+
+        // Attempt a bounce buffer read if the call above fails, since
+        // the failure could be caused by the alignment being too low
+        // or block count being too high
+    }
+
+    br = (struct block_req) {
         .coords = {
             .base_block = block,
             .block_count = count
