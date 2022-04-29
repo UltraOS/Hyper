@@ -58,8 +58,6 @@ void loader_abort(void)
     bios_call(0x16, &regs, &regs);
 
     bios_jmp_to_reset_vector();
-
-    for (;;);
 }
 
 void bios_entry(void)
@@ -73,7 +71,4 @@ void bios_entry(void)
     bios_disk_services_init();
 
     loader_entry();
-
-    // unreachable
-    loader_abort();
 }
