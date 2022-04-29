@@ -17,7 +17,8 @@ struct block_cache {
     u16 block_size;
     u8 block_shift;
 
-#define BC_EMPTY (1 << 0)
+#define BC_EMPTY     (1 << 0)
+#define BC_DIRECT_IO (1 << 1)
     u8 flags;
 };
 
@@ -48,3 +49,9 @@ bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block, size_
  */
 bool block_cache_take_ref(struct block_cache *bc, void **buf, u64 byte_off, size_t count);
 void block_cache_release_ref(struct block_cache *bc);
+
+// Able to read blocks into a buffer other than 'cache_buf'
+static inline void block_cache_enable_direct_io(struct block_cache *bc)
+{
+    bc->flags |= BC_DIRECT_IO;
+}
