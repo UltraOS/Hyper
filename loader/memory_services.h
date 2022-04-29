@@ -75,4 +75,4 @@ size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
 /*
  * Returns the address of the last byte of the last entry in the memory map + 1
  */
-u64 ms_get_highest_map_address();
+u64 ms_get_highest_map_address(void);
