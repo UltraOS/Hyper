@@ -271,10 +271,10 @@ static void gfx_modes_init(void)
                 bpp = 24;
             }
 
-            r_shift = __builtin_clz(pb->RedMask);
-            g_shift = __builtin_clz(pb->GreenMask);
-            b_shift = __builtin_clz(pb->BlueMask);
-            x_shift = pb->ReservedMask ? __builtin_clz(pb->ReservedMask) : 0;
+            r_shift = __builtin_ctz(pb->RedMask);
+            g_shift = __builtin_ctz(pb->GreenMask);
+            b_shift = __builtin_ctz(pb->BlueMask);
+            x_shift = pb->ReservedMask ? __builtin_ctz(pb->ReservedMask) : 0;
 
             fb_format = fb_format_from_mask_shifts_8888(r_shift, g_shift, b_shift, x_shift, bpp);
             if (fb_format == FB_FORMAT_INVALID)
