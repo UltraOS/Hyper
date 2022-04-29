@@ -64,7 +64,7 @@ void loader_abort(void)
     }
 
     g_st->BootServices->Exit(g_img, EFI_ABORTED, 0, NULL);
-    for (;;);
+    __builtin_unreachable();
 }
 
 EFI_STATUS EFIAPI EfiMain(
@@ -91,5 +91,4 @@ EFI_STATUS EFIAPI EfiMain(
     }
 
     loader_entry();
-    return EFI_ABORTED;
 }
