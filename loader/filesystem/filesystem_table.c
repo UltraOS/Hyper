@@ -4,7 +4,7 @@
 #include "common/dynamic_buffer.h"
 
 static struct fs_entry origin_fs;
-struct dynamic_buffer entry_buf;
+static struct dynamic_buffer entry_buf;
 
 void fs_table_init()
 {
