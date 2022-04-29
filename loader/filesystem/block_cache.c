@@ -158,12 +158,13 @@ bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block, size_
 
     // No reason to make this request go through cache
     if (count > bc->cache_block_cap && (bc->flags & BC_DIRECT_IO)) {
+        /*
+         * Attempt a bounce buffer read if the call to refill_blocks fails,
+         * since the failure could be caused by the alignment being too low
+         * or block count being too high.
+         */
         if (bc->refill_blocks_cb(bc->user_ptr, buf, block, count))
             return true;
-
-        // Attempt a bounce buffer read if the call above fails, since
-        // the failure could be caused by the alignment being too low
-        // or block count being too high
     }
 
     br = (struct block_req) {
