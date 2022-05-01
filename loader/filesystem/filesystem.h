@@ -60,19 +60,50 @@ struct filesystem;
 struct file {
     struct filesystem *fs;
     u64 size;
-
-    bool (*read)(struct file*, void *buffer, u64 offset, u32 bytes);
 };
-void check_read(struct file *f, u64 offset, u32 size);
+
+struct dir_iter_ctx {
+    /*
+     * This is not very good, but it allows us to avoid allocations
+     * when iterating directories.
+     */
+    _Alignas(u64)
+    char opaque[4 * sizeof(u64)];
+};
+
+#define DIR_REC_MAX_NAME_LEN 255
+struct dir_rec {
+    char name[DIR_REC_MAX_NAME_LEN];
+    u8 name_len;
+
+#define DIR_REC_SUBDIR (1 << 0)
+    u8 flags;
+
+    u64 size;
+
+    _Alignas(u64)
+    char opaque[2 * sizeof(u64)];
+};
+
+static inline bool dir_rec_is_subdir(struct dir_rec *rec)
+{
+    return rec->flags & DIR_REC_SUBDIR;
+}
 
 struct filesystem {
     struct disk d;
     struct range lba_range;
-    struct file *(*open)(struct filesystem *fs, struct string_view path);
-    void (*close)(struct file*);
+
+    // ctx is initialized from the root directory if 'rec' is NULL.
+    void (*iter_ctx_init)(struct filesystem *fs, struct dir_iter_ctx *ctx, struct dir_rec *rec);
+    bool (*next_dir_rec)(struct filesystem *fs, struct dir_iter_ctx *ctx, struct dir_rec *out_rec);
+
+    struct file *(*open_file)(struct filesystem *fs, struct dir_rec *rec);
+    void (*close_file)(struct file*);
+    bool (*read_file)(struct file*, void *buffer, u64 offset, u32 bytes);
 };
+void check_read(struct file *f, u64 offset, u32 size);
 
 void fs_detect_all(struct disk *d, struct block_cache *bc);
 
-bool split_prefix_and_path(struct string_view str, struct string_view *prefix, struct string_view *path);
-bool next_path_node(struct string_view* path, struct string_view* node);
+struct file *fs_open(struct filesystem *fs, struct string_view path);

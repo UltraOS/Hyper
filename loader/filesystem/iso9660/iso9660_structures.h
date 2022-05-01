@@ -59,14 +59,14 @@ enum vd_type {
 
 #define ISO9660_IDENTIFIER "CD001"
 
-struct PACKED iso_vd {
+struct PACKED iso9660_vd {
     u8 descriptor_type_711                  ECMA119_BP(1, 1);
     char standard_identifier                ECMA119_BP(2, 6);
     u8 volume_descriptor_version_711        ECMA119_BP(7, 7);
     u8 data                                 ECMA119_BP(8, 2048);
 };
 
-struct PACKED iso_pvd {
+struct PACKED iso9660_pvd {
     u8 descriptor_type_711                  ECMA119_BP(1, 1);
     char standard_identifier                ECMA119_BP(2, 6);
     u8 volume_descriptor_version_711        ECMA119_BP(7, 7);
@@ -101,9 +101,9 @@ struct PACKED iso_pvd {
     u8 application_used                     ECMA119_BP(884, 1395);
     u8 reserved_field_2                     ECMA119_BP(1396, 2048);
 };
-BUILD_BUG_ON(sizeof(struct iso_pvd) != 2048);
+BUILD_BUG_ON(sizeof(struct iso9660_pvd) != 2048);
 
-struct PACKED iso_dir_record {
+struct PACKED iso9660_dir_record {
     u8 record_length_711                    ECMA119_BP(1, 1);
     u8 extended_attr_rec_length_711         ECMA119_BP(2, 2);
     u8 location_of_extent_733               ECMA119_BP(3, 10);
@@ -116,7 +116,7 @@ struct PACKED iso_dir_record {
     u8 identifier_length_711                ECMA119_BP(33, 33);
     char identifier[];
 };
-BUILD_BUG_ON(sizeof(struct iso_dir_record) != 33);
+BUILD_BUG_ON(sizeof(struct iso9660_dir_record) != 33);
 
 #define ISO9660_HIDDEN_DIR (1 << 0)
 #define ISO9660_SUBDIR     (1 << 1)

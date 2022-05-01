@@ -32,22 +32,6 @@ die:
     panic("BUG: invalid read at offset %llu with size %u", offset, size);
 }
 
-bool split_prefix_and_path(struct string_view str, struct string_view *prefix, struct string_view *path)
-{
-    struct string_view delim = SV("::");
-    ssize_t pref_idx = sv_find(str, delim, 0);
-
-    if (pref_idx < 0) {
-        sv_clear(prefix);
-        *path = str;
-    } else {
-        *prefix = (struct string_view) { str.text, pref_idx };
-        *path = (struct string_view) { str.text + pref_idx + 2, str.size - pref_idx - 2 };
-    }
-
-    return true;
-}
-
 bool next_path_node(struct string_view *path, struct string_view *node)
 {
     struct string_view sep = SV("/");
@@ -465,4 +449,42 @@ void fs_detect_all(struct disk *d, struct block_cache *bc)
     }
 
     detect_raw(d, bc);
+}
+
+struct file *fs_open(struct filesystem *fs, struct string_view path)
+{
+    struct dir_iter_ctx ctx;
+    struct dir_rec rec;
+    struct string_view node;
+    bool node_found = false, is_dir = true;
+
+    fs->iter_ctx_init(fs, &ctx, NULL);
+
+    while (next_path_node(&path, &node)) {
+        if (sv_equals(node, SV(".")))
+            continue;
+        if (!is_dir)
+            return NULL;
+
+        node_found = false;
+
+        while (fs->next_dir_rec(fs, &ctx, &rec)) {
+            if (!sv_equals((struct string_view) { rec.name, rec.name_len }, node))
+                continue;
+
+            node_found = true;
+            is_dir = dir_rec_is_subdir(&rec);
+            break;
+        }
+
+        if (!node_found)
+            break;
+
+        fs->iter_ctx_init(fs, &ctx, &rec);
+    }
+
+    if (!node_found || is_dir)
+        return NULL;
+
+    return fs->open_file(fs, &rec);
 }

@@ -146,7 +146,7 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
         if (!fse)
             oops("no such disk/partition %pSV\n", &str_path);
 
-        module_file = fse->fs->open(fse->fs, path.path_within_partition);
+        module_file = fs_open(fse->fs, path.path_within_partition);
         if (!module_file)
             oops("no such file %pSV\n", &path.path_within_partition);
 
@@ -166,11 +166,11 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
         else
             module_data = allocate_critical_pages_with_type(module_pages, ULTRA_MEMORY_TYPE_MODULE);
 
-        if (!module_file->read(module_file, module_data, 0, bytes_to_read))
+        if (!module_file->fs->read_file(module_file, module_data, 0, bytes_to_read))
             oops("failed to read module file\n");
 
         memzero(module_data + bytes_to_read, (module_pages * PAGE_SIZE) - bytes_to_read);
-        fse->fs->close(module_file);
+        fse->fs->close_file(module_file);
     } else { // module_type == ULTRA_MODULE_TYPE_MEMORY
         if (!module_size)
             oops("module size cannot be 0 for type \"memory\"\n");
@@ -213,14 +213,14 @@ void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel
     get_binary_options(cfg, entry, &info->bin_opts);
     fse = fs_by_full_path(&info->bin_opts.path);
 
-    f = fse->fs->open(fse->fs, info->bin_opts.path.path_within_partition);
+    f = fs_open(fse->fs, info->bin_opts.path.path_within_partition);
     if (!f)
         oops("failed to open %pSV\n", &info->bin_opts.path.path_within_partition);
 
     info->blob_size = f->size;
     info->elf_blob = allocate_critical_bytes(info->blob_size);
 
-    if (!f->read(f, info->elf_blob, 0, info->blob_size))
+    if (!f->fs->read_file(f, info->elf_blob, 0, info->blob_size))
         oops("failed to read file\n");
 
     bitness = elf_bitness(info->elf_blob, info->blob_size);
@@ -238,7 +238,7 @@ void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel
                   ULTRA_MEMORY_TYPE_KERNEL_BINARY, &res))
         oops("failed to load kernel binary: %s\n", res.error_msg);
 
-    fse->fs->close(f);
+    fse->fs->close_file(f);
     info->bin_info = res.info;
 }
 

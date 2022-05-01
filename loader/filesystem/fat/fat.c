@@ -153,8 +153,6 @@ struct fat_filesystem {
 
     size_t fat_view_offset;
     void *fat_view;
-
-    struct fat_file *root_directory;
 };
 
 
@@ -162,8 +160,7 @@ struct fat_filesystem {
 #define DIR_FIXED_CAP_ROOT (1 << 1)
 #define DIR_EOF            (1 << 0)
 
-struct fat_directory {
-    struct fat_filesystem *parent;
+struct fat_dir_iter_ctx {
     union {
         u32 current_cluster;
         u32 first_sector_off;
@@ -171,15 +168,15 @@ struct fat_directory {
     u32 current_offset;
     u8 flags;
 };
+#define FAT_DIR_ITER_CTX(ctx) (struct fat_dir_iter_ctx*)((ctx)->opaque)
 
-struct fat_directory_record {
-    char name[255];
-    u8 name_length;
-
-    bool is_directory;
-    u32 first_cluster;
-    u32 size;
+struct fat_dir_rec_data {
+    union {
+        u32 first_cluster;
+        u32 first_sector_off;
+    };
 };
+#define FAT_DIR_REC_DATA(rec) (struct fat_dir_rec_data*)((rec)->opaque)
 
 static u8 generate_short_name_checksum(const char *name)
 {
@@ -249,16 +246,6 @@ static u32 pure_cluster_value(u32 value)
 {
     BUG_ON(value < RESERVED_CLUSTER_COUNT);
     return value - RESERVED_CLUSTER_COUNT;
-}
-
-static struct fat_file *fat_do_open_file(struct fat_filesystem *fs, u32 root_cluster, u32 size);
-
-static bool ensure_root_directory(struct fat_filesystem *fs) {
-    if (fs->root_directory)
-        return true;
-
-    fs->root_directory = fat_do_open_file(fs, fs->root_dir_cluster, 0);
-    return fs->root_directory != NULL;
 }
 
 static bool ensure_fat_view(struct fat_filesystem *fs)
@@ -508,55 +495,57 @@ static bool fat_read(struct fat_filesystem *fs, u32 cluster, u32 offset, u32 byt
     return ds_read(fs->f.d.handle, buffer, offset_to_read, bytes);
 }
 
-static bool fixed_root_directory_fetch_next_entry(struct fat_directory *dir, void *entry)
+static bool fixed_root_dir_fetch_next_entry(struct fat_filesystem *fs, struct fat_dir_iter_ctx *ctx,
+                                            void *entry)
 {
-    struct fat_filesystem *fs = dir->parent;
     struct disk *d = &fs->f.d;
     u64 offset_to_read;
 
-    if ((dir->current_offset / sizeof(struct fat_directory_entry)) == fs->root_dir_entries) {
-       dir->flags |= DIR_EOF;
+    if ((ctx->current_offset / sizeof(struct fat_directory_entry)) == fs->root_dir_entries) {
+       ctx->flags |= DIR_EOF;
        return false;
     }
 
-    offset_to_read = fs->f.lba_range.begin + dir->first_sector_off;
+    offset_to_read = fs->f.lba_range.begin + ctx->first_sector_off;
     offset_to_read <<= d->block_shift;
-    offset_to_read += dir->current_offset;
-    dir->current_offset += sizeof(struct fat_directory_entry);
+    offset_to_read += ctx->current_offset;
+    ctx->current_offset += sizeof(struct fat_directory_entry);
 
     return ds_read(d->handle, entry, offset_to_read, sizeof(struct fat_directory_entry));
 }
 
-static bool directory_fetch_next_entry(struct fat_directory *dir, void* entry)
+static bool dir_fetch_next_entry(struct fat_filesystem *fs, struct fat_dir_iter_ctx *ctx,
+                                 void* entry)
 {
-    if (dir->flags & DIR_EOF)
+    if (ctx->flags & DIR_EOF)
         return false;
 
-    if (dir->flags & DIR_FIXED_CAP_ROOT)
-        return fixed_root_directory_fetch_next_entry(dir, entry);
+    if (ctx->flags & DIR_FIXED_CAP_ROOT)
+        return fixed_root_dir_fetch_next_entry(fs, ctx, entry);
 
-    if ((dir->current_offset >> dir->parent->cluster_shift) == 1) {
-        u32 next_cluster = fat_entry_at(dir->parent, dir->current_cluster);
+    if ((ctx->current_offset >> fs->cluster_shift) == 1) {
+        u32 next_cluster = fat_entry_at(fs, ctx->current_cluster);
 
-        if (entry_type_of_fat_value(next_cluster, dir->parent->fat_type) != FAT_ENTRY_LINK) {
-            dir->flags |= DIR_EOF;
+        if (entry_type_of_fat_value(next_cluster, fs->fat_type) != FAT_ENTRY_LINK) {
+            ctx->flags |= DIR_EOF;
             return false;
         }
 
-        dir->current_cluster = next_cluster;
-        dir->current_offset = 0;
+        ctx->current_cluster = next_cluster;
+        ctx->current_offset = 0;
     }
 
-    bool ok = fat_read(dir->parent, pure_cluster_value(dir->current_cluster),
-                       dir->current_offset, sizeof(struct fat_directory_entry), entry);
-    dir->flags |= !ok ? DIR_EOF : 0;
-    dir->current_offset += sizeof(struct fat_directory_entry);
+    bool ok = fat_read(fs, pure_cluster_value(ctx->current_cluster),
+                       ctx->current_offset, sizeof(struct fat_directory_entry), entry);
+    ctx->flags |= !ok ? DIR_EOF : 0;
+    ctx->current_offset += sizeof(struct fat_directory_entry);
 
     return ok;
 }
 
-static void process_normal_entry(struct fat_directory_entry *entry, struct fat_directory_record *out, bool is_small)
+static void process_normal_entry(struct fat_directory_entry *entry, struct dir_rec *out, bool is_small)
 {
+    struct fat_dir_rec_data *fd = FAT_DIR_REC_DATA(out);
     struct string_view name_view = { .text = entry->filename, FAT_SHORT_NAME_LENGTH };
     struct string_view extension_view = { .text = entry->extension, FAT_SHORT_EXTENSION_LENGTH };
 
@@ -581,12 +570,12 @@ static void process_normal_entry(struct fat_directory_entry *entry, struct fat_d
             memcpy(out->name + name_len, extension_view.text, extension_len);
         }
 
-        out->name_length = name_len + extension_len;
+        out->name_len = name_len + extension_len;
     }
 
     out->size = entry->size;
-    out->first_cluster = ((u32)entry->cluster_high << 16) | entry->cluster_low;
-    out->is_directory = entry->attributes & SUBDIR_ATTRIBUTE;
+    fd->first_cluster = ((u32)entry->cluster_high << 16) | entry->cluster_low;
+    out->flags = (entry->attributes & SUBDIR_ATTRIBUTE) ? DIR_REC_SUBDIR : 0;
 }
 
 static size_t ucs2_to_ascii(const u8 *ucs2, size_t count, char **out)
@@ -614,6 +603,7 @@ static size_t ucs2_to_ascii(const u8 *ucs2, size_t count, char **out)
 
 #define MAX_SEQUENCE_NUMBER 20
 #define MAX_NAME_LENGTH 255
+BUILD_BUG_ON(MAX_NAME_LENGTH > DIR_REC_MAX_NAME_LEN);
 
 /*
  * Since you can have at max 20 chained long entries, the theoretical limit is 20 * 13 characters,
@@ -621,32 +611,32 @@ static size_t ucs2_to_ascii(const u8 *ucs2, size_t count, char **out)
  */
 #define CHARS_FOR_LAST_LONG_ENTRY 8
 
-static bool directory_next_entry(struct fat_directory *dir, struct fat_directory_record *out)
+static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ctx,
+                             struct dir_rec *out_rec)
 {
+    struct fat_filesystem *fs = container_of(base_fs, struct fat_filesystem, f);
+    struct fat_dir_iter_ctx *fctx = FAT_DIR_ITER_CTX(ctx);
     struct fat_directory_entry normal_entry;
 
-    if (dir->flags & DIR_EOF)
+    if (fctx->flags & DIR_EOF)
         return false;
 
     for (;;) {
         bool is_long;
         struct long_name_fat_directory_entry *long_entry;
-        u8 initial_sequence_number;
-        u8 sequence_number;
+        u8 checksum, initial_sequence_number, sequence_number;
         char *name_ptr;
-        size_t chars_written = 0;
+        size_t i, chars_written = 0;
         u32 checksum_array[MAX_SEQUENCE_NUMBER] = { 0 };
-        u8 checksum;
-        size_t i;
 
-        if (!directory_fetch_next_entry(dir, &normal_entry))
+        if (!dir_fetch_next_entry(fs, fctx, &normal_entry))
             return false;
 
         if ((u8)normal_entry.filename[0] == DELETED_FILE_MARK)
             continue;
 
         if ((u8)normal_entry.filename[0] == END_OF_DIRECTORY_MARK) {
-            dir->flags |= DIR_EOF;
+            fctx->flags |= DIR_EOF;
             return false;
         }
 
@@ -658,7 +648,7 @@ static bool directory_next_entry(struct fat_directory *dir, struct fat_directory
             continue;
 
         if (!is_long) {
-            process_normal_entry(&normal_entry, out, false);
+            process_normal_entry(&normal_entry, out_rec, false);
             return true;
         }
 
@@ -669,7 +659,7 @@ static bool directory_next_entry(struct fat_directory *dir, struct fat_directory
         if (!(long_entry->sequence_number & LAST_LOGICAL_ENTRY_BIT))
             return false;
 
-        name_ptr = out->name + MAX_NAME_LENGTH;
+        name_ptr = out_rec->name + MAX_NAME_LENGTH;
         name_ptr -= CHARS_FOR_LAST_LONG_ENTRY;
 
         for (;;) {
@@ -692,13 +682,13 @@ static bool directory_next_entry(struct fat_directory *dir, struct fat_directory
             checksum_array[sequence_number - 1] = long_entry->checksum;
 
             if (sequence_number == 1) {
-                if (!directory_fetch_next_entry(dir, &normal_entry))
+                if (!dir_fetch_next_entry(fs, fctx, &normal_entry))
                     return false;
 
                 break;
             }
 
-            if (!directory_fetch_next_entry(dir, &normal_entry))
+            if (!dir_fetch_next_entry(fs, fctx, &normal_entry))
                 return false;
 
             --sequence_number;
@@ -707,11 +697,11 @@ static bool directory_next_entry(struct fat_directory *dir, struct fat_directory
 
         BUG_ON(chars_written >= MAX_NAME_LENGTH);
 
-        if (name_ptr != out->name)
-            memmove(out->name, name_ptr, chars_written);
+        if (name_ptr != out_rec->name)
+            memmove(out_rec->name, name_ptr, chars_written);
 
-        out->name_length = chars_written;
-        process_normal_entry(&normal_entry, out, true);
+        out_rec->name_len = chars_written;
+        process_normal_entry(&normal_entry, out_rec, true);
 
         checksum = generate_short_name_checksum(normal_entry.filename);
 
@@ -775,7 +765,6 @@ static struct fat_file *fat_do_open_file(struct fat_filesystem *fs, u32 first_cl
 
     file->f = (struct file) {
         .fs = &fs->f,
-        .read = fat_file_read,
         .size = size
     };
 
@@ -785,59 +774,46 @@ static struct fat_file *fat_do_open_file(struct fat_filesystem *fs, u32 first_cl
     return file;
 }
 
-static struct file *fat_open(struct filesystem *base_fs, struct string_view path)
+static struct file *fat_open_file(struct filesystem *base_fs, struct dir_rec *rec)
 {
     struct fat_filesystem *fs = container_of(base_fs, struct fat_filesystem, f);
-    struct fat_directory dir;
+    struct fat_dir_rec_data *fd = FAT_DIR_REC_DATA(rec);
     struct fat_file *file;
-    u32 first_cluster, size = 0;
-    bool is_directory = true, node_found = false;
-    struct string_view node;
 
-    if (!ensure_root_directory(fs))
-        return NULL;
+    BUG_ON(rec->flags & DIR_REC_SUBDIR);
 
-    first_cluster = fs->root_directory->first_cluster;
-    dir = (struct fat_directory) {
-        .parent = fs,
-        .current_cluster = first_cluster,
-        .flags = (fs->fat_type != FAT_TYPE_32) ? DIR_FIXED_CAP_ROOT : 0
-    };
-
-    while (next_path_node(&path, &node)) {
-        struct fat_directory_record rec = { 0 };
-
-        if (sv_equals(node, SV(".")))
-            continue;
-        if (!is_directory)
-            return NULL;
-
-        while (directory_next_entry(&dir, &rec)) {
-            if (!sv_equals((struct string_view) { rec.name, rec.name_length }, node))
-                continue;
-
-            first_cluster = rec.first_cluster;
-            size = rec.size;
-            node_found = true;
-            is_directory = rec.is_directory;
-            break;
-        }
-
-        if (!node_found)
-            break;
-
-        dir.current_cluster = first_cluster;
-        dir.current_offset = dir.flags = 0;
-    }
-
-    if (!node_found || is_directory)
-        return NULL;
-
-    file = fat_do_open_file(fs, first_cluster, size);
+    file = fat_do_open_file(fs, fd->first_cluster, rec->size);
     if (!file)
         return NULL;
 
     return &file->f;
+}
+
+static void fat_iter_ctx_init(struct filesystem *base_fs, struct dir_iter_ctx *ctx,
+                              struct dir_rec *rec)
+{
+    struct fat_filesystem *fs = container_of(base_fs, struct fat_filesystem, f);
+    struct fat_dir_iter_ctx *fctx = FAT_DIR_ITER_CTX(ctx);
+
+    fctx->current_cluster = 0;
+    fctx->current_offset = 0;
+    fctx->flags = 0;
+
+    if (rec) {
+        struct fat_dir_rec_data *fd = FAT_DIR_REC_DATA(rec);
+        fctx->current_cluster = fd->first_cluster;
+    }
+
+    /*
+     * Tried to open '..' in a root subdir or rec is NULL.
+     * Either way what we do here is target the ctx at the root directory.
+     */
+    if (fctx->current_cluster == 0) {
+        fctx->current_cluster = fs->root_dir_cluster;
+
+        if (fs->fat_type != FAT_TYPE_32)
+            fctx->flags |= DIR_FIXED_CAP_ROOT;
+    }
 }
 
 static void fat_file_free(struct fat_file *file, enum fat_type ft)
@@ -851,13 +827,10 @@ static void fat_file_free(struct fat_file *file, enum fat_type ft)
     free_bytes(file, sizeof(struct fat_file));
 }
 
-static void fat_close(struct file *f)
+static void fat_file_close(struct file *f)
 {
     struct fat_file *file = container_of(f, struct fat_file, f);
     struct fat_filesystem *fs = container_of(file->f.fs, struct fat_filesystem, f);
-
-    if (file == fs->root_directory)
-        return;
 
     fat_file_free(file, fs->fat_type == FAT_TYPE_32);
 }
@@ -996,14 +969,16 @@ struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
     fs->f = (struct filesystem) {
         .d = *d,
         .lba_range = lba_range,
-        .open = fat_open,
-        .close = fat_close
+        .iter_ctx_init = fat_iter_ctx_init,
+        .next_dir_rec = fat_next_dir_rec,
+        .open_file = fat_open_file,
+        .close_file = fat_file_close,
+        .read_file = fat_file_read
     };
 
     fs->fat_type = info.type;
     fs->fat_view = NULL;
     fs->fat_view_offset = FAT_VIEW_OFF_INVALID;
-    fs->root_directory = NULL;
 
     range_advance_begin(&lba_range, info.reserved_sectors);
 

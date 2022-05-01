@@ -55,7 +55,7 @@ void init_config(struct config *out_cfg)
     set_origin_fs(fe);
     cfg_data = allocate_critical_bytes(cfg_file->size);
 
-    if (!cfg_file->read(cfg_file, cfg_data, 0, cfg_file->size))
+    if (!cfg_file->fs->read_file(cfg_file, cfg_data, 0, cfg_file->size))
         oops("failed to read config file\n");
 
     cfg_view = (struct string_view) {
@@ -106,7 +106,7 @@ struct file *find_config_file(struct fs_entry **out_entry)
     for (i = 0; i < entry_count; ++i) {
         for (j = 0; j < ARRAY_SIZE(search_paths); ++j) {
             struct filesystem *fs = entries[i].fs;
-            struct file *f = fs->open(fs, search_paths[j]);
+            struct file *f = fs_open(fs, search_paths[j]);
 
             if (!f)
                 continue;

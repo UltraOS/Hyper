@@ -26,26 +26,31 @@ struct iso9660_fs {
     struct block_cache ca_cache;
 };
 
-struct iso9660_dir {
-    struct iso9660_fs *fs;
+struct iso9660_dir_rec_data {
+    u32 first_block;
+};
+#define ISO9660_DIR_REC_DATA(rec) (struct iso9660_dir_rec_data*)((rec)->opaque)
 
+struct iso9660_dir_iter_ctx {
     u64 base_off;
     u64 cur_off;
     u64 size;
 };
+#define ISO9660_DIR_ITER_CTX(ctx) (struct iso9660_dir_iter_ctx*)((ctx)->opaque)
+
 // Must be page-aligned
 #define DIRECTORY_CACHE_SIZE PAGE_SIZE
 #define CA_CACHE_SIZE        PAGE_SIZE
 
-static bool dir_eof(struct iso9660_dir *dir)
+static bool dir_iter_ctx_eof(struct iso9660_dir_iter_ctx *ctx)
 {
-    return dir->cur_off == dir->size;
+    return ctx->cur_off == ctx->size;
 }
 
-static bool dir_consume_bytes(struct iso9660_dir *dir, u64 bytes)
+static bool dir_iter_ctx_consume_bytes(struct iso9660_dir_iter_ctx *ctx, u64 bytes)
 {
-    u64 bytes_left = dir->size - dir->cur_off;
-    BUG_ON(bytes_left > dir->size);
+    u64 bytes_left = ctx->size - ctx->cur_off;
+    BUG_ON(bytes_left > ctx->size);
 
     if (unlikely(bytes_left < bytes)) {
         print_warn("corrupted directory record? size: %llu with %llu left\n",
@@ -53,7 +58,19 @@ static bool dir_consume_bytes(struct iso9660_dir *dir, u64 bytes)
         return false;
     }
 
-    dir->cur_off += bytes;
+    ctx->cur_off += bytes;
+    return true;
+}
+
+static bool dir_iter_ctx_skip_to(struct iso9660_dir_iter_ctx *ctx, size_t off)
+{
+    // No more entries left
+    if (ctx->size <= off || ((ctx->size - off) < sizeof(struct iso9660_dir_record))) {
+        ctx->cur_off = ctx->size;
+        return false;
+    }
+
+    ctx->cur_off = off;
     return true;
 }
 
@@ -77,26 +94,12 @@ struct iso9660_file {
     struct file f;
     u32 first_block;
 };
-
-#define ISO9660_MAX_NAME_LEN 255
-
-struct iso9660_dir_entry {
-    char name[ISO9660_MAX_NAME_LEN];
-    u8 name_length;
-
-#define DE_SUBDIRECTORY (1 << 0)
-    u8 flags;
-
-    u32 first_block;
-    u64 size;
-};
-
-static struct filesystem *iso9660_init(const struct disk *d, struct iso_pvd *pvd);
+static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd *pvd);
 
 struct filesystem *try_create_iso9660(const struct disk *d, struct block_cache *bc)
 {
     struct filesystem *ret = NULL;
-    struct iso_vd *vd;
+    struct iso9660_vd *vd;
     size_t cur_off;
 
     // Technically possible and could be valid, but we don't support it
@@ -106,7 +109,7 @@ struct filesystem *try_create_iso9660(const struct disk *d, struct block_cache *
     cur_off = ISO9660_LOGICAL_SECTOR_SIZE * ISO9660_SYSTEM_AREA_BLOCKS;
 
     for (;;) {
-        if (!block_cache_take_ref(bc, (void**)&vd, cur_off, sizeof(struct iso_vd)))
+        if (!block_cache_take_ref(bc, (void**)&vd, cur_off, sizeof(struct iso9660_vd)))
             return NULL;
 
         if (memcmp(vd->standard_identifier, ISO9660_IDENTIFIER,
@@ -122,11 +125,11 @@ struct filesystem *try_create_iso9660(const struct disk *d, struct block_cache *
         if (type == VD_TYPE_TERMINATOR)
             goto out;
 
-        cur_off += sizeof(struct iso_vd);
+        cur_off += sizeof(struct iso9660_vd);
         block_cache_release_ref(bc);
     }
 
-    ret = iso9660_init(d, (struct iso_pvd*)vd);
+    ret = iso9660_init(d, (struct iso9660_pvd*)vd);
 
 out:
     block_cache_release_ref(bc);
@@ -158,7 +161,6 @@ static struct file *iso9660_do_open_file(struct filesystem *fs, u32 first_block,
         .f = {
             .fs = fs,
             .size = file_size,
-            .read = iso9660_read_file,
         },
         .first_block = first_block
     };
@@ -166,41 +168,30 @@ static struct file *iso9660_do_open_file(struct filesystem *fs, u32 first_block,
     return &f->f;
 }
 
-static bool dir_skip_to(struct iso9660_dir *dir, size_t off)
+static bool directory_fetch_raw_entry(struct iso9660_fs *fs, struct iso9660_dir_iter_ctx *ctx,
+                                      struct iso9660_dir_record **out_rec)
 {
-    // No more entries left
-    if (dir->size <= off || ((dir->size - off) < sizeof(struct iso_dir_record))) {
-        dir->cur_off = dir->size;
-        return false;
-    }
-
-    dir->cur_off = off;
-    return true;
-}
-
-static bool directory_fetch_raw_entry(struct iso9660_dir *dir, struct iso_dir_record **out_rec)
-{
-    struct block_cache *cache = &dir->fs->dir_cache;
+    struct block_cache *cache = &fs->dir_cache;
     size_t aligned_off, rec_len_min, rec_len, rec_len_max;
     u8 ident_len;
-    struct iso_dir_record *dr;
+    struct iso9660_dir_record *dr;
     bool ret = false;
 
     for (;;) {
-        if (dir_eof(dir))
+        if (dir_iter_ctx_eof(ctx))
             return false;
 
-        aligned_off = ALIGN_UP(dir->cur_off, ISO9660_LOGICAL_SECTOR_SIZE);
-        rec_len_max = MIN(dir->size, aligned_off) - dir->cur_off;
+        aligned_off = ALIGN_UP(ctx->cur_off, ISO9660_LOGICAL_SECTOR_SIZE);
+        rec_len_max = MIN(ctx->size, aligned_off) - ctx->cur_off;
         if (rec_len_max == 0)
             rec_len_max = 255;
 
-        if (rec_len_max <= sizeof(struct iso_dir_record)) {
-            dir_skip_to(dir, aligned_off);
+        if (rec_len_max <= sizeof(struct iso9660_dir_record)) {
+            dir_iter_ctx_skip_to(ctx, aligned_off);
             continue;
         }
 
-        block_cache_take_ref(cache, (void**)&dr, dir->base_off + dir->cur_off, rec_len_max);
+        block_cache_take_ref(cache, (void**)&dr, ctx->base_off + ctx->cur_off, rec_len_max);
         rec_len = ecma119_get_711(dr->record_length_711);
 
         // Either EOF or we're too close to the next sector
@@ -209,11 +200,11 @@ static bool directory_fetch_raw_entry(struct iso9660_dir *dir, struct iso_dir_re
 
             // Enough space but no record, assume EOF
             if (rec_len_max == 255) {
-                dir->cur_off = dir->size;
+                ctx->cur_off = ctx->size;
                 return false;
             }
 
-            dir_skip_to(dir, aligned_off);
+            dir_iter_ctx_skip_to(ctx, aligned_off);
             continue;
         }
 
@@ -221,14 +212,14 @@ static bool directory_fetch_raw_entry(struct iso9660_dir *dir, struct iso_dir_re
         if ((ident_len & 1) == 0)
             ident_len++;
 
-        rec_len_min = sizeof(struct iso_dir_record) + ident_len;
+        rec_len_min = sizeof(struct iso9660_dir_record) + ident_len;
 
         if (unlikely(rec_len > rec_len_max || rec_len < rec_len_min)) {
             print_warn("invalid record len %zu (expected min %zu max %zu)\n", rec_len, rec_len_min, rec_len_max);
             goto out;
         }
 
-        if (!dir_consume_bytes(dir, rec_len))
+        if (!dir_iter_ctx_consume_bytes(ctx, rec_len))
             goto out;
 
         *out_rec = dr;
@@ -243,10 +234,11 @@ out:
 
 #define MAX_SANE_CHAIN_LEN 200
 
-static bool dir_read_multiext_size(struct iso9660_dir *dir, u64 *out_file_size)
+static bool dir_read_multiext_size(struct iso9660_fs *fs, struct iso9660_dir_iter_ctx *ctx,
+                                   u64 *out_file_size)
 {
     size_t records_read = 0;
-    struct iso_dir_record *dr;
+    struct iso9660_dir_record *dr;
     u8 flags;
 
     for (;;) {
@@ -255,7 +247,7 @@ static bool dir_read_multiext_size(struct iso9660_dir *dir, u64 *out_file_size)
             return false;
         }
 
-        if (!directory_fetch_raw_entry(dir, &dr))
+        if (!directory_fetch_raw_entry(fs, ctx, &dr))
             return false;
 
         flags = ecma119_get_711(dr->flags_711);
@@ -448,6 +440,9 @@ static bool next_su_entry(struct susp_iteration_ctx *ctx, char **out_ptr)
 
 #define SUE_NM_MIN_LEN 5
 
+#define RR_MAX_NAME_LEN 255
+BUILD_BUG_ON(RR_MAX_NAME_LEN > DIR_REC_MAX_NAME_LEN);
+
 static bool find_rock_ridge_name(struct iso9660_fs *fs, char *su_area, size_t su_len, char *out, u8 *out_len)
 {
     struct susp_iteration_ctx sctx = {
@@ -480,7 +475,7 @@ static bool find_rock_ridge_name(struct iso9660_fs *fs, char *su_area, size_t su
         this_len -= SUE_NM_MIN_LEN;
         sue += SUE_NM_MIN_LEN;
 
-        max_len = ISO9660_MAX_NAME_LEN - *out_len;
+        max_len = RR_MAX_NAME_LEN - *out_len;
         if (max_len == 0) {
             print_warn("RR name is too long, ignoring");
             goto out;
@@ -502,7 +497,7 @@ out:
     return ret;
 }
 
-static void *record_get_su_area(struct iso_dir_record *rec, size_t *out_len)
+static void *record_get_su_area(struct iso9660_dir_record *rec, size_t *out_len)
 {
     u8 ident_len = ecma119_get_711(rec->identifier_length_711);
     int su_len;
@@ -512,7 +507,7 @@ static void *record_get_su_area(struct iso_dir_record *rec, size_t *out_len)
 
     su_len = ecma119_get_711(rec->record_length_711);
     su_len -= ident_len;
-    su_len -= sizeof(struct iso_dir_record);
+    su_len -= sizeof(struct iso9660_dir_record);
 
     // Corrupted record
     if (unlikely(su_len < 0))
@@ -525,17 +520,17 @@ static void *record_get_su_area(struct iso_dir_record *rec, size_t *out_len)
 #define ISO9660_CURDIR_NAME_BYTE 0
 #define ISO9660_PARDIR_NAME_BYTE 1
 
-static bool is_dot_record(struct iso_dir_record *rec)
+static bool is_dot_record(struct iso9660_dir_record *rec)
 {
     return rec->identifier[0] == ISO9660_CURDIR_NAME_BYTE;
 }
 
-static bool is_dotdot_record(struct iso_dir_record *rec)
+static bool is_dotdot_record(struct iso9660_dir_record *rec)
 {
     return rec->identifier[0] == ISO9660_PARDIR_NAME_BYTE;
 }
 
-static void record_read_identifier(struct iso_dir_record *rec, char *out, u8 *out_len)
+static void record_read_identifier(struct iso9660_dir_record *rec, char *out, u8 *out_len)
 {
     u8 i, ident_len = ecma119_get_711(rec->identifier_length_711);
 
@@ -557,7 +552,7 @@ static void record_read_identifier(struct iso_dir_record *rec, char *out, u8 *ou
     *out_len = i;
 }
 
-static bool get_record_name(struct iso9660_fs *fs, struct iso_dir_record *rec, char *out, u8 *out_len)
+static bool get_record_name(struct iso9660_fs *fs, struct iso9660_dir_record *rec, char *out, u8 *out_len)
 {
     if (!ecma119_get_711(rec->identifier_length_711))
         return false;
@@ -590,94 +585,86 @@ static bool get_record_name(struct iso9660_fs *fs, struct iso_dir_record *rec, c
     return true;
 }
 
-static bool directory_next_entry(struct iso9660_dir *dir, struct iso9660_dir_entry *out_ent)
+static bool dir_next_entry(struct iso9660_fs *fs, struct iso9660_dir_iter_ctx *ctx,
+                           struct dir_rec *out_rec)
 {
-    struct iso_dir_record *dr;
+    struct iso9660_dir_rec_data *ir = ISO9660_DIR_REC_DATA(out_rec);
+    struct iso9660_dir_record *dr;
     u8 flags;
 
-    out_ent->flags = 0;
+    out_rec->flags = 0;
     for (;;) {
-        if (!directory_fetch_raw_entry(dir, &dr))
+        if (!directory_fetch_raw_entry(fs, ctx, &dr))
             return false;
 
         flags = ecma119_get_711(dr->flags_711);
-        out_ent->first_block = ecma119_get_733(dr->location_of_extent_733) +
-                               ecma119_get_711(dr->extended_attr_rec_length_711);
-        out_ent->size = ecma119_get_733(dr->data_length_733);
+        ir->first_block = ecma119_get_733(dr->location_of_extent_733) +
+                          ecma119_get_711(dr->extended_attr_rec_length_711);
+        out_rec->size = ecma119_get_733(dr->data_length_733);
 
-        if (!get_record_name(dir->fs, dr, out_ent->name, &out_ent->name_length))
+        if (!get_record_name(fs, dr, out_rec->name, &out_rec->name_len))
             continue;
 
-        if ((flags & ISO9660_MULTI_EXT) && !dir_read_multiext_size(dir, &out_ent->size))
+        if ((flags & ISO9660_MULTI_EXT) && !dir_read_multiext_size(fs, ctx, &out_rec->size))
             continue;
 
         if ((flags & ISO9660_ASSOC_FILE) || (flags & ISO9660_HIDDEN_DIR))
             continue;
 
         if (flags & ISO9660_SUBDIR)
-            out_ent->flags |= DE_SUBDIRECTORY;
+            out_rec->flags |= DIR_REC_SUBDIR;
 
         if (ISO9660_DEBUG) {
-            struct string_view name = { out_ent->name, out_ent->name_length };
+            struct string_view name = { out_rec->name, out_rec->name_len };
             print_info("found a dir record: '%pSV', first_block: %u, size: %llu\n",
-                       &name, out_ent->first_block, out_ent->size);
+                       &name, ir->first_block, out_rec->size);
         }
 
         return true;
     }
 }
 
-static struct file *iso9660_open(struct filesystem *fs, struct string_view path)
+void iso9660_iter_ctx_init(struct filesystem *fs, struct dir_iter_ctx *ctx, struct dir_rec *rec)
 {
     struct iso9660_fs *ifs = container_of(fs, struct iso9660_fs, f);
-    struct string_view node;
+    struct iso9660_dir_iter_ctx *ictx = ISO9660_DIR_ITER_CTX(ctx);
+    u32 first_block;
+    u64 size;
 
-    bool is_directory = true, node_found = false;
-    u32 first_block = ifs->root_block;
-    u64 file_size = ifs->root_size;
-
-    struct iso9660_dir dir = {
-        .fs = ifs,
-        .base_off = first_block << ifs->block_shift,
-        .size = file_size
-    };
-
-    while (next_path_node(&path, &node)) {
-        struct iso9660_dir_entry ent;
-
-        if (sv_equals(node, SV(".")))
-            continue;
-        if (!is_directory)
-            return NULL;
-
-        node_found = false;
-
-        while (directory_next_entry(&dir, &ent)) {
-            if (!sv_equals((struct string_view) { ent.name, ent.name_length }, node))
-                continue;
-
-            first_block = ent.first_block;
-            file_size = ent.size;
-            node_found = true;
-            is_directory = ent.flags & DE_SUBDIRECTORY;
-            break;
-        }
-
-        if (!node_found)
-            break;
-
-        dir.base_off = first_block << ifs->block_shift;
-        dir.size = file_size;
-        dir.cur_off = 0;
+    if (rec) {
+        struct iso9660_dir_rec_data *id = ISO9660_DIR_REC_DATA(rec);
+        first_block = id->first_block;
+        size = rec->size;
+    } else {
+        first_block = ifs->root_block;
+        size = ifs->root_size;
     }
 
-    if (!node_found || is_directory)
-        return NULL;
-
-    return iso9660_do_open_file(&ifs->f, first_block, file_size);
+    *ictx = (struct iso9660_dir_iter_ctx) {
+        .base_off = (u64)first_block << ifs->block_shift,
+        .size = size
+    };
 }
 
-void iso9660_close(struct file* f)
+bool iso9660_next_dir_rec(struct filesystem *fs, struct dir_iter_ctx *ctx, struct dir_rec *out_rec)
+{
+    struct iso9660_fs *ifs = container_of(fs, struct iso9660_fs, f);
+    struct iso9660_dir_iter_ctx *ictx = ISO9660_DIR_ITER_CTX(ctx);
+
+    return dir_next_entry(ifs, ictx, out_rec);
+}
+
+static struct file *iso9660_open_file(struct filesystem *fs, struct dir_rec *rec)
+{
+    struct iso9660_fs *ifs = container_of(fs, struct iso9660_fs, f);
+    struct iso9660_dir_rec_data *ir = ISO9660_DIR_REC_DATA(rec);
+
+    BUG_ON(rec->flags & DIR_REC_SUBDIR);
+
+    return iso9660_do_open_file(&ifs->f, ir->first_block, rec->size);
+}
+
+void iso9660_close_file(struct file* f)
 {
     struct iso9660_file *ifs = container_of(f, struct iso9660_file, f);
     free_bytes(ifs, sizeof(struct iso9660_file));
@@ -763,7 +750,7 @@ static bool susp_check_er_sue(const char *sue)
 
 static bool susp_init(struct iso9660_fs *fs)
 {
-    struct iso_dir_record *dr;
+    struct iso9660_dir_record *dr;
     struct susp_iteration_ctx sc = {
         .fs = fs,
     };
@@ -771,13 +758,12 @@ static bool susp_init(struct iso9660_fs *fs)
     char *su_entry;
     bool found_sp = false, found_er = false;
 
-    struct iso9660_dir d = {
-        .fs = fs,
+    struct iso9660_dir_iter_ctx d = {
         .base_off = fs->root_block << fs->block_shift,
         .size = fs->root_size,
     };
 
-    if (!directory_fetch_raw_entry(&d, &dr))
+    if (!directory_fetch_raw_entry(fs, &d, &dr))
         return false;
 
     ca_cache_buf = allocate_pages(CA_CACHE_SIZE >> PAGE_SHIFT);
@@ -819,12 +805,12 @@ out_no_susp:
     return true;
 }
 
-static struct filesystem *iso9660_init(const struct disk *d, struct iso_pvd *pvd)
+static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd *pvd)
 {
     u8 block_shift;
     u32 block_size, volume_size, root_block, root_size, root_last_block;
     void *dir_cache;
-    struct iso_dir_record *rd = (struct iso_dir_record*)pvd->root_directory_entry;
+    struct iso9660_dir_record *rd = (struct iso9660_dir_record*)pvd->root_directory_entry;
     struct iso9660_fs *fs;
 
     block_size = ecma119_get_723(pvd->logical_block_size_723);
@@ -868,8 +854,11 @@ static struct filesystem *iso9660_init(const struct disk *d, struct iso_pvd *pvd
         .f = {
             .d = *d,
             .lba_range = { 0, d->sectors },
-            .open = iso9660_open,
-            .close = iso9660_close
+            .iter_ctx_init = iso9660_iter_ctx_init,
+            .next_dir_rec = iso9660_next_dir_rec,
+            .open_file = iso9660_open_file,
+            .close_file = iso9660_close_file,
+            .read_file = iso9660_read_file
         },
         .root_block = root_block,
         .root_size = root_size,
