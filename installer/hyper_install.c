@@ -81,7 +81,7 @@ void read_mbr_partition_list(FILE *img, struct mbr_partition_entry *buffer)
     safe_read_at(img, OFFSET_TO_MBR_MAGIC, &mbr_magic, sizeof(mbr_magic));
 
     if (mbr_magic != MBR_MAGIC)
-        panic("Invalid MBR magic, expected 0x%04hX got 0x%04hX\n", MBR_MAGIC, mbr_magic);
+        panic("Invalid MBR magic, expected 0x%04X got 0x%04hX\n", MBR_MAGIC, mbr_magic);
 
     safe_read_at(img, OFFSET_TO_MBR_PARTITION_LIST, buffer,
                  MBR_PARTITION_COUNT * sizeof(struct mbr_partition_entry));
@@ -107,7 +107,7 @@ void ensure_stage2_fits(struct mbr_partition_entry *partitions)
 
     if (gap_size < stage2_size) {
         panic("Not enough space between MBR and the first partition to fit stage2!\n"
-              "Need at least %lu, have %zu\n", stage2_size, gap_size);
+              "Need at least %lu, have %llu\n", stage2_size, gap_size);
     }
 }
 

@@ -35,7 +35,7 @@ def main():
             else:
                 out_file.write(" ")
 
-        out_file.write("\n};")
+        out_file.write("\n};\n")
 
 if __name__ == "__main__":
     main()
