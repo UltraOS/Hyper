@@ -20,3 +20,9 @@
         if (unlikely(expr)) \
             DIE();          \
     } while (0)
+
+#define DIE_UNLESS(expr)       \
+    do {                       \
+        if (unlikely(!(expr))) \
+            DIE();             \
+    } while (0)
