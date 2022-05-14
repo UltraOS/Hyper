@@ -29,7 +29,7 @@ SECTIONS
         *(.data .data.*)
     }
 
-    ASSERT((. - STAGE2_LOAD_BASE) < 64K, "Looks like stage2 is now bigger than 128 sectors, please correct the STAGE2_SECTORS_TO_LOAD constant in the MBR")
+    ASSERT((. - STAGE2_LOAD_BASE) < 128K, "Looks like stage2 is now bigger than 256 sectors, please correct the STAGE2_BYTES_TO_LOAD constant in the MBR")
 
     .bss : {
         section_bss_begin = .;

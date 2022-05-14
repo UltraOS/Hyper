@@ -8,11 +8,13 @@
 #include "services_impl.h"
 #include "uefi_structures.h"
 
-static void *internal_memory_map_buf = NULL;
-static size_t internal_map_byte_capacity = 0;
-static size_t internal_map_entries = 0;
-static size_t internal_map_key = 0;
-static size_t internal_descriptor_size = 0;
+#define UEFI_MS_DEBUG 1
+
+static void *memory_map_buf = NULL;
+static size_t buf_byte_capacity = 0;
+static size_t buf_entry_count = 0;
+static size_t map_key = 0;
+static size_t map_efi_desc_size = 0;
 
 // Reserved for use by UEFI OS loaders that are provided by operating system vendors
 #define VALID_LOADER_MEMORY_TYPE_BASE 0x80000000
@@ -35,9 +37,10 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
         return MEMORY_TYPE_RESERVED;
     case EfiLoaderCode:
     case EfiLoaderData:
+        return MEMORY_TYPE_LOADER_RECLAIMABLE;
     case EfiBootServicesCode:
     case EfiBootServicesData:
-        return MEMORY_TYPE_LOADER_RECLAIMABLE;
+        return MEMORY_TYPE_FREE;
     case EfiRuntimeServicesCode:
     case EfiRuntimeServicesData:
         return MEMORY_TYPE_RESERVED;
@@ -115,10 +118,10 @@ static void internal_buf_ensure_capacity(size_t bytes)
     EFI_PHYSICAL_ADDRESS addr;
     EFI_STATUS ret;
 
-    if (rounded_up_bytes <= internal_map_byte_capacity)
+    if (rounded_up_bytes <= buf_byte_capacity)
         return;
-    if (internal_memory_map_buf)
-        ms_free_pages((u64)internal_memory_map_buf, internal_map_byte_capacity / PAGE_SIZE);
+    if (memory_map_buf)
+        ms_free_pages((u64)memory_map_buf, buf_byte_capacity / PAGE_SIZE);
 
     ret = g_st->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, page_count, &addr);
     if (unlikely_efi_error(ret)) {
@@ -126,28 +129,55 @@ static void internal_buf_ensure_capacity(size_t bytes)
         panic("failed to allocate internal memory buffer (%zu pages): %pSV\n", page_count, &err_msg);
     }
 
-    internal_memory_map_buf = (void*)addr;
-    internal_map_byte_capacity = rounded_up_bytes;
+    memory_map_buf = (void*)addr;
+    buf_byte_capacity = rounded_up_bytes;
 }
 
-static EFI_MEMORY_DESCRIPTOR *memory_descriptor_at(size_t i)
+static EFI_MEMORY_DESCRIPTOR *efi_md_at(size_t i)
 {
-    BUG_ON(i >= internal_map_entries);
-
-    return internal_memory_map_buf + i * internal_descriptor_size;
+    BUG_ON(i >= buf_entry_count);
+    return memory_map_buf + i * map_efi_desc_size;
 }
 
-static size_t fill_internal_memory_map_buffer(void)
+static struct memory_map_entry *mm_entry_at(size_t i)
+{
+    BUG_ON(i >= buf_entry_count);
+    return memory_map_buf + i * sizeof(struct memory_map_entry);
+}
+
+static void efi_memory_map_fixup(void)
+{
+    size_t i, j = 0;
+
+    // Convert UEFI memory map to native format, we do this in-place
+    for (i = 0; i < buf_entry_count; ++i) {
+        EFI_MEMORY_DESCRIPTOR *md = efi_md_at(i);
+
+        struct memory_map_entry me = {
+            .physical_address = md->PhysicalStart,
+            .size_in_bytes = md->NumberOfPages << PAGE_SHIFT,
+            .type = efi_memory_type_to_native(md->Type)
+        };
+        mme_align_if_needed(&me);
+
+        if (mme_is_valid(&me))
+            memcpy(mm_entry_at(j++), &me, sizeof(me));
+    }
+
+    buf_entry_count = mm_fixup(memory_map_buf, j, false,
+                               buf_byte_capacity / sizeof(struct memory_map_entry));
+}
+
+static void fill_internal_memory_map_buffer(void)
 {
     UINT32 descriptor_version;
     UINTN bytes_inout;
     EFI_STATUS ret;
-    size_t i;
 
     for (;;) {
-        bytes_inout = internal_map_byte_capacity;
-        ret = g_st->BootServices->GetMemoryMap(&bytes_inout, internal_memory_map_buf, &internal_map_key,
-                                               &internal_descriptor_size, &descriptor_version);
+        bytes_inout = buf_byte_capacity;
+        ret = g_st->BootServices->GetMemoryMap(&bytes_inout, memory_map_buf, &map_key,
+                                               &map_efi_desc_size, &descriptor_version);
 
         if (ret == EFI_SUCCESS)
             break;
@@ -157,35 +187,16 @@ static size_t fill_internal_memory_map_buffer(void)
             panic("unexpected GetMemoryMap() error: %pSV\n", &err_msg);
         }
 
-        if (unlikely(internal_descriptor_size < sizeof(EFI_MEMORY_DESCRIPTOR))) {
+        if (unlikely(map_efi_desc_size < sizeof(EFI_MEMORY_DESCRIPTOR))) {
             panic("EFI_MEMORY_DESCRIPTOR size is too small, expected at least %zu got %zu\n",
-                  sizeof(EFI_MEMORY_DESCRIPTOR), internal_descriptor_size);
+                  sizeof(EFI_MEMORY_DESCRIPTOR), map_efi_desc_size);
         }
 
         internal_buf_ensure_capacity(bytes_inout);
     }
-    internal_map_entries = bytes_inout / internal_descriptor_size;
 
-    // UEFI doesn't guarantee anything about the memory map, so we have to sort it.
-    // FIXME: correct overlapping entries too
-    for (i = 0; i < internal_map_entries; ++i) {
-        size_t j = i;
-
-        while (j) {
-            EFI_MEMORY_DESCRIPTOR *rhs = memory_descriptor_at(j);
-            EFI_MEMORY_DESCRIPTOR *lhs = memory_descriptor_at(j - 1);
-
-            if (lhs->PhysicalStart <= rhs->PhysicalStart)
-                break;
-
-            EFI_MEMORY_DESCRIPTOR tmp = *rhs;
-            *rhs = *lhs;
-            *lhs = tmp;
-            --j;
-        }
-    }
-
-    return internal_map_entries;
+    buf_entry_count = bytes_inout / map_efi_desc_size;
+    efi_memory_map_fixup();
 }
 
 size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
@@ -199,42 +210,34 @@ size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
      */
     logger_set_level(LOG_LEVEL_ERR);
 
-    size_t entries = fill_internal_memory_map_buffer();
-    void *buf_cursor = internal_memory_map_buf;
-    if (capacity < entries)
-        return entries;
+    fill_internal_memory_map_buffer();
+    buf_entry_count = mm_compress(memory_map_buf, buf_entry_count);
 
-    while (entries--) {
-        EFI_MEMORY_DESCRIPTOR *desc = buf_cursor;
+    if (capacity < buf_entry_count)
+        return buf_entry_count;
 
-        struct memory_map_entry entry = {
-            .physical_address = desc->PhysicalStart,
-            .size_in_bytes = desc->NumberOfPages * PAGE_SIZE,
-            .type = efi_memory_type_to_native(desc->Type)
-        };
+    for (size_t i = 0; i < buf_entry_count; ++i) {
+        struct memory_map_entry *me = mm_entry_at(i);
 
         if (entry_convert) {
-            entry_convert(&entry, buf);
+            entry_convert(me, buf);
         } else {
-            memcpy(buf, &entry, sizeof(struct memory_map_entry));
+            memcpy(buf, me, sizeof(struct memory_map_entry));
         }
 
         buf += elem_size;
-        buf_cursor += internal_descriptor_size;
     }
 
-    *out_key = internal_map_key;
-    return internal_map_entries;
+    *out_key = map_key;
+    return buf_entry_count;
 }
 
 u64 ms_get_highest_map_address(void)
 {
     SERVICE_FUNCTION();
 
-    EFI_MEMORY_DESCRIPTOR *last_desc;
-    if (!internal_map_entries)
+    if (!buf_entry_count)
         fill_internal_memory_map_buffer();
 
-    last_desc = memory_descriptor_at(internal_map_entries - 1);
-    return last_desc->PhysicalStart + last_desc->NumberOfPages * PAGE_SIZE;
+    return mme_end(mm_entry_at(buf_entry_count - 1));
 }

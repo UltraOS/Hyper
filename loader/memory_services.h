@@ -11,18 +11,57 @@
 #define MEMORY_TYPE_UNUSABLE           0x00000005
 #define MEMORY_TYPE_DISABLED           0x00000006
 #define MEMORY_TYPE_PERSISTENT         0x00000007
+#define MEMORY_TYPE_MAX                MEMORY_TYPE_PERSISTENT
 
 /*
  * All memory allocated by the loader is marked with this by default,
  * the real underlying type is of course MEMORY_TYPE_FREE.
  */
-#define MEMORY_TYPE_LOADER_RECLAIMABLE 0xFFFF0001
+#define MEMORY_TYPE_LOADER_RECLAIMABLE 0xFFFEFFFF
+
+// All custom protocol-specific memory types start at this base
+#define MEMORY_TYPE_PROTO_SPECIFIC_BASE 0xFFFF0000
 
 struct memory_map_entry {
     u64 physical_address;
     u64 size_in_bytes;
     u64 type;
 };
+
+static inline u64 mme_end(struct memory_map_entry *me)
+{
+    return me->physical_address + me->size_in_bytes;
+}
+
+static inline const char *mme_type_to_str(struct memory_map_entry *me)
+{
+    switch (me->type) {
+    case MEMORY_TYPE_INVALID:
+        return "<invalid>";
+    case MEMORY_TYPE_FREE:
+        return "free";
+    case MEMORY_TYPE_RESERVED:
+        return "reserved";
+    case MEMORY_TYPE_ACPI_RECLAIMABLE:
+        return "ACPI-reclaim";
+    case MEMORY_TYPE_NVS:
+        return "NVS";
+    case MEMORY_TYPE_UNUSABLE:
+        return "unusable";
+    case MEMORY_TYPE_DISABLED:
+        return "disabled";
+    case MEMORY_TYPE_PERSISTENT:
+        return "persistent";
+    case MEMORY_TYPE_LOADER_RECLAIMABLE:
+        return "loader-reclaim";
+    default:
+        BUG_ON(me->type < MEMORY_TYPE_PROTO_SPECIFIC_BASE);
+        return "<proto-specific>";
+    }
+}
+
+#define MM_ENT_FMT "0x%016llX -> 0x%016llX (%s)"
+#define MM_ENT_PRT(me) (me)->physical_address, mme_end(me), mme_type_to_str(me)
 
 /*
  * Converts memory_map_entry to the native protocol memory map entry format.
@@ -76,3 +115,5 @@ size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
  * Returns the address of the last byte of the last entry in the memory map + 1
  */
 u64 ms_get_highest_map_address(void);
+
+void mm_declare_known_mm_types(u64 *types);

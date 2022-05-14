@@ -409,10 +409,12 @@ static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void 
     ue->size = entry->size_in_bytes;
 
     // Direct mapping
-    if (entry->type <= ULTRA_MEMORY_TYPE_NVS || (entry->type >= ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE)) {
+    if (entry->type <= MEMORY_TYPE_NVS || entry->type >= ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE) {
         ue->type = entry->type;
+    } else if (entry->type == MEMORY_TYPE_LOADER_RECLAIMABLE) {
+        ue->type = ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE;
     } else {
-        ue->type = ULTRA_MEMORY_TYPE_RESERVED;
+        BUG();
     }
 }
 
@@ -502,8 +504,8 @@ static void *write_memory_map_header(struct ultra_memory_map_attribute *mm, size
     return ++mm;
 }
 
-void build_attribute_array(const struct attribute_array_spec *spec,
-                           struct handover_info *hi)
+static void build_attribute_array(const struct attribute_array_spec *spec,
+                                  struct handover_info *hi)
 {
     u32 cmdline_aligned_length = 0;
     size_t mm_entry_count, bytes_needed = 0;
@@ -743,6 +745,15 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le, stru
     } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
 }
 
+static u64 ultra_known_map_types[] = {
+    MEMORY_TYPE_FREE,
+    MEMORY_TYPE_RESERVED,
+    MEMORY_TYPE_ACPI_RECLAIMABLE,
+    MEMORY_TYPE_NVS,
+    MEMORY_TYPE_LOADER_RECLAIMABLE,
+    MEMORY_TYPE_INVALID,
+};
+
 void ultra_protocol_load(struct config *cfg, struct loadable_entry *le)
 {
     struct attribute_array_spec spec = { 0 };
@@ -750,6 +761,7 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le)
     u64 pt;
     bool handover_res, is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
 
+    mm_declare_known_mm_types(ultra_known_map_types);
     dynamic_buffer_init(&spec.module_buf, sizeof(struct ultra_module_info_attribute), true);
 
     load_kernel(cfg, le, &spec.kern_info);
