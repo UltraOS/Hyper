@@ -19,7 +19,6 @@ struct iso9660_fs {
     u32 root_size;
     u32 volume_size;
 
-    u8 block_shift;
     u8 su_off; // 0xFF -> no SU
 
     struct block_cache dir_cache;
@@ -136,19 +135,19 @@ out:
     return ret;
 }
 
-static bool iso9660_read(struct iso9660_fs *fs, void *buf, u64 offset, size_t bytes)
+static bool iso9660_file_get_range(struct file *f, u64 file_block_off, size_t want_blocks,
+                                   struct block_range *out_range)
 {
-    return ds_read(fs->f.d.handle, buf, offset, bytes);
+    struct iso9660_file *isf = container_of(f, struct iso9660_file, f);
+
+    out_range->part_byte_off = (isf->first_block + file_block_off) << fs_block_shift(f->fs);
+    out_range->blocks = want_blocks;
+    return true;
 }
 
-static bool iso9660_read_file(struct file* f, void *buffer, u64 offset, u32 size)
+static bool iso9660_read_file(struct file *f, void *buf, u64 off, u32 bytes)
 {
-    struct iso9660_fs *fs = container_of(f->fs, struct iso9660_fs, f);
-    struct iso9660_file *isf = container_of(f, struct iso9660_file, f);
-    u64 final_offset = (isf->first_block << fs->block_shift) + offset;
-
-    check_read(f, offset, size);
-    return iso9660_read(fs, buffer, final_offset, size);
+    return bulk_read_file(f, buf, off, bytes, iso9660_file_get_range);
 }
 
 static struct file *iso9660_do_open_file(struct filesystem *fs, u32 first_block, u64 file_size)
@@ -386,7 +385,7 @@ static void susp_handle_ce(struct susp_iteration_ctx *ctx, char *sue)
     if (ctx->next_ca_len)
         print_warn("multiple CEs in one su field, dropping previous");
 
-    ctx->next_ca_off = ecma119_get_733(&sue[SUE_CE_BLOCK_IDX]) << ctx->fs->block_shift;
+    ctx->next_ca_off = ecma119_get_733(&sue[SUE_CE_BLOCK_IDX]) << fs_block_shift(&ctx->fs->f);
     ctx->next_ca_off += ecma119_get_733(&sue[SUE_CE_OFF_IDX]);
     print_dbg(ISO9660_DEBUG, "next continuation area offset is %llu\n", ctx->next_ca_off);
 
@@ -641,7 +640,7 @@ void iso9660_iter_ctx_init(struct filesystem *fs, struct dir_iter_ctx *ctx, stru
     }
 
     *ictx = (struct iso9660_dir_iter_ctx) {
-        .base_off = (u64)first_block << ifs->block_shift,
+        .base_off = (u64)first_block << fs_block_shift(fs),
         .size = size
     };
 }
@@ -759,7 +758,7 @@ static bool susp_init(struct iso9660_fs *fs)
     bool found_sp = false, found_er = false;
 
     struct iso9660_dir_iter_ctx d = {
-        .base_off = fs->root_block << fs->block_shift,
+        .base_off = fs->root_block << fs_block_shift(&fs->f),
         .size = fs->root_size,
     };
 
@@ -854,16 +853,16 @@ static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd 
         .f = {
             .d = *d,
             .lba_range = { 0, d->sectors },
+            .block_shift = block_shift,
             .iter_ctx_init = iso9660_iter_ctx_init,
             .next_dir_rec = iso9660_next_dir_rec,
             .open_file = iso9660_open_file,
             .close_file = iso9660_close_file,
-            .read_file = iso9660_read_file
+            .read_file = iso9660_read_file,
         },
         .root_block = root_block,
         .root_size = root_size,
         .volume_size = volume_size,
-        .block_shift = block_shift,
         .su_off = 0xFF
     };
 
