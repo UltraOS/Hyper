@@ -209,9 +209,7 @@ size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
      * as WriteString() is allowed to allocate.
      */
     logger_set_level(LOG_LEVEL_ERR);
-
     fill_internal_memory_map_buffer();
-    buf_entry_count = mm_compress(memory_map_buf, buf_entry_count);
 
     if (capacity < buf_entry_count)
         return buf_entry_count;
