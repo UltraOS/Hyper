@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <inttypes.h>
 
 extern char mbr_data[];
 extern unsigned long mbr_size;
@@ -107,7 +108,7 @@ void ensure_stage2_fits(struct mbr_partition_entry *partitions)
 
     if (gap_size < stage2_size) {
         panic("Not enough space between MBR and the first partition to fit stage2!\n"
-              "Need at least %lu, have %llu\n", stage2_size, gap_size);
+              "Need at least %lu, have %"PRIu64"\n", stage2_size, gap_size);
     }
 }
 
