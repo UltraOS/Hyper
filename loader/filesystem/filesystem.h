@@ -90,9 +90,27 @@ static inline bool dir_rec_is_subdir(struct dir_rec *rec)
     return rec->flags & DIR_REC_SUBDIR;
 }
 
+#define BLOCK_RANGE_OFF_EMPTY_HOLE 0xFFFFFFFFFFFFFFFF
+
+struct block_range {
+    u64 part_byte_off;
+    size_t blocks;
+};
+
+static inline bool is_block_range_hole(struct block_range *br)
+{
+    return br->part_byte_off == BLOCK_RANGE_OFF_EMPTY_HOLE;
+}
+
+static inline void block_range_make_hole(struct block_range *br)
+{
+    br->part_byte_off = BLOCK_RANGE_OFF_EMPTY_HOLE;
+}
+
 struct filesystem {
     struct disk d;
     struct range lba_range;
+    u8 block_shift;
 
     // ctx is initialized from the root directory if 'rec' is NULL.
     void (*iter_ctx_init)(struct filesystem *fs, struct dir_iter_ctx *ctx, struct dir_rec *rec);
@@ -102,8 +120,23 @@ struct filesystem {
     void (*close_file)(struct file*);
     bool (*read_file)(struct file*, void *buffer, u64 offset, u32 bytes);
 };
+
+static inline u8 fs_block_shift(struct filesystem *fs)
+{
+    return fs->block_shift;
+}
+
+static inline u8 file_block_shift(struct file *f)
+{
+    return fs_block_shift(f->fs);
+}
+
 void check_read(struct file *f, u64 offset, u32 size);
 
-void fs_detect_all(struct disk *d, struct block_cache *bc);
+typedef bool (*file_get_range_t)(struct file*, u64 file_block_off,
+                                 size_t want_blocks, struct block_range *out);
+bool bulk_read_file(struct file* f, void *buffer, u64 offset, u32 bytes,
+                    file_get_range_t get_range);
 
+void fs_detect_all(struct disk *d, struct block_cache *bc);
 struct file *fs_open(struct filesystem *fs, struct string_view path);
