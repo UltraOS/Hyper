@@ -39,36 +39,6 @@ struct contiguous_file_range16 {
     u16 global_cluster;
 };
 
-static void *find_range(void *ranges, size_t count, size_t range_stride,
-                        size_t (*range_get_offset)(void*), size_t offset)
-{
-    size_t left = 0;
-    size_t right = count - 1;
-    void *out_range;
-
-    while (left <= right) {
-        size_t middle = left + ((right - left) / 2);
-        void *mid_range = ranges + (middle * range_stride);
-        size_t file_offset = range_get_offset(mid_range);
-
-        if (file_offset < offset) {
-            left = middle + 1;
-        } else if (offset < file_offset) {
-            right = middle - 1;
-        } else {
-            return mid_range;
-        }
-    }
-    out_range = ranges + (right * range_stride);
-
-    /*
-     * right should always point to lower bound - 1,
-     * aka range that this offset is a part of.
-     */
-    BUG_ON(range_get_offset(out_range) > offset);
-    return out_range;
-}
-
 #define RANGES_PER_PAGE_FAT32       (PAGE_SIZE / sizeof(struct contiguous_file_range32))
 #define RANGES_PER_PAGE_FAT12_OR_16 (PAGE_SIZE / sizeof(struct contiguous_file_range16))
 
@@ -108,35 +78,29 @@ enum fat_type {
     FAT_TYPE_32
 };
 
-static u32 ft_to_size[] = {
-    [FAT_TYPE_12] = 12,
-    [FAT_TYPE_16] = 16,
-    [FAT_TYPE_32] = 32,
-};
+struct fat_filesystem;
 
-static u32 ft_to_in_place_range_capacity[] = {
-    [FAT_TYPE_12] = IN_PLACE_RANGE_CAPACITY_FAT12_OR_16,
-    [FAT_TYPE_16] = IN_PLACE_RANGE_CAPACITY_FAT12_OR_16,
-    [FAT_TYPE_32] = IN_PLACE_RANGE_CAPACITY_FAT32,
-};
-
-static u32 ft_to_ranges_per_page[] = {
-    [FAT_TYPE_12] = RANGES_PER_PAGE_FAT12_OR_16,
-    [FAT_TYPE_16] = RANGES_PER_PAGE_FAT12_OR_16,
-    [FAT_TYPE_32] = RANGES_PER_PAGE_FAT32,
-};
-
-static u32 ft_to_range_stride[] = {
-    [FAT_TYPE_12] = sizeof(struct contiguous_file_range16),
-    [FAT_TYPE_16] = sizeof(struct contiguous_file_range16),
-    [FAT_TYPE_32] = sizeof(struct contiguous_file_range32)
+struct fat_ops {
+    u32 eoc_val;
+    u32 bad_val;
+    u32 bits_per_cluster; // 12, 16 or 32
+    u32 in_place_range_cap;
+    u32 ranges_per_page;
+    u32 range_stride;
+    u32 (*get_fat_entry)(struct fat_filesystem*, u32);
+    bool (*ensure_fat_entry_cached)(struct fat_filesystem*, u32);
+    void (*file_insert_range)(void*, u32, struct contiguous_file_range32);
+    size_t (*range_get_offset)(void*);
+    size_t (*range_get_global_cluster)(void*);
 };
 
 struct fat_filesystem {
     struct filesystem f;
+    struct fat_ops *fops;
 
     struct range fat_lba_range;
     struct range data_lba_range;
+    u32 data_part_off;
 
     u16 fat_type;
     u16 root_dir_entries;
@@ -149,11 +113,14 @@ struct fat_filesystem {
         u32 root_dir_sector_off;
     };
 
-    u32 cluster_shift;
-
     size_t fat_view_offset;
     void *fat_view;
 };
+
+static inline u8 cluster_shift(struct fat_filesystem *fs)
+{
+    return fs->f.block_shift;
+}
 
 
 // FAT12/16 root directory
@@ -209,23 +176,11 @@ enum fat_entry {
 #define FAT16_EOC_VALUE 0x0000FFF8
 #define FAT32_EOC_VALUE 0x0FFFFFF8
 
-static u32 ft_to_eoc_value[] = {
-    [FAT_TYPE_12] = FAT12_EOC_VALUE,
-    [FAT_TYPE_16] = FAT16_EOC_VALUE,
-    [FAT_TYPE_32] = FAT32_EOC_VALUE
-};
-
 #define FAT12_BAD_VALUE 0x00000FF7
 #define FAT16_BAD_VALUE 0x0000FFF7
 #define FAT32_BAD_VALUE 0x0FFFFFF7
 
-static u32 ft_to_bad_value[] = {
-    [FAT_TYPE_12] = FAT12_BAD_VALUE,
-    [FAT_TYPE_16] = FAT16_BAD_VALUE,
-    [FAT_TYPE_32] = FAT32_BAD_VALUE
-};
-
-static enum fat_entry entry_type_of_fat_value(u32 value, enum fat_type ft)
+static enum fat_entry entry_type_of_fat_value(u32 value, struct fat_ops *fops)
 {
     value &= FAT32_CLUSTER_MASK;
 
@@ -234,9 +189,9 @@ static enum fat_entry entry_type_of_fat_value(u32 value, enum fat_type ft)
     if (value == RESERVED_CLUSTER_VALUE)
         return FAT_ENTRY_RESERVED;
 
-    if (unlikely(value == ft_to_bad_value[ft]))
+    if (unlikely(value == fops->bad_val))
         return FAT_ENTRY_BAD;
-    if (value >= ft_to_eoc_value[ft])
+    if (value >= fops->eoc_val)
         return FAT_ENTRY_END_OF_CHAIN;
 
     return FAT_ENTRY_LINK;
@@ -289,7 +244,7 @@ static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
                           range_length(&fs->fat_lba_range));
 }
 
-static u32 extract_cached_fat_entry_at_index_fat12(struct fat_filesystem *fs, u32 index)
+static u32 get_fat_entry_fat12(struct fat_filesystem *fs, u32 index)
 {
     void *view_offset = fs->fat_view + (index + (index / 2));
     u32 out_val = *(u16*)view_offset;
@@ -302,37 +257,27 @@ static u32 extract_cached_fat_entry_at_index_fat12(struct fat_filesystem *fs, u3
     return out_val;
 }
 
-static u32 extract_cached_fat_entry_at_index_fat16(struct fat_filesystem *fs, u32 index)
+static u32 get_fat_entry_fat16(struct fat_filesystem *fs, u32 index)
 {
     return ((u16*)fs->fat_view)[index];
 }
 
-static u32 extract_cached_fat_entry_at_index_fat32(struct fat_filesystem *fs, u32 index)
+static u32 get_fat_entry_fat32(struct fat_filesystem *fs, u32 index)
 {
     return ((u32*)fs->fat_view)[index - fs->fat_view_offset] & FAT32_CLUSTER_MASK;
 }
 
-static u32 (*extract_cached_fat_entry_at_index[])(struct fat_filesystem*, u32) = {
-    [FAT_TYPE_12] = extract_cached_fat_entry_at_index_fat12,
-    [FAT_TYPE_16] = extract_cached_fat_entry_at_index_fat16,
-    [FAT_TYPE_32] = extract_cached_fat_entry_at_index_fat32,
-};
-
-static bool (*ensure_fat_entry_cached[])(struct fat_filesystem*, u32) = {
-    [FAT_TYPE_12] = ensure_fat_cached_fat12_or_16,
-    [FAT_TYPE_16] = ensure_fat_cached_fat12_or_16,
-    [FAT_TYPE_32] = ensure_fat_entry_cached_fat32,
-};
-
 static u32 fat_entry_at(struct fat_filesystem *fs, u32 index)
 {
-    bool cached = ensure_fat_entry_cached[fs->fat_type](fs, index);
+    struct fat_ops *fops = fs->fops;
+
+    bool cached = fops->ensure_fat_entry_cached(fs, index);
 
     // OOM, disk read error, corrupted fs etc
     if (unlikely(!cached))
-        return ft_to_bad_value[fs->fat_type];
+        return fops->bad_val;
 
-    return extract_cached_fat_entry_at_index[fs->fat_type](fs, index);
+    return fops->get_fat_entry(fs, index);
 }
 
 static void file_insert_range_fat32(void *ranges, u32 idx, struct contiguous_file_range32 range)
@@ -348,26 +293,20 @@ static void file_insert_range_fat12_or_16(void *ranges, u32 idx, struct contiguo
     };
 }
 
-static void (*file_insert_range[])(void*, u32, struct contiguous_file_range32) = {
-    [FAT_TYPE_12] = file_insert_range_fat12_or_16,
-    [FAT_TYPE_16] = file_insert_range_fat12_or_16,
-    [FAT_TYPE_32] = file_insert_range_fat32
-};
-
 static bool file_emplace_range(struct fat_file *file, struct contiguous_file_range32 range,
-                               enum fat_type ft)
+                               struct fat_ops *fops)
 {
     u32 offset_into_extra;
     size_t extra_range_pages, extra_range_capacity;
 
-    if (file->range_count < ft_to_in_place_range_capacity[ft]) {
-        file_insert_range[ft](file->in_place_ranges, file->range_count++, range);
+    if (file->range_count < fops->in_place_range_cap) {
+        fops->file_insert_range(file->in_place_ranges, file->range_count++, range);
         return true;
     }
 
-    offset_into_extra = file->range_count - ft_to_in_place_range_capacity[ft];
-    extra_range_pages = CEILING_DIVIDE(offset_into_extra, ft_to_ranges_per_page[ft]);
-    extra_range_capacity = extra_range_pages * ft_to_ranges_per_page[ft];
+    offset_into_extra = file->range_count - fops->in_place_range_cap;
+    extra_range_pages = CEILING_DIVIDE(offset_into_extra, fops->ranges_per_page);
+    extra_range_capacity = extra_range_pages * fops->ranges_per_page;
 
     if (extra_range_capacity == offset_into_extra) {
         struct contiguous_file_range *new_extra = allocate_pages(extra_range_pages + 1);
@@ -379,7 +318,7 @@ static bool file_emplace_range(struct fat_file *file, struct contiguous_file_ran
         file->ranges_extra = new_extra;
     }
 
-    file_insert_range[ft](file->ranges_extra, file->range_count++, range);
+    fops->file_insert_range(file->ranges_extra, file->range_count++, range);
     return true;
 }
 
@@ -396,14 +335,14 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
     for (;;) {
         u32 next_cluster = fat_entry_at(fs, current_cluster);
 
-        switch (entry_type_of_fat_value(next_cluster, fs->fat_type)) {
+        switch (entry_type_of_fat_value(next_cluster, fs->fops)) {
         case FAT_ENTRY_END_OF_CHAIN: {
-            if (unlikely((current_file_offset << fs->cluster_shift) < file->f.size)) {
+            if (unlikely((current_file_offset << cluster_shift(fs)) < file->f.size)) {
                 print_warn("EOC before end of file");
                 return false;
             }
 
-            if (!file_emplace_range(file, range, fs->fat_type))
+            if (!file_emplace_range(file, range, fs->fops))
                 return false;
 
             return true;
@@ -412,7 +351,7 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
             if (next_cluster == current_cluster + 1)
                 break;
 
-            if (!file_emplace_range(file, range, fs->fat_type))
+            if (!file_emplace_range(file, range, fs->fops))
                 return false;
 
             range = (struct contiguous_file_range32) { current_file_offset + 1, next_cluster };
@@ -437,12 +376,6 @@ static size_t range16_get_offset(void *range)
     return ((struct contiguous_file_range16*)range)->file_offset_cluster;
 }
 
-static size_t (*ft_to_range_get_offset[])(void*) = {
-    [FAT_TYPE_12] = range16_get_offset,
-    [FAT_TYPE_16] = range16_get_offset,
-    [FAT_TYPE_32] = range32_get_offset
-};
-
 static size_t range32_get_global_cluster(void *range)
 {
     return ((struct contiguous_file_range32*)range)->global_cluster;
@@ -453,43 +386,13 @@ static size_t range16_get_global_cluster(void *range)
     return ((struct contiguous_file_range16*)range)->global_cluster;
 }
 
-static size_t (*ft_to_range_get_global_cluster[])(void*) = {
-    [FAT_TYPE_12] = range16_get_global_cluster,
-    [FAT_TYPE_16] = range16_get_global_cluster,
-    [FAT_TYPE_32] = range32_get_global_cluster
-};
-
-static u32 file_cluster_from_offset(struct fat_file *file, u32 offset, enum fat_type ft)
-{
-    void *ranges = file->in_place_ranges;
-    void *this_range;
-    size_t range_count = file->range_count;
-    u32 global_cluster;
-    u32 range_stride = ft_to_range_stride[ft];
-    size_t (*range_get_offset)(void*) = ft_to_range_get_offset[ft];
-    size_t (*range_get_global_cluster)(void*) = ft_to_range_get_global_cluster[ft];
-
-    BUG_ON(file->range_count == 0);
-
-    if (file->ranges_extra && range_get_offset(file->ranges_extra) >= offset) {
-        ranges = file->ranges_extra;
-        range_count = range_count - ft_to_in_place_range_capacity[ft];
-    }
-
-    this_range = find_range(ranges, range_count, range_stride, range_get_offset, offset);
-    global_cluster = range_get_global_cluster(this_range) + (offset - range_get_offset(this_range));
-    BUG_ON(entry_type_of_fat_value(global_cluster, ft) != FAT_ENTRY_LINK);
-
-    return global_cluster;
-}
-
 static bool fat_read(struct fat_filesystem *fs, u32 cluster, u32 offset, u32 bytes, void* buffer)
 {
     u64 offset_to_read;
 
     offset_to_read = fs->data_lba_range.begin;
     offset_to_read <<= fs->f.d.block_shift;
-    offset_to_read += cluster << fs->cluster_shift;
+    offset_to_read += cluster << cluster_shift(fs);
     offset_to_read += offset;
 
     return ds_read(fs->f.d.handle, buffer, offset_to_read, bytes);
@@ -523,10 +426,10 @@ static bool dir_fetch_next_entry(struct fat_filesystem *fs, struct fat_dir_iter_
     if (ctx->flags & DIR_FIXED_CAP_ROOT)
         return fixed_root_dir_fetch_next_entry(fs, ctx, entry);
 
-    if ((ctx->current_offset >> fs->cluster_shift) == 1) {
+    if ((ctx->current_offset >> cluster_shift(fs)) == 1) {
         u32 next_cluster = fat_entry_at(fs, ctx->current_cluster);
 
-        if (entry_type_of_fat_value(next_cluster, fs->fat_type) != FAT_ENTRY_LINK) {
+        if (entry_type_of_fat_value(next_cluster, fs->fops) != FAT_ENTRY_LINK) {
             ctx->flags |= DIR_EOF;
             return false;
         }
@@ -717,44 +620,102 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
     }
 }
 
-static bool fat_file_read(struct file *base_file, void *buffer, u64 offset, u32 size)
+static size_t find_range_idx(void *ranges, size_t count, size_t offset,
+                             struct fat_ops *fops)
 {
-    struct fat_file *file = container_of(base_file, struct fat_file, f);
-    struct fat_filesystem *fs = container_of(file->f.fs, struct fat_filesystem, f);
-    u32 cluster_offset;
-    u32 offset_within_cluster;
-    u32 bytes_left_after_offset;
-    size_t bytes_to_read;
-    u8 *byte_buffer = (u8*)buffer;
+    size_t left = 0;
+    size_t right = count - 1;
+    void *out_range;
 
-    check_read(base_file, offset, size);
+    while (left <= right) {
+        size_t middle = left + ((right - left) / 2);
+        void *mid_range = ranges + (middle * fops->range_stride);
+        size_t file_offset = fops->range_get_offset(mid_range);
 
-    if (!file->range_count && !file_compute_contiguous_ranges(file))
+        if (file_offset < offset) {
+            left = middle + 1;
+        } else if (offset < file_offset) {
+            right = middle - 1;
+        } else {
+            return middle;
+        }
+    }
+    out_range = ranges + (right * fops->range_stride);
+
+    /*
+     * right should always point to lower bound - 1,
+     * aka range that this offset is a part of.
+     */
+    BUG_ON(fops->range_get_offset(out_range) > offset);
+    return right;
+}
+
+static void *get_range(void *ranges, size_t idx, u32 stride)
+{
+    return ranges + (idx * stride);
+}
+
+static u64 cluster_as_part_off(u32 cluster,  struct fat_filesystem *fs)
+{
+    u64 off;
+
+    off = pure_cluster_value(cluster);
+    off <<= fs_block_shift(&fs->f);
+    off += fs->data_part_off;
+
+    return off;
+}
+
+static bool fat_file_get_range(struct file *base_file, u64 file_block_off,
+                               size_t want_blocks, struct block_range *out_range)
+{
+    struct filesystem *base_fs = base_file->fs;
+    struct fat_filesystem *fs = container_of(base_fs, struct fat_filesystem, f);
+    struct fat_file *f = container_of(base_file, struct fat_file, f);
+    struct fat_ops *fops = fs->fops;
+    u32 this_range_offset, range_count;
+    size_t range_len, range_idx, range_idx_global = 0;
+    void *this_range, *ranges = f->in_place_ranges;
+
+    if (!file_compute_contiguous_ranges(f))
         return false;
+    range_count = f->range_count;
 
-    cluster_offset = offset >> fs->cluster_shift;
-    offset_within_cluster = offset - (cluster_offset << fs->cluster_shift);
-    bytes_left_after_offset = file->f.size - offset;
-    bytes_to_read = MIN(size, bytes_left_after_offset);
-
-    for (;;) {
-        u32 current_cluster = file_cluster_from_offset(file, cluster_offset++, fs->fat_type);
-        size_t bytes_to_read_for_this_cluster = MIN(bytes_to_read, (1ul << fs->cluster_shift) - offset_within_cluster);
-
-        if (!fat_read(fs, pure_cluster_value(current_cluster),
-                      offset_within_cluster, bytes_to_read_for_this_cluster, byte_buffer))
-            return false;
-
-        byte_buffer += bytes_to_read_for_this_cluster;
-        bytes_to_read -= bytes_to_read_for_this_cluster;
-
-        if (!bytes_to_read)
-            break;
-
-        offset_within_cluster = 0;
+    if (f->ranges_extra && fops->range_get_offset(f->ranges_extra) >= file_block_off) {
+        range_idx_global = fops->in_place_range_cap;
+        ranges = f->ranges_extra;
+        range_count -= range_idx_global;
     }
 
+    range_idx = find_range_idx(ranges, range_count, file_block_off, fops);
+    this_range = get_range(ranges, range_idx, fops->range_stride);
+    this_range_offset = file_block_off - fops->range_get_offset(this_range);
+    range_idx_global += ++range_idx;
+
+    if (range_idx_global == f->range_count) {
+        range_len = -1;
+    } else {
+        void *next_range;
+
+        if (range_idx_global == fops->in_place_range_cap) {
+            ranges = f->ranges_extra;
+            range_idx = 0;
+        }
+
+        next_range = get_range(ranges, range_idx, fops->range_stride);
+        range_len = fops->range_get_offset(next_range) - this_range_offset;
+    }
+
+    this_range_offset += fops->range_get_global_cluster(this_range);
+    out_range->part_byte_off = cluster_as_part_off(this_range_offset, fs);
+    out_range->blocks = MIN(want_blocks, range_len);
+
     return true;
+}
+
+static bool fat_read_file(struct file *f, void *buf, u64 off, u32 bytes)
+{
+    return bulk_read_file(f, buf, off, bytes, fat_file_get_range);
 }
 
 static struct fat_file *fat_do_open_file(struct fat_filesystem *fs, u32 first_cluster, u32 size)
@@ -816,11 +777,11 @@ static void fat_iter_ctx_init(struct filesystem *base_fs, struct dir_iter_ctx *c
     }
 }
 
-static void fat_file_free(struct fat_file *file, enum fat_type ft)
+static void fat_file_free(struct fat_file *file, struct fat_ops *fops)
 {
     if (file->ranges_extra) {
-        size_t offset_into_extra = file->range_count - ft_to_in_place_range_capacity[ft];
-        size_t extra_range_capacity = CEILING_DIVIDE(offset_into_extra, ft_to_ranges_per_page[ft]);
+        size_t offset_into_extra = file->range_count - fops->in_place_range_cap;
+        size_t extra_range_capacity = CEILING_DIVIDE(offset_into_extra, fops->ranges_per_page);
         free_pages(file->ranges_extra, extra_range_capacity);
     }
 
@@ -832,7 +793,7 @@ static void fat_file_close(struct file *f)
     struct fat_file *file = container_of(f, struct fat_file, f);
     struct fat_filesystem *fs = container_of(file->f.fs, struct fat_filesystem, f);
 
-    fat_file_free(file, fs->fat_type == FAT_TYPE_32);
+    fat_file_free(file, fs->fops);
 }
 
 struct fat_info {
@@ -940,12 +901,61 @@ static bool detect_fat(const struct disk *d, struct range lba_range, struct dos3
     return out_info->root_dir_cluster >= RESERVED_CLUSTER_COUNT;
 }
 
+static struct fat_ops fat12_ops = {
+    .eoc_val = FAT12_EOC_VALUE,
+    .bad_val = FAT12_BAD_VALUE,
+    .bits_per_cluster = 12,
+    .in_place_range_cap = IN_PLACE_RANGE_CAPACITY_FAT12_OR_16,
+    .ranges_per_page = RANGES_PER_PAGE_FAT12_OR_16,
+    .range_stride = sizeof(struct contiguous_file_range16),
+    .get_fat_entry = get_fat_entry_fat12,
+    .ensure_fat_entry_cached = ensure_fat_cached_fat12_or_16,
+    .file_insert_range = file_insert_range_fat12_or_16,
+    .range_get_offset = range16_get_offset,
+    .range_get_global_cluster = range16_get_global_cluster
+};
+
+static struct fat_ops fat16_ops = {
+    .eoc_val = FAT16_EOC_VALUE,
+    .bad_val = FAT16_BAD_VALUE,
+    .bits_per_cluster = 16,
+    .in_place_range_cap = IN_PLACE_RANGE_CAPACITY_FAT12_OR_16,
+    .ranges_per_page = RANGES_PER_PAGE_FAT12_OR_16,
+    .range_stride = sizeof(struct contiguous_file_range16),
+    .get_fat_entry = get_fat_entry_fat16,
+    .ensure_fat_entry_cached = ensure_fat_cached_fat12_or_16,
+    .file_insert_range = file_insert_range_fat12_or_16,
+    .range_get_offset = range16_get_offset,
+    .range_get_global_cluster = range16_get_global_cluster
+};
+
+static struct fat_ops fat32_ops = {
+    .eoc_val = FAT32_EOC_VALUE,
+    .bad_val = FAT32_BAD_VALUE,
+    .bits_per_cluster = 32,
+    .in_place_range_cap = IN_PLACE_RANGE_CAPACITY_FAT32,
+    .ranges_per_page = RANGES_PER_PAGE_FAT32,
+    .range_stride = sizeof(struct contiguous_file_range32),
+    .get_fat_entry = get_fat_entry_fat32,
+    .ensure_fat_entry_cached = ensure_fat_entry_cached_fat32,
+    .file_insert_range = file_insert_range_fat32,
+    .range_get_offset = range32_get_offset,
+    .range_get_global_cluster = range32_get_global_cluster
+};
+
+struct fat_ops *ft_to_fat_ops[] = {
+    [FAT_TYPE_12] = &fat12_ops,
+    [FAT_TYPE_16] = &fat16_ops,
+    [FAT_TYPE_32] = &fat32_ops
+};
+
 struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
                                   struct block_cache *bc)
 {
     void *bpb;
     u64 abs_bpb_off = (lba_range.begin << d->block_shift) + BPB_OFFSET;
     struct fat_filesystem *fs;
+    struct fat_ops *fops;
     struct fat_info info = { 0 };
     bool ok;
 
@@ -958,8 +968,9 @@ struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
     if (!ok)
         return NULL;
 
+    fops = ft_to_fat_ops[info.type];
     print_info("detected fat%d with %d fats, %d sectors/cluster, %u sectors/fat\n",
-               ft_to_size[info.type], info.fat_count, info.sectors_per_cluster,
+               fops->bits_per_cluster, info.fat_count, info.sectors_per_cluster,
                info.sectors_per_fat);
 
     fs = allocate_bytes(sizeof(struct fat_filesystem));
@@ -973,9 +984,10 @@ struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
         .next_dir_rec = fat_next_dir_rec,
         .open_file = fat_open_file,
         .close_file = fat_file_close,
-        .read_file = fat_file_read
+        .read_file = fat_read_file,
     };
 
+    fs->fops = fops;
     fs->fat_type = info.type;
     fs->fat_view = NULL;
     fs->fat_view_offset = FAT_VIEW_OFF_INVALID;
@@ -987,18 +999,23 @@ struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
 
     range_advance_begin(&lba_range, info.sectors_per_fat * info.fat_count);
 
-    if (info.type == FAT_TYPE_12 || info.type == FAT_TYPE_16) {
+    switch (info.type) {
+    case FAT_TYPE_12:
+    case FAT_TYPE_16:
         fs->root_dir_sector_off = lba_range.begin - fs->f.lba_range.begin;
         fs->root_dir_entries = info.max_root_dir_entries;
         range_advance_begin(&lba_range, info.root_dir_sectors);
-    } else if (info.type == FAT_TYPE_32) {
+        break;
+    case FAT_TYPE_32:
         fs->root_dir_cluster = info.root_dir_cluster;
-    } else {
+        break;
+    default:
         BUG();
     }
 
     fs->data_lba_range = lba_range;
-    fs->cluster_shift = (__builtin_ffs(info.sectors_per_cluster) - 1) + d->block_shift;
+    fs->data_part_off = (fs->data_lba_range.begin - fs->f.lba_range.begin) << d->block_shift;
+    fs->f.block_shift = (__builtin_ffs(info.sectors_per_cluster) - 1) + d->block_shift;
 
     return &fs->f;
 }
