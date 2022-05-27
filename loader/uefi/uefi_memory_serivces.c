@@ -10,6 +10,7 @@
 
 #define UEFI_MS_DEBUG 1
 
+static bool has_efi_memops = false;
 static void *memory_map_buf = NULL;
 static size_t buf_byte_capacity = 0;
 static size_t buf_entry_count = 0;
@@ -238,4 +239,56 @@ u64 ms_get_highest_map_address(void)
         fill_internal_memory_map_buffer();
 
     return mme_end(mm_entry_at(buf_entry_count - 1));
+}
+
+void uefi_memory_services_init(void)
+{
+    has_efi_memops = g_st->BootServices->Hdr.Revision >= EFI_1_10_SYSTEM_TABLE_REVISION;
+}
+
+static void *efi_memmove(void *dest, void *src, size_t count)
+{
+    if (has_efi_memops && !services_offline) {
+        g_st->BootServices->CopyMem(dest, src, count);
+        return dest;
+    }
+
+    return memcpy_generic(dest, src, count);
+}
+
+static void *efi_memset(void *dest, int val, size_t count)
+{
+    if (has_efi_memops && !services_offline) {
+        g_st->BootServices->SetMem(dest, count, val);
+        return dest;
+    }
+
+    return memset_generic(dest, val, count);
+}
+
+#ifdef memset
+#undef memset
+#endif
+
+void *memset(void *dest, int val, size_t count)
+{
+    return efi_memset(dest, val, count);
+}
+
+#ifdef memcpy
+#undef memcpy
+#endif
+
+void *memcpy(void *dest, void *src, size_t count)
+{
+    return efi_memmove(dest, src, count);
+}
+
+#ifdef memmove
+#undef memmove
+#endif
+
+void *memmove(void *dest, void *src, size_t count)
+{
+    return efi_memmove(dest, src, count);
 }
