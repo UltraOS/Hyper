@@ -10,8 +10,8 @@
 #include "bios_call.h"
 
 extern u8 a20_enabled;
-extern u8 section_bss_begin;
-extern u8 section_bss_end;
+extern u8 section_bss_begin[];
+extern u8 section_bss_end[];
 
 bool services_exit_all(size_t key)
 {
@@ -62,7 +62,7 @@ void loader_abort(void)
 
 void bios_entry(void)
 {
-    memzero(&section_bss_begin, &section_bss_end - &section_bss_begin);
+    memzero(section_bss_begin, section_bss_end - section_bss_begin);
 
     bios_video_services_init();
     BUG_ON(!a20_enabled);
