@@ -9,3 +9,5 @@
 #define unlikely(expr) __builtin_expect(!!(expr), 0)
 
 #define ALWAYS_INLINE inline __attribute__((always_inline))
+
+#define ERROR_EMITTER(msg) __attribute__((__error__(msg)))
