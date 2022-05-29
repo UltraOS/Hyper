@@ -157,6 +157,7 @@ def do_fetch_dependencies(package_manager):
                 "libmpfr-dev",
                 "texinfo",
                 "libisl-dev",
+                "nasm",
             ],
             "is_dependency_installed": apt_is_dependency_installed,
             "install": apt_install
@@ -166,7 +167,8 @@ def do_fetch_dependencies(package_manager):
                 "base-devel",
                 "gmp",
                 "libmpc",
-                "mpfr"
+                "mpfr",
+                "nasm",
             ],
             "is_dependency_installed": pacman_is_dependency_installed,
             "install": pacman_install
@@ -180,7 +182,8 @@ def do_fetch_dependencies(package_manager):
                 "libmpc",
                 "mpfr",
                 "texinfo",
-                "isl"
+                "isl",
+                "nasm",
             ],
             "is_dependency_installed": brew_is_dependency_installed,
             "install": brew_install
