@@ -145,7 +145,7 @@ def brew_prefix(dependency):
     return subprocess.check_output(["brew", "--prefix", dependency], text=True).strip()
 
 
-def fetch_dependencies(package_manager):
+def do_fetch_dependencies(package_manager):
     pm_to_dependencies = {
         "apt": {
             "dependencies": [
@@ -340,6 +340,11 @@ def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
         shutil.rmtree(gcc_build_dir)
 
 
+def fetch_dependencies(platform):
+    pm = get_package_manager(platform)
+    print(f"Detected package manager '{pm}'")
+    do_fetch_dependencies(pm)
+
 def main():
     parser = argparse.ArgumentParser("Build hyper toolchain")
     parser.add_argument("platform", help="platform to build the toolchain for (BIOS/UEFI)")
@@ -349,6 +354,8 @@ def main():
                         help="don't remove the sources after build")
     parser.add_argument("--keep-build", action="store_true",
                         help="don't remove the build directories")
+    parser.add_argument("--force-fetch-dependencies", action="store_true",
+                        help="fetch dependencies even if toolchain is already built")
     args = parser.parse_args()
 
     build_platform = args.platform.lower()
@@ -360,6 +367,9 @@ def main():
     if native_platform not in SUPPORTED_SYSTEMS:
         print(f"Unsupported system '{native_platform}'")
         exit(1)
+
+    if args.force_fetch_dependencies:
+        fetch_dependencies(native_platform)
 
     tc_root_path = os.path.dirname(os.path.abspath(__file__))
     tc_platform_root_path = os.path.join(tc_root_path, f"tools_{build_platform}")
@@ -375,10 +385,8 @@ def main():
 
     download_toolchain_sources(native_platform, tc_root_path, gcc_dir_full_path, binutils_dir_full_path)
 
-    if not args.skip_dependencies:
-        pm = get_package_manager(native_platform)
-        print(f"Detected package manager '{pm}'")
-        fetch_dependencies(pm)
+    if not args.skip_dependencies and not args.force_fetch_dependencies:
+        fetch_dependencies(native_platform)
 
     os.makedirs(tc_platform_root_path, exist_ok=True)
     build_toolchain(gcc_dir_full_path, binutils_dir_full_path, tc_platform_root_path,
