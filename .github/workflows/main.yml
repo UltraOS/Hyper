@@ -1,0 +1,38 @@
+name: CI
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.head_ref || format('{0}-{1}', github.ref, github.run_number) }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        platform: [bios, uefi]
+        exclude:
+          # FIXME: the build somehow ends up being corrupted with GCC's
+          #        libexec/cc1 containing garbage data.
+          - os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - uses: actions/cache@v3.0.2
+        with:
+          path: "${{ github.workspace }}/toolchain/tools_${{ matrix.platform }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc-toolchain"
+
+      - name: Build platform toolchain
+        run: "${{ github.workspace }}/toolchain/build.py ${{ matrix.platform }} --force-fetch-dependencies --no-tune-native"
+
+      - name: Build hyper
+        run: ${{ github.workspace }}/build.sh ${{ matrix.platform }}
+
+      # TODO: run tests
