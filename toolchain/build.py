@@ -287,7 +287,7 @@ def install_mingw_libs(source_dir, target, platform_dir, target_dir, env):
 
 
 def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
-                    target_platform, keep_sources, keep_build_dirs):
+                    target_platform, keep_sources, keep_build_dirs, optimize_for_native):
     compiler_prefix = get_compiler_prefix(target_platform)
     binutils_build_dir = os.path.join(target_dir, f"binutils_{target_platform}_build")
     gcc_build_dir = os.path.join(target_dir, f"gcc_{target_platform}_build")
@@ -303,11 +303,12 @@ def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
 
     cflags = ["-g", "-O2"]
     
-    # -mtune=native doesn't work on M1 clang for some reason
-    if this_platform == "Darwin":
-        cflags.append("-mtune=native")
-    else:
-        cflags.append("-march=native")
+    if optimize_for_native:
+        # -march=native doesn't work on M1 clang for some reason
+        if this_platform == "Darwin":
+            cflags.append("-mtune=native")
+        else:
+            cflags.append("-march=native")
 
     env["CFLAGS"] = env.get("CFLAGS", "") + " ".join(cflags)
     env["CXXFLAGS"] = env.get("CXXFLAGS", "") + " ".join(cflags)
@@ -356,6 +357,8 @@ def main():
                         help="don't remove the build directories")
     parser.add_argument("--force-fetch-dependencies", action="store_true",
                         help="fetch dependencies even if toolchain is already built")
+    parser.add_argument("--no-tune-native", action="store_true",
+                        help="don't optimize the toolchain for the current CPU")
     args = parser.parse_args()
 
     build_platform = args.platform.lower()
@@ -390,7 +393,8 @@ def main():
 
     os.makedirs(tc_platform_root_path, exist_ok=True)
     build_toolchain(gcc_dir_full_path, binutils_dir_full_path, tc_platform_root_path,
-                    native_platform, build_platform, args.keep_sources, args.keep_build)
+                    native_platform, build_platform, args.keep_sources, args.keep_build,
+                    not args.no_tune_native)
 
     if not args.keep_sources:
         print("Removing source directories...")
