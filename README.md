@@ -2,6 +2,8 @@
 
 A fast & lightweight bootloader for the x86 architecture.
 
+[![CI](https://github.com/UltraOS/Hyper/actions/workflows/main.yml/badge.svg?branch=master)](https://github.com/UltraOS/Hyper/actions/workflows/main.yml)
+
 ## Features & Support
 Boot sectors for HDD, el-torito & hybrid ISO formats.  
 Support for ELF binaries targeting I386 and AMD64.
