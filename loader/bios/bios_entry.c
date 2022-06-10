@@ -13,14 +13,6 @@ extern u8 a20_enabled;
 extern u8 section_bss_begin[];
 extern u8 section_bss_end[];
 
-bool services_exit_all(size_t key)
-{
-    SERVICE_FUNCTION();
-
-    services_offline = bios_memory_services_check_key(key);
-    return services_offline;
-}
-
 enum service_provider services_get_provider(void)
 {
     return SERVICE_PROVIDER_BIOS;

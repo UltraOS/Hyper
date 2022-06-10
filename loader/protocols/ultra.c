@@ -396,11 +396,6 @@ struct attribute_array_spec {
     ptr_t acpi_rsdp_address;
 };
 
-struct handover_info {
-    size_t memory_map_handover_key;
-    u64 attribute_array_address;
-};
-
 static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void *buf)
 {
     struct ultra_memory_map_entry *ue = buf;
@@ -497,20 +492,31 @@ static void *write_framebuffer(struct ultra_framebuffer_attribute *fb_attr, cons
     return ++fb_attr;
 }
 
-static void *write_memory_map_header(struct ultra_memory_map_attribute *mm, size_t entry_count)
+static void *write_memory_map(void *attr_ptr, size_t entry_count)
 {
+    struct ultra_memory_map_attribute *mm = attr_ptr;
+    void *entry_ptr = attr_ptr + sizeof(*mm);
+    size_t entries_bytes;
+
+    entry_count = services_release_resources(entry_ptr, entry_count,
+                                             sizeof(struct ultra_memory_map_entry),
+                                             ultra_memory_map_entry_convert);
+
+    entries_bytes = entry_count * sizeof(struct ultra_memory_map_entry);
     mm->header.type = ULTRA_ATTRIBUTE_MEMORY_MAP;
-    mm->header.size = sizeof(struct ultra_memory_map_attribute) + entry_count * sizeof(struct ultra_memory_map_entry);
-    return ++mm;
+    mm->header.size = sizeof(struct ultra_memory_map_attribute);
+    mm->header.size += entries_bytes;
+
+    return entry_ptr + entries_bytes;
 }
 
-static void build_attribute_array(const struct attribute_array_spec *spec,
-                                  struct handover_info *hi)
+static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
 {
     u32 cmdline_aligned_length = 0;
     size_t mm_entry_count, bytes_needed = 0;
     void *attr_ptr;
     uint32_t *attr_count;
+    ptr_t ret;
 
     if (spec->cmdline_present) {
         cmdline_aligned_length += sizeof(struct ultra_attribute_header);
@@ -531,29 +537,29 @@ static void build_attribute_array(const struct attribute_array_spec *spec,
      * (which is changed every time we allocate/free more memory)
      */
     for (;;) {
-        size_t bytes_for_this_allocation, mm_entry_count_new, key = 0;
+        size_t bytes_for_this_allocation, mm_entry_count_new;
 
         // Add 1 to give some leeway for memory map growth after the next allocation
-        mm_entry_count = ms_copy_map(NULL, 0, 0, &key, NULL) + 1;
+        mm_entry_count = services_release_resources(NULL, 0, 0, NULL) + 1;
         bytes_for_this_allocation = bytes_needed + mm_entry_count * sizeof(struct ultra_memory_map_entry);
 
         // FIXME: this should probably do page granularity allocations
-        hi->attribute_array_address = (u32)(ptr_t)allocate_critical_bytes(bytes_for_this_allocation);
+        ret = (ptr_t)allocate_critical_bytes(bytes_for_this_allocation);
 
         // Check if memory map had to grow to store the previous allocation
-        mm_entry_count_new = ms_copy_map(NULL, 0, 0, &key, NULL);
+        mm_entry_count_new = services_release_resources(NULL, 0, 0, NULL);
 
         if (mm_entry_count < mm_entry_count_new) {
-            free_bytes((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
+            free_bytes((void*)ret, bytes_for_this_allocation);
             continue;
         }
 
         mm_entry_count = mm_entry_count_new;
-        memzero((void*)(ptr_t)hi->attribute_array_address, bytes_for_this_allocation);
+        memzero((void*)ret, bytes_for_this_allocation);
         break;
     }
 
-    attr_ptr = (void*)(ptr_t)hi->attribute_array_address;
+    attr_ptr = (void*)ret;
     attr_ptr = write_context_header(attr_ptr, &attr_count);
 
     attr_ptr = write_platform_info(attr_ptr, spec->acpi_rsdp_address);
@@ -587,11 +593,9 @@ static void build_attribute_array(const struct attribute_array_spec *spec,
         *attr_count += 1;
     }
 
-    attr_ptr = write_memory_map_header(attr_ptr, mm_entry_count);
+    attr_ptr = write_memory_map(attr_ptr, mm_entry_count);
     *attr_count += 1;
-    ms_copy_map(attr_ptr, mm_entry_count, sizeof(struct ultra_memory_map_entry),
-                &hi->memory_map_handover_key, ultra_memory_map_entry_convert);
-    attr_ptr += mm_entry_count * sizeof(struct ultra_memory_map_entry);
+    return ret;
 }
 
 u64 build_page_table(struct binary_info *bi, u64 max_address, bool higher_half_exclusive, bool null_guard)
@@ -757,9 +761,8 @@ static u64 ultra_known_map_types[] = {
 void ultra_protocol_load(struct config *cfg, struct loadable_entry *le)
 {
     struct attribute_array_spec spec = { 0 };
-    struct handover_info hi;
-    u64 pt;
-    bool handover_res, is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
+    u64 pt, attr_arr_addr;
+    bool is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
 
     mm_declare_known_mm_types(ultra_known_map_types);
     dynamic_buffer_init(&spec.module_buf, sizeof(struct ultra_module_info_attribute), true);
@@ -794,28 +797,24 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le)
     spec.fb_present = set_video_mode(cfg, le, &spec.fb);
 
     /*
-     * We cannot allocate any memory after this call, as memory map is now
-     * saved inside the attribute array.
+     * This also acquires the memory map, so we can no longer use
+     * any services after this call.
      */
-    build_attribute_array(&spec, &hi);
-
-    // Exit all services before handover
-    handover_res = services_exit_all(hi.memory_map_handover_key);
-    BUG_ON(!handover_res);
+    attr_arr_addr = build_attribute_array(&spec);
 
     if (is_higher_half_kernel) {
         spec.stack_address += DIRECT_MAP_BASE;
-        hi.attribute_array_address += DIRECT_MAP_BASE;
+        attr_arr_addr += DIRECT_MAP_BASE;
     }
 
     print_info("jumping to kernel: entry 0x%016llX, stack at 0x%016llX, boot context at 0x%016llX\n",
                spec.kern_info.bin_info.entrypoint_address, spec.stack_address,
-               hi.attribute_array_address);
+               attr_arr_addr);
 
     if (spec.kern_info.bin_info.bitness == 32)
         kernel_handover32(spec.kern_info.bin_info.entrypoint_address, spec.stack_address,
-                          (u32)hi.attribute_array_address, ULTRA_MAGIC);
+                          (u32)attr_arr_addr, ULTRA_MAGIC);
 
     kernel_handover64(spec.kern_info.bin_info.entrypoint_address, spec.stack_address, pt,
-                      hi.attribute_array_address, ULTRA_MAGIC, is_higher_half_exclusive);
+                      attr_arr_addr, ULTRA_MAGIC, is_higher_half_exclusive);
 }

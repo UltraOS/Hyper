@@ -299,7 +299,7 @@ static int mme_insert_try_merge(struct memory_map_entry *buf, struct memory_map_
 
 // Slow path, nothing to merge. Insert the extra range & increase count.
 out_no_merge:
-    OOPS_ON(count == cap);
+    OOPS_ON(count >= cap);
     mme_insert(buf, me, res, count);
     return 1;
 }
@@ -416,29 +416,35 @@ static size_t mm_do_fixup(struct memory_map_entry *buf, size_t count, size_t buf
     return j + 1;
 }
 
-size_t mm_fixup(struct memory_map_entry *buf, size_t count,
-                bool is_sorted, size_t fixup_cap)
+size_t mm_fixup(struct memory_map_entry *buf, size_t count, size_t cap, u8 flags)
 {
+    u64 known_mask_prev;
+    size_t ret;
+    bool merge_reclaim = flags & FIXUP_NO_PRESERVE_LOADER_RECLAIM;
     BUG_ON(count == 0);
 
-    if (!is_sorted)
+    if (flags & FIXUP_UNSORTED)
         mm_sort(buf, count);
 
-    map_is_dirty = false;
-    return mm_do_fixup(buf, count, fixup_cap);
-}
-
-size_t mm_force_compress(struct memory_map_entry *buf, size_t count)
-{
-    return mm_fixup(buf, count, true, MM_FIXUP_DIE_ON_OVERLAP);
-}
-
-size_t mm_compress(struct memory_map_entry *buf, size_t count)
-{
-    if (!map_is_dirty)
+    if ((flags & FIXUP_IF_DIRTY) && !map_is_dirty)
         return count;
 
-    return mm_fixup(buf, count, true, MM_FIXUP_DIE_ON_OVERLAP);
+    // This is a no-op
+    if (merge_reclaim && mask_is_set(KNOWS_MEMORY_TYPE_LOADER_RECLAIM) && !map_is_dirty)
+        return count;
+
+    known_mask_prev = known_standard_mask;
+    if (!merge_reclaim)
+        known_standard_mask |= KNOWS_MEMORY_TYPE_LOADER_RECLAIM;
+
+    if (!(flags & FIXUP_OVERLAP_RESOLVE))
+        cap = MM_FIXUP_DIE_ON_OVERLAP;
+
+    ret = mm_do_fixup(buf, count, cap);
+    known_standard_mask = known_mask_prev;
+    map_is_dirty = false;
+
+    return ret;
 }
 
 void mm_sort(struct memory_map_entry *buf, size_t count)

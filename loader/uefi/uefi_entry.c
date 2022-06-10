@@ -28,21 +28,6 @@ static void set_gdt_address(u64 value)
     *address = value;
 }
 
-bool services_exit_all(size_t map_key)
-{
-    SERVICE_FUNCTION();
-
-    EFI_STATUS ret = g_st->BootServices->ExitBootServices(g_img, map_key);
-    if (unlikely_efi_error(ret)) {
-        struct string_view err_msg = uefi_status_to_string(ret);
-        print_warn("ExitBootServices() failed: %pSV\n", &err_msg);
-        return false;
-    }
-
-    services_offline = true;
-    return services_offline;
-}
-
 void loader_abort(void)
 {
     UINTN idx;

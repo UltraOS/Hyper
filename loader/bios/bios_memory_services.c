@@ -11,7 +11,6 @@
 
 #define BUFFER_CAPACITY (PAGE_SIZE / sizeof(struct memory_map_entry))
 static struct memory_map_entry entries_buffer[BUFFER_CAPACITY];
-static size_t map_key = 0xDEADBEEF;
 static size_t entry_count = 0;
 
 static void mme_emplace_at(size_t idx, struct memory_map_entry *me)
@@ -121,6 +120,7 @@ static void allocate_out_of(size_t mme_idx, struct memory_map_entry *new_mme)
 
     // New map entry is always either fully inside this one or equal to it
     BUG_ON(me->physical_address > new_mme->physical_address || me_end < new_end);
+    BUG_ON(me->type == new_mme->type);
 
     if (before_valid) {
         struct memory_map_entry *me_after = NULL;
@@ -161,7 +161,7 @@ static void allocate_out_of(size_t mme_idx, struct memory_map_entry *new_mme)
      */
     if (!before_valid) {
         mme_idx = mme_idx ? mme_idx - 1 : 0;
-        entry_count = mm_force_compress(entries_buffer + mme_idx, entry_count - mme_idx);
+        entry_count = mm_fixup(entries_buffer + mme_idx, entry_count - mme_idx, 0, 0);
         entry_count += mme_idx;
     }
 }
@@ -175,8 +175,6 @@ static u64 allocate_top_down(size_t page_count, u64 upper_limit, u32 type)
 
     if (bytes_to_allocate <= page_count)
         oops("invalid allocation size of %zu pages\n", page_count);
-
-    map_key++;
 
     while (i-- > 0) {
         struct memory_map_entry *me = &entries_buffer[i];
@@ -219,8 +217,6 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
 
     if (bytes_to_allocate <= page_count)
         oops("invalid allocation size of %zu pages\n", page_count);
-
-    map_key++;
 
     // invalid input
     if (lower_limit >= upper_limit)
@@ -308,8 +304,6 @@ void ms_free_pages(u64 address, size_t count)
         .type = MEMORY_TYPE_FREE
     };
 
-    map_key++;
-
     mme_idx = mm_find_first_that_contains(entries_buffer, entry_count,
                                           address, false);
     if (mme_idx < 0)
@@ -318,16 +312,23 @@ void ms_free_pages(u64 address, size_t count)
     allocate_out_of(mme_idx, &freed_mme);
 }
 
-size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
-                   size_t *out_key, entry_convert_func entry_convert)
+size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
+                                  mme_convert_t entry_convert)
 {
     SERVICE_FUNCTION();
-
     size_t i;
 
-    entry_count = mm_compress(buf, entry_count);
-    if (capacity == 0)
+    entry_count = mm_fixup(buf, entry_count, 0, FIXUP_IF_DIRTY);
+    if (capacity < entry_count)
         return entry_count;
+
+    /*
+     * The buffer is finally large enough, we can now destroy loader
+     * reclaimable memory if the protocol doesn't support it and
+     * transform it into MEMORY_TYPE_FREE safely as services are now
+     * disabled.
+     */
+    entry_count = mm_fixup(buf, entry_count, 0, FIXUP_NO_PRESERVE_LOADER_RECLAIM);
 
     BUG_ON(!entry_convert && (elem_size != sizeof(struct memory_map_entry)));
 
@@ -341,19 +342,10 @@ size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
         }
 
         buf += elem_size;
-        --capacity;
-
-        if (capacity == 0 && (i != (entry_count - 1)))
-            return entry_count;
     }
 
-    *out_key = map_key;
+    services_offline = true;
     return entry_count;
-}
-
-bool bios_memory_services_check_key(size_t key)
-{
-    return key == map_key;
 }
 
 #define STAGE2_BASE_PAGE 0x00007000
@@ -364,7 +356,8 @@ static void initialize_memory_map(void)
     u64 res;
 
     load_e820();
-    entry_count = mm_fixup(entries_buffer, entry_count, false, BUFFER_CAPACITY);
+    entry_count = mm_fixup(entries_buffer, entry_count, BUFFER_CAPACITY,
+                           FIXUP_UNSORTED | FIXUP_OVERLAP_RESOLVE);
 
     // Try to allocate ourselves
     res = ms_allocate_pages_at(STAGE2_BASE_PAGE, (STAGE2_END_PAGE - STAGE2_BASE_PAGE) / PAGE_SIZE,

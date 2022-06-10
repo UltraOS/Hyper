@@ -22,10 +22,13 @@ void mme_insert(struct memory_map_entry *buf, struct memory_map_entry *me,
 
 void mm_sort(struct memory_map_entry *buf, size_t count);
 
-size_t mm_fixup(struct memory_map_entry *buf, size_t count,
-                bool is_sorted, size_t fixup_cap);
-size_t mm_compress(struct memory_map_entry *buf, size_t count);
-size_t mm_force_compress(struct memory_map_entry *buf, size_t count);
+
+#define FIXUP_UNSORTED                   (1 << 0)
+#define FIXUP_IF_DIRTY                   (1 << 1)
+#define FIXUP_OVERLAP_RESOLVE            (1 << 2)
+#define FIXUP_NO_PRESERVE_LOADER_RECLAIM (1 << 3)
+
+size_t mm_fixup(struct memory_map_entry *buf, size_t count, size_t cap, u8 flags);
 
 ssize_t mm_find_first_that_contains(struct memory_map_entry *buf, u64 count,
                                     u64 value, bool allow_one_above);

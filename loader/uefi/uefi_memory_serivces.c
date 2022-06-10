@@ -165,8 +165,9 @@ static void efi_memory_map_fixup(void)
             memcpy(mm_entry_at(j++), &me, sizeof(me));
     }
 
-    buf_entry_count = mm_fixup(memory_map_buf, j, false,
-                               buf_byte_capacity / sizeof(struct memory_map_entry));
+    buf_entry_count = mm_fixup(memory_map_buf, j,
+                               buf_byte_capacity / sizeof(struct memory_map_entry),
+                               FIXUP_UNSORTED | FIXUP_OVERLAP_RESOLVE);
 }
 
 static void fill_internal_memory_map_buffer(void)
@@ -179,7 +180,6 @@ static void fill_internal_memory_map_buffer(void)
         bytes_inout = buf_byte_capacity;
         ret = g_st->BootServices->GetMemoryMap(&bytes_inout, memory_map_buf, &map_key,
                                                &map_efi_desc_size, &descriptor_version);
-
         if (ret == EFI_SUCCESS)
             break;
 
@@ -200,10 +200,12 @@ static void fill_internal_memory_map_buffer(void)
     efi_memory_map_fixup();
 }
 
-size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
-                   size_t *out_key, entry_convert_func entry_convert)
+size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
+                                  mme_convert_t entry_convert)
 {
     SERVICE_FUNCTION();
+    EFI_STATUS ret;
+    size_t i;
 
     /*
      * Only log errors after first call to GetMemoryMap,
@@ -215,7 +217,17 @@ size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
     if (capacity < buf_entry_count)
         return buf_entry_count;
 
-    for (size_t i = 0; i < buf_entry_count; ++i) {
+    /*
+     * The buffer is finally large enough, we can now destroy loader
+     * reclaimable memory if the protocol doesn't support it and
+     * transform it into MEMORY_TYPE_FREE safely as services are now
+     * disabled.
+     */
+    buf_entry_count = mm_fixup(memory_map_buf, buf_entry_count,
+                               buf_byte_capacity / sizeof(struct memory_map_entry),
+                               FIXUP_NO_PRESERVE_LOADER_RECLAIM);
+
+    for (i = 0; i < buf_entry_count; ++i) {
         struct memory_map_entry *me = mm_entry_at(i);
 
         if (entry_convert) {
@@ -227,7 +239,10 @@ size_t ms_copy_map(void *buf, size_t capacity, size_t elem_size,
         buf += elem_size;
     }
 
-    *out_key = map_key;
+    ret = g_st->BootServices->ExitBootServices(g_img, map_key);
+    BUG_ON(EFI_ERROR(ret));
+    services_offline = true;
+
     return buf_entry_count;
 }
 
