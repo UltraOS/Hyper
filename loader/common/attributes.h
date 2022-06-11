@@ -3,7 +3,14 @@
 #define PACKED __attribute__((packed))
 
 #define NORETURN _Noreturn
+
+#ifdef __clang__
+#define PRINTF_DECL(fmt_idx, args_idx) __attribute__((format(printf, fmt_idx, args_idx)))
+#elif defined(__GNUC__)
 #define PRINTF_DECL(fmt_idx, args_idx) __attribute__((format(gnu_printf, fmt_idx, args_idx)))
+#else
+#define PRINTF_DECL(fmt_idx, args_idx)
+#endif
 
 #define likely(expr)   __builtin_expect(!!(expr), 1)
 #define unlikely(expr) __builtin_expect(!!(expr), 0)
