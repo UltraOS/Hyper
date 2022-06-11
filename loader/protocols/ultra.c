@@ -513,7 +513,7 @@ static void *write_memory_map(void *attr_ptr, size_t entry_count)
 static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
 {
     u32 cmdline_aligned_length = 0;
-    size_t mm_entry_count, bytes_needed = 0;
+    size_t mm_entry_count, pages_needed, bytes_needed = 0;
     void *attr_ptr;
     uint32_t *attr_count;
     ptr_t ret;
@@ -532,30 +532,39 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
     bytes_needed += spec->fb_present * sizeof(struct ultra_framebuffer_attribute);
     bytes_needed += sizeof(struct ultra_memory_map_attribute);
 
+    // Add 2 to give some leeway for memory map growth after the next allocation
+    mm_entry_count = services_release_resources(NULL, 0, 0, NULL) + 2;
+
+    // Calculate the final number of bytes we need for the attribute array
+    bytes_needed += mm_entry_count * sizeof(struct ultra_memory_map_entry);
+    pages_needed = PAGE_ROUND_UP(bytes_needed);
+
+    // Calculate the real mme capacity after we round up to page size
+    mm_entry_count += (pages_needed - bytes_needed) / sizeof(struct ultra_memory_map_entry);
+    pages_needed >>= PAGE_SHIFT;
+
     /*
      * Attempt to allocate the storage for attribute array while having enough space for the memory map
      * (which is changed every time we allocate/free more memory)
      */
     for (;;) {
-        size_t bytes_for_this_allocation, mm_entry_count_new;
-
-        // Add 1 to give some leeway for memory map growth after the next allocation
-        mm_entry_count = services_release_resources(NULL, 0, 0, NULL) + 1;
-        bytes_for_this_allocation = bytes_needed + mm_entry_count * sizeof(struct ultra_memory_map_entry);
-
-        // FIXME: this should probably do page granularity allocations
-        ret = (ptr_t)allocate_critical_bytes(bytes_for_this_allocation);
+        size_t mm_entry_count_new;
+        ret = (ptr_t)allocate_critical_pages(pages_needed);
 
         // Check if memory map had to grow to store the previous allocation
         mm_entry_count_new = services_release_resources(NULL, 0, 0, NULL);
 
         if (mm_entry_count < mm_entry_count_new) {
-            free_bytes((void*)ret, bytes_for_this_allocation);
+            mm_entry_count += PAGE_SIZE / sizeof(struct ultra_memory_map_entry);
+            free_pages((void*)ret, pages_needed++);
+
+            // Memory map grew by more than 170 entries after one allocation(??)
+            BUG_ON(mm_entry_count <= mm_entry_count_new);
             continue;
         }
 
         mm_entry_count = mm_entry_count_new;
-        memzero((void*)ret, bytes_for_this_allocation);
+        memzero((void*)ret, pages_needed << PAGE_SHIFT);
         break;
     }
 
