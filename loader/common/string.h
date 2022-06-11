@@ -2,8 +2,8 @@
 
 #include "types.h"
 #include "helpers.h"
-#include "services.h"
 #include "log.h"
+#include "bug.h"
 
 #if __has_include("platform_config.h")
 #include "platform_config.h"
@@ -75,7 +75,7 @@ void emit_out_of_bounds_write_compile_error(void);
             OOB_ACCESS_HEADER                                            \
             print_err("with %zu bytes, dest size: %zu, src size: %zu\n", \
                       count, dest_size, src_size);                       \
-            loader_abort();                                              \
+            DIE();                                                       \
         }                                                                \
     } while (0)
 
@@ -108,7 +108,7 @@ static ALWAYS_INLINE void *hardened_memset(void *dest, int val, size_t count,
         OOB_ACCESS_HEADER
         print_err("with %zu bytes (%d filler), dest size: %zu\n",
                   count, val, dest_size);
-        loader_abort();
+        DIE();
     }
 
     return __builtin_memset(dest, val, count);
@@ -136,7 +136,7 @@ static ALWAYS_INLINE size_t hardened_strlen(const char *str,
         OOB_ACCESS_HEADER;
         print_err("not null-terminated string (expected max len %zu, got %zu)\n",
                   str_size, ret);
-        loader_abort();
+        DIE();
     }
 
     return ret;
