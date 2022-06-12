@@ -74,7 +74,7 @@ bool block_cache_refill(struct block_cache *bc, u64 base_block)
 
 struct block_coords {
     u64 base_block;
-    size_t first_block_byte_off;
+    size_t byte_off;
     size_t block_count;
 };
 
@@ -82,7 +82,7 @@ static void block_coords_offset_by(struct block_coords *bc, u64 blocks)
 {
     bc->block_count -= blocks;
     bc->base_block += blocks;
-    bc->first_block_byte_off = 0;
+    bc->byte_off = 0;
 }
 
 static void byte_offsets_to_block_coords(struct block_cache *bc, u64 byte_off, size_t byte_cnt,
@@ -91,9 +91,9 @@ static void byte_offsets_to_block_coords(struct block_cache *bc, u64 byte_off, s
     BUG_ON(byte_cnt == 0);
 
     out->base_block = byte_off >> bc->block_shift;
-    out->first_block_byte_off = byte_off & (bc->block_size - 1);
+    out->byte_off = byte_off & (bc->block_size - 1);
 
-    out->block_count = ALIGN_UP(out->first_block_byte_off + byte_cnt, bc->block_size);
+    out->block_count = ALIGN_UP(out->byte_off + byte_cnt, bc->block_size);
     out->block_count >>= bc->block_shift;
 }
 
@@ -119,7 +119,7 @@ static enum completion_result block_cache_try_complete_req(struct block_cache *b
     cs.blocks = MIN(br->coords.block_count, cs.blocks);
     bytes_to_copy = MIN(cs.blocks << bc->block_shift, br->bytes_to_copy);
 
-    memcpy(br->buf, cs.data + br->coords.first_block_byte_off, bytes_to_copy);
+    memcpy(br->buf, cs.data + br->coords.byte_off, bytes_to_copy);
 
     block_coords_offset_by(&br->coords, cs.blocks);
     br->buf += bytes_to_copy;
@@ -186,14 +186,14 @@ bool block_cache_take_ref(struct block_cache *bc, void **buf, u64 byte_off, size
 
     // Fast path if this range is already entirely cached
     if (cached_range_get_ptr(bc, buf, c.base_block, c.block_count)) {
-        *buf += c.first_block_byte_off;
+        *buf += c.byte_off;
         goto out;
     }
 
     if (!block_cache_refill(bc, c.base_block))
         return false;
 
-    *buf = bc->cache_buf + c.first_block_byte_off;
+    *buf = bc->cache_buf + c.byte_off;
 
 out:
     bc->nocopy_refs++;
