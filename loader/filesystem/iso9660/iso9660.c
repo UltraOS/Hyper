@@ -692,12 +692,6 @@ void iso9660_close_file(struct file* f)
     free_bytes(ifs, sizeof(struct iso9660_file));
 }
 
-bool iso9660_refill_blocks(void *fs, void *buf, u64 block, size_t count)
-{
-    struct iso9660_fs *ifs = fs;
-    return ds_read_blocks(ifs->f.d.handle, buf, block, count);
-}
-
 #define SUE_SP_CHECK_BYTE0_IDX 4
 #define SUE_SP_CHECK_BYTE1_IDX 5
 #define SUE_SP_LEN_SKP_IDX     6
@@ -770,6 +764,18 @@ static bool susp_check_er_sue(const char *sue)
     return true;
 }
 
+static void block_cache_init_from_iso9660(struct iso9660_fs *fs,
+                                          struct block_cache *bc,
+                                          void *buf, size_t cap)
+{
+    struct disk *d = &fs->f.d;
+
+    block_cache_init(bc, ds_read_blocks, d->handle,
+                     d->block_shift, buf,
+                     cap >> d->block_shift);
+    block_cache_enable_direct_io(bc);
+}
+
 static bool susp_init(struct iso9660_fs *fs)
 {
     struct iso9660_dir_record *dr;
@@ -792,8 +798,7 @@ static bool susp_init(struct iso9660_fs *fs)
     if (unlikely(!ca_cache_buf))
         return false;
 
-    block_cache_init(&fs->ca_cache, iso9660_refill_blocks, fs, fs->f.d.block_shift,
-                     ca_cache_buf, CA_CACHE_SIZE >> fs->f.d.block_shift);
+    block_cache_init_from_iso9660(fs, &fs->ca_cache, ca_cache_buf, CA_CACHE_SIZE);
 
     sc.inline_data = record_get_su_area(dr, &sc.len);
     if (sc.len < SUE_MIN_LEN)
@@ -893,8 +898,7 @@ static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd 
     if (unlikely(!dir_cache))
         goto err_out;
 
-    block_cache_init(&fs->dir_cache, iso9660_refill_blocks, fs, fs->f.d.block_shift,
-                     dir_cache, DIRECTORY_CACHE_SIZE >> fs->f.d.block_shift);
+    block_cache_init_from_iso9660(fs, &fs->dir_cache, dir_cache, DIRECTORY_CACHE_SIZE);
 
     if (!susp_init(fs))
         goto err_out;
