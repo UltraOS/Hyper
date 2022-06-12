@@ -87,6 +87,7 @@ struct susp_iteration_ctx {
     u32 next_ca_len;
 
     bool is_in_ca;
+    bool has_ref;
 };
 
 struct iso9660_file {
@@ -258,18 +259,52 @@ static bool dir_read_multiext_size(struct iso9660_fs *fs, struct iso9660_dir_ite
     }
 }
 
-static void susp_iteration_abort(struct susp_iteration_ctx *ctx)
+static void susp_release_ref(struct susp_iteration_ctx *ctx)
 {
-    if (ctx->is_in_ca && ctx->cur_off)
+    if (!ctx->has_ref)
+        return;
+
+    if (ctx->is_in_ca)
         block_cache_release_ref(&ctx->fs->ca_cache);
 
+    ctx->has_ref = false;
+}
+
+static bool susp_acquire_ref(struct susp_iteration_ctx *ctx, void **buf,
+                             u64 byte_off, size_t count)
+{
+    struct block_cache *ca_cache = &ctx->fs->ca_cache;
+    BUG_ON(ctx->has_ref);
+
+    if (ctx->is_in_ca) {
+        ctx->has_ref = block_cache_take_ref(ca_cache, buf, byte_off, count);
+    } else {
+        ctx->has_ref = true;
+        *buf = ctx->inline_data + byte_off;
+    }
+
+    return ctx->has_ref;
+}
+
+static bool susp_reacquire_ref(struct susp_iteration_ctx *ctx, void **buf,
+                               u64 byte_off, size_t count)
+{
+    susp_release_ref(ctx);
+    return susp_acquire_ref(ctx, buf, byte_off, count);
+}
+
+static void susp_iteration_abort(struct susp_iteration_ctx *ctx)
+{
+    susp_release_ref(ctx);
     memzero(ctx, sizeof(*ctx));
 }
 
 static bool susp_switch_to_next_ca(struct susp_iteration_ctx *ctx)
 {
+    susp_release_ref(ctx);
+
     if (!ctx->next_ca_len) {
-        susp_iteration_abort(ctx);
+        memzero(ctx, sizeof(*ctx));
         return false;
     }
 
@@ -297,32 +332,19 @@ static bool do_fetch_next_su_entry(struct susp_iteration_ctx *ctx, char **out_pt
 {
     u64 take_off = ctx->base_off + ctx->cur_off;
     size_t bytes_left = ctx->len - ctx->cur_off;
-    struct block_cache *ca_cache = &ctx->fs->ca_cache;
     u8 reported_len;
     char *sue;
 
-    if (ctx->is_in_ca) {
-        if (ctx->cur_off)
-            block_cache_release_ref(ca_cache);
-
-        // Force EOF current continuation area if disk read fails
-        if (!block_cache_take_ref(ca_cache, (void**)&sue, take_off, SUE_LEN_IDX + 1)) {
-            ctx->cur_off = ctx->len;
-            return false;
-        }
-    } else {
-        sue = ctx->inline_data + take_off;
-    }
+    if (!unlikely(susp_reacquire_ref(ctx, (void**)&sue, take_off, SUE_LEN_IDX + 1)))
+        goto out_force_eof;
 
     reported_len = sue[SUE_LEN_IDX];
-    if (ctx->is_in_ca)
-        block_cache_release_ref(ca_cache);
 
-    if (reported_len > bytes_left || reported_len < SUE_MIN_LEN) {
+    if (unlikely(reported_len > bytes_left || reported_len < SUE_MIN_LEN)) {
         print_warn("invalid SU entry len %d, expected a length in range 4...%zu)\n",
                    reported_len, bytes_left);
-        ctx->cur_off = ctx->len;
-        return false;
+        susp_release_ref(ctx);
+        goto out_force_eof;
     }
 
     ctx->cur_off += reported_len;
@@ -331,11 +353,12 @@ static bool do_fetch_next_su_entry(struct susp_iteration_ctx *ctx, char **out_pt
     if (bytes_left < SUE_MIN_LEN)
         ctx->cur_off = ctx->len;
 
-    if (ctx->is_in_ca)
-        return block_cache_take_ref(ca_cache, (void**)out_ptr, take_off, reported_len);
+    if (likely(susp_reacquire_ref(ctx, (void**)out_ptr, take_off, reported_len)))
+        return true;
 
-    *out_ptr = sue;
-    return true;
+out_force_eof:
+    ctx->cur_off = ctx->len;
+    return false;
 }
 
 #define SUE_SIG(a, b) ((a) | ((u16)(b) << 8))
