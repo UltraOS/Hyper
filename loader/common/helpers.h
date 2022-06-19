@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stddef.h>
-#include "bug.h"
 
 #define DO_CONCAT(x, y) x##y
 #define CONCAT(x, y) DO_CONCAT(x, y)
@@ -28,3 +27,6 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #define UNUSED(x) (void)(x)
+
+#define BUILD_BUG_ON_WITH_MSG(expr, msg) _Static_assert(!(expr), msg)
+#define BUILD_BUG_ON(expr) BUILD_BUG_ON_WITH_MSG(expr, "BUILD BUG: " #expr " evaluated to true")

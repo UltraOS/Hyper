@@ -1,6 +1,7 @@
 #include "block_cache.h"
 #include "common/minmax.h"
 #include "common/string.h"
+#include "common/bug.h"
 #include "common/align.h"
 
 void block_cache_init(struct block_cache *bc, bool (*refill_blocks_cb)(void*, void*, u64, size_t),

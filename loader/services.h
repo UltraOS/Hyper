@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/types.h"
+#include "common/attributes.h"
 
 enum service_provider {
     SERVICE_PROVIDER_INVALID,

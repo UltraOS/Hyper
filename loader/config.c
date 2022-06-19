@@ -1,11 +1,8 @@
-#include "config.h"
-#include "allocator.h"
-#include "common/conversions.h"
-#include "common/constants.h"
-#include "common/minmax.h"
+#include "common/bug.h"
 #include "common/log.h"
-#include "common/format.h"
 #include "common/ctype.h"
+#include "common/conversions.h"
+#include "config.h"
 
 // #define CFG_DEBUG
 
