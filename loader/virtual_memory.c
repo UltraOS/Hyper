@@ -45,8 +45,8 @@ static bool do_map_page(struct page_table *pt, u64 virtual_base, u64 physical_ba
     size_t lvl1_index = (virtual_base >> 12) & (ENTRIES_PER_TABLE - 1);
 
     // verify alignment
-    BUG_ON((virtual_base & (huge ? (HUGE_PAGE_SIZE - 1) : (PAGE_SIZE - 1))) != 0);
-    BUG_ON((physical_base & (huge ? (HUGE_PAGE_SIZE - 1) : (PAGE_SIZE - 1))) != 0);
+    BUG_ON(!IS_ALIGNED(virtual_base, huge ? HUGE_PAGE_SIZE : PAGE_SIZE));
+    BUG_ON(!IS_ALIGNED(physical_base, huge ? HUGE_PAGE_SIZE : PAGE_SIZE));
 
     if (pt->levels == 5) {
         lvl4 = table_at(pt->root, lvl5_index);
