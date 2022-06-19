@@ -33,32 +33,7 @@ static inline u64 mme_end(struct memory_map_entry *me)
     return me->physical_address + me->size_in_bytes;
 }
 
-static inline const char *mme_type_to_str(struct memory_map_entry *me)
-{
-    switch (me->type) {
-    case MEMORY_TYPE_INVALID:
-        return "<invalid>";
-    case MEMORY_TYPE_FREE:
-        return "free";
-    case MEMORY_TYPE_RESERVED:
-        return "reserved";
-    case MEMORY_TYPE_ACPI_RECLAIMABLE:
-        return "ACPI-reclaim";
-    case MEMORY_TYPE_NVS:
-        return "NVS";
-    case MEMORY_TYPE_UNUSABLE:
-        return "unusable";
-    case MEMORY_TYPE_DISABLED:
-        return "disabled";
-    case MEMORY_TYPE_PERSISTENT:
-        return "persistent";
-    case MEMORY_TYPE_LOADER_RECLAIMABLE:
-        return "loader-reclaim";
-    default:
-        BUG_ON(me->type < MEMORY_TYPE_PROTO_SPECIFIC_BASE);
-        return "<proto-specific>";
-    }
-}
+const char *mme_type_to_str(struct memory_map_entry *me);
 
 #define MM_ENT_FMT "0x%016llX -> 0x%016llX (%s)"
 #define MM_ENT_PRT(me) (me)->physical_address, mme_end(me), mme_type_to_str(me)

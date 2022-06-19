@@ -468,3 +468,30 @@ void mm_sort(struct memory_map_entry *buf, size_t count)
         }
     }
 }
+
+inline const char *mme_type_to_str(struct memory_map_entry *me)
+{
+    switch (me->type) {
+    case MEMORY_TYPE_INVALID:
+        return "<invalid>";
+    case MEMORY_TYPE_FREE:
+        return "free";
+    case MEMORY_TYPE_RESERVED:
+        return "reserved";
+    case MEMORY_TYPE_ACPI_RECLAIMABLE:
+        return "ACPI-reclaim";
+    case MEMORY_TYPE_NVS:
+        return "NVS";
+    case MEMORY_TYPE_UNUSABLE:
+        return "unusable";
+    case MEMORY_TYPE_DISABLED:
+        return "disabled";
+    case MEMORY_TYPE_PERSISTENT:
+        return "persistent";
+    case MEMORY_TYPE_LOADER_RECLAIMABLE:
+        return "loader-reclaim";
+    default:
+        BUG_ON(me->type < MEMORY_TYPE_PROTO_SPECIFIC_BASE);
+        return "<proto-specific>";
+    }
+}
