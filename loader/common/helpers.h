@@ -20,6 +20,9 @@
 
 #define container_of(ptr, type, member) DO_CONTAINER_OF(ptr, UNIQUE(uptr), type, member)
 
+#define likely(expr)   __builtin_expect(!!(expr), 1)
+#define unlikely(expr) __builtin_expect(!!(expr), 0)
+
 #define CEILING_DIVIDE(x, y) (!!(x) + (((x) - !!(x)) / (y)))
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
