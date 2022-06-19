@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdarg.h>
-#include "common/attributes.h"
+#include "attributes.h"
 
 // Inspired by linux kern_levels
 #define LOG_LEVEL_PREFIX "\x1"
