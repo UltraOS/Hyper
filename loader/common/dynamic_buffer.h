@@ -2,6 +2,7 @@
 
 #include "common/types.h"
 #include "common/constants.h"
+#include "bug.h"
 #include "allocator.h"
 
 struct dynamic_buffer {
