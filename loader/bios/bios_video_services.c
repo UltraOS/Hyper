@@ -129,19 +129,19 @@ static u16 color_as_attribute(enum color c)
 {
     switch (c)
     {
-        default:
-        case COLOR_WHITE:
-            return 0x0F00;
-        case COLOR_GRAY:
-            return 0x0700;
-        case COLOR_YELLOW:
-            return 0x0E00;
-        case COLOR_RED:
-            return 0x0C00;
-        case COLOR_BLUE:
-            return 0x0900;
-        case COLOR_GREEN:
-            return 0x0A00;
+    default:
+    case COLOR_WHITE:
+        return 0x0F00;
+    case COLOR_GRAY:
+        return 0x0700;
+    case COLOR_YELLOW:
+        return 0x0E00;
+    case COLOR_RED:
+        return 0x0C00;
+    case COLOR_BLUE:
+        return 0x0900;
+    case COLOR_GREEN:
+        return 0x0A00;
     }
 }
 
