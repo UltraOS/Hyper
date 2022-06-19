@@ -31,6 +31,6 @@ ptr_t services_find_rsdp(void)
         }
     }
 
-    print_info("table 1.0 at %p, table 2.0 at %p\n", table10_ptr, table20_ptr);;
+    print_info("table 1.0 at %p, table 2.0 at %p\n", table10_ptr, table20_ptr);
     return table20_ptr ? (ptr_t)table20_ptr : (ptr_t)table10_ptr;
 }
