@@ -8,6 +8,7 @@
 #include "common/log.h"
 #include "common/minmax.h"
 #include "common/dynamic_buffer.h"
+#include "common/align.h"
 
 #include "ultra.h"
 #include "ultra_protocol/ultra_protocol.h"

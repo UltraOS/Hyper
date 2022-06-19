@@ -1,6 +1,7 @@
 #define MSG_FMT(msg) "UEFI-IO: " msg
 
 #include "common/log.h"
+#include "common/align.h"
 #include "uefi_disk_services.h"
 #include "uefi_globals.h"
 #include "uefi_helpers.h"

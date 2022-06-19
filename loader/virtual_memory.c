@@ -3,6 +3,7 @@
 
 #include "common/bug.h"
 #include "common/constants.h"
+#include "common/align.h"
 #include "common/string.h"
 
 #define PAGE_PRESENT   (1 << 0)

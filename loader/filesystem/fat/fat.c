@@ -1,7 +1,7 @@
 #define MSG_FMT(msg) "FAT: " msg
 
 #include "common/log.h"
-#include "common/constants.h"
+#include "common/align.h"
 #include "common/helpers.h"
 #include "common/minmax.h"
 #include "common/ctype.h"

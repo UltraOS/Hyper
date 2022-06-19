@@ -1,6 +1,6 @@
 #define MSG_FMT(msg) "UEFI-MEMORY: " msg
 
-#include "common/constants.h"
+#include "common/align.h"
 #include "common/log.h"
 #include "uefi_globals.h"
 #include "uefi_helpers.h"

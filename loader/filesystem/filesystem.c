@@ -9,6 +9,7 @@
 #include "common/log.h"
 #include "common/helpers.h"
 #include "common/minmax.h"
+#include "common/align.h"
 #include "filesystem/block_cache.h"
 #include "filesystem/fat/fat.h"
 #include "filesystem/iso9660/iso9660.h"

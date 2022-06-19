@@ -1,7 +1,7 @@
 #include "elf.h"
 #include "structures.h"
 #include "allocator.h"
-#include "common/constants.h"
+#include "common/align.h"
 #include "common/string.h"
 
 #define LOAD_ERROR(reason)     \
