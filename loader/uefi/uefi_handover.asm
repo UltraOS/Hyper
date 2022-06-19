@@ -8,7 +8,9 @@ LONG_MODE_BIT:       equ (1 << 8)
 PAGING_BIT:          equ (1 << 31)
 DIRECT_MAP_BASE:     equ 0xFFFF800000000000
 
-; [[noreturn]] void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1, bool unmap_lower_half)
+; NORETURN
+; void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0,
+;                        u64 arg1, bool unmap_lower_half)
 ; RSP + 48 [unmap_lower_half]
 ; RSP + 40 [arg1]
 ; R9       [arg0]
@@ -80,7 +82,7 @@ kernel_handover64:
 
     ret
 
-; [[noreturn]] void do_kernel_handover32(u32 esp)
+; NORETURN void do_kernel_handover32(u32 esp)
 ; RCX [esp]
 global do_kernel_handover32
 do_kernel_handover32:

@@ -12,6 +12,7 @@ SIZEOF_REGISTER_STATE: equ 40
 
 section .real_code
 
+; NORETURN void bios_jmp_to_reset_vector(void)
 global bios_jmp_to_reset_vector
 bios_jmp_to_reset_vector:
 BITS 32
@@ -36,10 +37,11 @@ BITS 16
     jmp 0xFFFF:0x0000
 
 
-; NOTE: this function assumes all pointers are located within the first 64K of memory.
-; NOTE(2): this function is not reentrant and uses global state.
-; ---------------------------------------------------------------------------------------
-; void bios_call(uint32_t number, const RealModeRegisterState* in, RealModeRegisterState* out)
+; NOTE: this function assumes all pointers are located within
+;       the first 64K of memory.
+; -----------------------------------------------------------------------------
+; void bios_call(u32 number, const struct real_mode_regs *in,
+;                                  struct real_mode_regs *out)
 ; esp + 12 [out]
 ; esp + 8  [in]
 ; esp + 4  [number]

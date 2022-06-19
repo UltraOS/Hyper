@@ -8,7 +8,7 @@ LONG_MODE_CODE_SELECTOR: equ 0x28
 EFLAGS_RESERVED_BIT:     equ (1 << 1)
 DIRECT_MAP_BASE:         equ 0xFFFF800000000000
 
-; [[noreturn]] void do_kernel_handover32(u32 esp)
+; NORETURN void do_kernel_handover32(u32 esp)
 ; esp + 4 [esp]
 ; esp + 0 [ret]
 global do_kernel_handover32
@@ -28,7 +28,8 @@ do_kernel_handover32:
 
     ret
 
-; [[noreturn]] void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0, u64 arg1, bool unmap_lower_half)
+; NOTERUN void do_kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0,
+;                                   u64 arg1, bool unmap_lower_half)
 ; esp + 44 [unmap_lower_half]
 ; esp + 36 [arg1]
 ; esp + 28 [arg0]
