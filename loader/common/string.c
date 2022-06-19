@@ -1,5 +1,23 @@
 #include "string.h"
 
+#ifdef HARDENED_STRING
+#include "log.h"
+#include "services.h"
+
+void die_on_runtime_oob(const char *func, const char *file, size_t line,
+                        size_t size, size_t dst_size, size_t src_size)
+{
+    print_err("BUG: out of bounds %s() call at %s:%zu: %zu bytes with dst=%zu",
+              func, file, line, size, dst_size);
+
+    if (src_size)
+        print_err(" src=%zu", src_size);
+
+    print_err("\n");
+    loader_abort();
+}
+#endif
+
 #ifdef PLATFORM_WANTS_GENERIC_STRING
 
 #ifdef memmove
