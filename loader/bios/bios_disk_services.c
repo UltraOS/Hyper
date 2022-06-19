@@ -4,10 +4,8 @@
 #include "common/log.h"
 #include "common/string.h"
 #include "common/string_view.h"
-#include "common/minmax.h"
 #include "disk_services.h"
 #include "bios_call.h"
-#include "disk_services.h"
 #include "services_impl.h"
 #include "filesystem/block_cache.h"
 
@@ -299,8 +297,6 @@ static void set_cache_to_disk(struct bios_disk *d)
 static void switch_to_handle(void *handle)
 {
     struct bios_disk *d = get_disk_by_handle(handle);
-    BUG_ON(!d);
-
     set_cache_to_disk(d);
 }
 
