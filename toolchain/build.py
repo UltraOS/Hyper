@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+from abc import abstractmethod, ABC
 import shutil
 import subprocess
 import argparse
@@ -32,6 +33,144 @@ GCC_DARWIN_PATCH = \
 """
 
 
+def command_exists(cmd):
+    ret = subprocess.run(["command", "-v", cmd], stdout=subprocess.DEVNULL,
+                                                 stderr=subprocess.DEVNULL,
+                                                 shell=True)
+    return ret.returncode == 0
+
+
+class PackageManager(ABC):
+    @staticmethod
+    @abstractmethod
+    def detect() -> bool:
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def get_base_dep_list():
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def is_dep_installed(dep) -> bool:
+        pass
+
+    @abstractmethod
+    def install_dep(dep):
+        pass
+
+
+class Apt(PackageManager):
+    name = "apt"
+
+    @staticmethod
+    def detect() -> bool:
+        return command_exists(Apt.name)
+
+    @staticmethod
+    def get_base_dep_list():
+        return [
+            "build-essential",
+            "bison",
+            "flex",
+            "libgmp-dev",
+            "libmpc-dev",
+            "libmpfr-dev",
+            "texinfo",
+            "libisl-dev",
+            "nasm"
+        ]
+
+    @staticmethod
+    def is_dep_installed(dep) -> bool:
+        args = ["apt", "--installed", "list", dep, "-qq"]
+        out = subprocess.check_output(args, stderr=subprocess.DEVNULL,
+                                      text=True)
+
+        # could be [installed] or [installed,...], maybe something else too?
+        return "[installed" in out
+
+    @staticmethod
+    def install_dep(dep):
+        subprocess.run(["sudo", "apt-get", "install", "-y", dep], check=True)
+
+
+class Pacman(PackageManager):
+    name = "pacman"
+
+    @staticmethod
+    def detect() -> bool:
+        return command_exists(Pacman.name)
+
+    @staticmethod
+    def get_base_dep_list():
+        return [
+            "base-devel",
+            "gmp",
+            "libmpc",
+            "mpfr",
+            "nasm",
+        ]
+
+
+    @staticmethod
+    def is_dep_installed(dep) -> bool:
+        ret = subprocess.run(["pacman", "-Qs", dep],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        return ret.returncode == 0
+
+    @staticmethod
+    def install_dep(dep):
+        subprocess.run(["sudo", "pacman", "-Sy", dep, "--noconfirm"], check=True)
+
+
+class Brew(PackageManager):
+    name = "brew"
+
+    @staticmethod
+    def detect() -> bool:
+        return command_exists(Brew.name)
+
+    @staticmethod
+    def get_base_dep_list():
+        return [
+            "coreutils",
+            "bison",
+            "flex",
+            "gmp",
+            "libmpc",
+            "mpfr",
+            "texinfo",
+            "isl",
+            "nasm",
+        ]
+
+    @staticmethod
+    def is_dep_installed(dep):
+        ret = subprocess.run(["brew", "list", dep],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        return ret.returncode == 0
+
+    @staticmethod
+    def install_dep(dep):
+        subprocess.run(["brew", "install", dep], check=True)
+
+    @staticmethod
+    def prefix(dep):
+        out = subprocess.check_output(["brew", "--prefix", dep], text=True)
+        return out.strip()
+
+
+PACKAGE_MANAGERS = (
+    Apt,
+    Pacman,
+    Brew,
+)
+
+
 def apply_patch(target_dir, patch):
     subprocess.check_output(["patch", "-p0"], input=patch, cwd=target_dir, text=True)
 
@@ -41,7 +180,7 @@ def get_compiler_prefix(platform) -> str:
         "uefi": "x86_64-w64-mingw32",
         "bios": "i686-elf"
     }
-    
+
     return platform_to_prefix[platform]
 
 
@@ -53,16 +192,13 @@ def is_toolchain_built(tc_root, prefix) -> bool:
            os.path.isfile(full_path + "ld")
 
 
-def get_package_manager(platform) -> str:
+def get_package_manager(platform) -> PackageManager:
     if platform == "Darwin":
-        return "brew"
+        return Brew
 
-    for pm in SUPPORTED_PACKAGE_MANGERS:
-        ret = subprocess.run(["which", pm], stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-        if ret.returncode != 0:
-            continue
-        return pm
+    for pm in PACKAGE_MANAGERS:
+        if pm.detect():
+            return pm
 
     raise RuntimeError("Couldn't detect a supported package manager")
 
@@ -111,95 +247,16 @@ def download_toolchain_sources(platform, workdir, gcc_target_dir, binutils_targe
         os.remove(full_binutils_tarball_path)
 
 
-def pacman_is_dependency_installed(dependency):
-    ret = subprocess.run(["pacman", "-Qs", dependency], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return ret.returncode == 0
+def do_fetch_dependencies(pm: PackageManager):
+    deps = pm.get_base_dep_list()
 
-
-def pacman_install(dependency):
-    subprocess.run(["sudo", "pacman", "-Sy", dependency, "--noconfirm"], check=True)
-
-
-def apt_is_dependency_installed(dependency):
-    out = subprocess.check_output(["apt", "--installed", "list", dependency, "-qq"],
-                                  stderr=subprocess.DEVNULL, text=True)
-
-    # could be [installed] or [installed,...], maybe something else too?
-    return "[installed" in out
-
-
-def apt_install(dependency):
-    subprocess.run(["sudo", "apt-get", "install", "-y", dependency], check=True)
-
-
-def brew_is_dependency_installed(dependency):
-    ret = subprocess.run(["brew", "list", dependency], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return ret.returncode == 0
-
-
-def brew_install(dependency):
-    subprocess.run(["brew", "install", dependency], check=True)
-
-
-def brew_prefix(dependency):
-    return subprocess.check_output(["brew", "--prefix", dependency], text=True).strip()
-
-
-def do_fetch_dependencies(package_manager):
-    pm_to_dependencies = {
-        "apt": {
-            "dependencies": [
-                "build-essential",
-                "bison",
-                "flex",
-                "libgmp-dev",
-                "libmpc-dev",
-                "libmpfr-dev",
-                "texinfo",
-                "libisl-dev",
-                "nasm",
-            ],
-            "is_dependency_installed": apt_is_dependency_installed,
-            "install": apt_install
-        },
-        "pacman": {
-            "dependencies": [
-                "base-devel",
-                "gmp",
-                "libmpc",
-                "mpfr",
-                "nasm",
-            ],
-            "is_dependency_installed": pacman_is_dependency_installed,
-            "install": pacman_install
-        },
-        "brew": {
-            "dependencies": [
-                "coreutils",
-                "bison",
-                "flex",
-                "gmp",
-                "libmpc",
-                "mpfr",
-                "texinfo",
-                "isl",
-                "nasm",
-            ],
-            "is_dependency_installed": brew_is_dependency_installed,
-            "install": brew_install
-        }
-    }
-
-    do_install = pm_to_dependencies[package_manager]["install"]
-    is_insalled = pm_to_dependencies[package_manager]["is_dependency_installed"]
-
-    for dep in pm_to_dependencies[package_manager]["dependencies"]:
-        if is_insalled(dep):
+    for dep in deps:
+        if pm.is_dep_installed(dep):
             print(f"{dep} is already installed")
             continue
 
         print(f"Installing {dep}...")
-        do_install(dep)
+        pm.install_dep(dep)
 
 
 def build_binutils(binutils_sources, binutils_target_dir, target, platform_root, env):
@@ -231,9 +288,9 @@ def build_gcc(gcc_sources, gcc_target_dir, this_platform, target_platform, platf
 
     if this_platform == "Darwin":
         configure_command.extend([
-            f"--with-gmp={brew_prefix('gmp')}",
-            f"--with-mpc={brew_prefix('libmpc')}",
-            f"--with-mpfr={brew_prefix('mpfr')}"
+            f"--with-gmp={Brew.prefix('gmp')}",
+            f"--with-mpc={Brew.prefix('libmpc')}",
+            f"--with-mpfr={Brew.prefix('mpfr')}"
         ])
 
     print("Building GCC...")
@@ -305,7 +362,7 @@ def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
     env = os.environ.copy()
 
     cflags = ["-g", "-O2"]
-    
+
     if optimize_for_native:
         # -march=native doesn't work on M1 clang for some reason
         if this_platform == "Darwin":
@@ -346,8 +403,9 @@ def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
 
 def fetch_dependencies(platform):
     pm = get_package_manager(platform)
-    print(f"Detected package manager '{pm}'")
+    print(f"Detected package manager '{pm.name}'")
     do_fetch_dependencies(pm)
+
 
 def main():
     parser = argparse.ArgumentParser("Build hyper toolchain")
