@@ -30,9 +30,19 @@ jobs:
           key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc-toolchain"
 
       - name: Build platform toolchain
-        run: "${{ github.workspace }}/toolchain/build.py ${{ matrix.platform }} --force-fetch-dependencies --no-tune-native"
+        run: "${{ github.workspace }}/toolchain/build.py ${{ matrix.platform }} --force-fetch-dependencies --fetch-test-dependencies --no-tune-native"
 
       - name: Build hyper
         run: ${{ github.workspace }}/build.sh ${{ matrix.platform }}
 
-      # TODO: run tests
+      - name: Build test kernel
+        run: ${{ github.workspace }}/tests/kernel/build.sh
+
+      - name: Run tests
+        run: python3 -m pytest ${{ github.workspace }}/tests/test_loader.py -rs -s -v --junitxml result.xml
+
+      - name: Publish test results
+        uses: mikepenz/action-junit-report@v3
+        if: always()
+        with:
+          report_paths: result.xml
