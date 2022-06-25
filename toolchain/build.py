@@ -53,6 +53,11 @@ class PackageManager(ABC):
 
     @staticmethod
     @abstractmethod
+    def get_test_dep_list():
+        pass
+
+    @staticmethod
+    @abstractmethod
     def is_dep_installed(dep) -> bool:
         pass
 
@@ -80,6 +85,17 @@ class Apt(PackageManager):
             "texinfo",
             "libisl-dev",
             "nasm"
+        ]
+
+    @staticmethod
+    def get_test_dep_list():
+        return [
+            "python3",
+            "python3-pytest",
+            "clang",
+            "xorriso",
+            "mtools",
+            "qemu-system-x86",
         ]
 
     @staticmethod
@@ -113,6 +129,16 @@ class Pacman(PackageManager):
             "nasm",
         ]
 
+    @staticmethod
+    def get_test_dep_list():
+        return [
+            "python",
+            "python-pytest",
+            "clang",
+            "xorriso",
+            "mtools",
+            "qemu-system-x86",
+        ]
 
     @staticmethod
     def is_dep_installed(dep) -> bool:
@@ -148,6 +174,16 @@ class Brew(PackageManager):
         ]
 
     @staticmethod
+    def get_test_dep_list():
+        return [
+            "python3",
+            "pytest",
+            "xorriso",
+            "mtools",
+            "qemu",
+        ]
+
+    @staticmethod
     def is_dep_installed(dep):
         ret = subprocess.run(["brew", "list", dep],
                              stdout=subprocess.DEVNULL,
@@ -156,6 +192,11 @@ class Brew(PackageManager):
 
     @staticmethod
     def install_dep(dep):
+        # Apparently 'brew' doesn't have a way to install it
+        if dep == "pytest":
+            subprocess.run(["python3", "-m", "pip", "install", dep])
+            return
+
         subprocess.run(["brew", "install", dep], check=True)
 
     @staticmethod
@@ -247,8 +288,11 @@ def download_toolchain_sources(platform, workdir, gcc_target_dir, binutils_targe
         os.remove(full_binutils_tarball_path)
 
 
-def do_fetch_dependencies(pm: PackageManager):
+def do_fetch_dependencies(pm: PackageManager, wants_test_deps):
     deps = pm.get_base_dep_list()
+
+    if wants_test_deps:
+        deps.extend(pm.get_test_dep_list())
 
     for dep in deps:
         if pm.is_dep_installed(dep):
@@ -401,10 +445,10 @@ def build_toolchain(gcc_sources, binutils_sources, target_dir, this_platform,
         shutil.rmtree(gcc_build_dir)
 
 
-def fetch_dependencies(platform):
+def fetch_dependencies(platform, wants_test_deps):
     pm = get_package_manager(platform)
     print(f"Detected package manager '{pm.name}'")
-    do_fetch_dependencies(pm)
+    do_fetch_dependencies(pm, wants_test_deps)
 
 
 def main():
@@ -418,6 +462,8 @@ def main():
                         help="don't remove the build directories")
     parser.add_argument("--force-fetch-dependencies", action="store_true",
                         help="fetch dependencies even if toolchain is already built")
+    parser.add_argument("--fetch-test-dependencies", action="store_true",
+                        help="also fetch packages used for running the loader tests")
     parser.add_argument("--no-tune-native", action="store_true",
                         help="don't optimize the toolchain for the current CPU")
     args = parser.parse_args()
@@ -433,7 +479,7 @@ def main():
         exit(1)
 
     if args.force_fetch_dependencies:
-        fetch_dependencies(native_platform)
+        fetch_dependencies(native_platform, args.fetch_test_dependencies)
 
     tc_root_path = os.path.dirname(os.path.abspath(__file__))
     tc_platform_root_path = os.path.join(tc_root_path, f"tools_{build_platform}")
@@ -450,7 +496,7 @@ def main():
     download_toolchain_sources(native_platform, tc_root_path, gcc_dir_full_path, binutils_dir_full_path)
 
     if not args.skip_dependencies and not args.force_fetch_dependencies:
-        fetch_dependencies(native_platform)
+        fetch_dependencies(native_platform, args.fetch_test_dependencies)
 
     os.makedirs(tc_platform_root_path, exist_ok=True)
     build_toolchain(gcc_dir_full_path, binutils_dir_full_path, tc_platform_root_path,
