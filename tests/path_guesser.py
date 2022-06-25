@@ -53,5 +53,16 @@ def guess_path_to_hyper_iso_br():
 
 
 def guess_path_to_uefi_firmware():
-    guess = "/usr/share/ovmf/OVMF.fd"
-    return __guess_or_none(guess)
+    guesses = [
+        "/usr/share/ovmf/OVMF.fd",
+        "/usr/share/edk2-ovmf/x64/OVMF.fd"
+    ]
+    res = None
+
+    for guess in guesses:
+        res = __guess_or_none(guess)
+
+        if res is not None:
+            break
+
+    return res
