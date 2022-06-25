@@ -68,6 +68,7 @@ class PackageManager(ABC):
 
 class Apt(PackageManager):
     name = "apt"
+    did_update = False
 
     @staticmethod
     def detect() -> bool:
@@ -109,6 +110,10 @@ class Apt(PackageManager):
 
     @staticmethod
     def install_dep(dep):
+        if not Apt.did_update:
+            subprocess.run(["sudo", "apt-get", "update"])
+            Apt.did_update = True
+
         subprocess.run(["sudo", "apt-get", "install", "-y", dep], check=True)
 
 
