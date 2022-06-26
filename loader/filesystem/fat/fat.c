@@ -6,9 +6,9 @@
 #include "common/minmax.h"
 #include "common/ctype.h"
 
-#include "fat.h"
 #include "structures.h"
 #include "allocator.h"
+#include "filesystem/fat.h"
 #include "filesystem/bulk_read.h"
 
 #define BPB_OFFSET 0x0B

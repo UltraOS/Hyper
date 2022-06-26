@@ -23,4 +23,3 @@ struct load_result {
 bool elf_load(void *file_data, size_t size, bool use_va, bool allocate_anywhere,
               u32 binary_alloc_type, struct load_result *res);
 u8 elf_bitness(void *file_data, size_t size);
-

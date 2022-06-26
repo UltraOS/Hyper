@@ -48,7 +48,8 @@ FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM}/*asm")
 set(LOADER_SOURCES ${C_FILES} ${ASM_FILES})
 
 add_executable(${EXECUTABLE_NAME} ${LOADER_SOURCES})
-target_include_directories(${EXECUTABLE_NAME} PRIVATE ${PROJECT_SOURCE_DIR} "${PROJECT_SOURCE_DIR}/${PLATFORM}/include")
+target_include_directories(${EXECUTABLE_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/include"
+                                                      "${PROJECT_SOURCE_DIR}/${PLATFORM}/include")
 target_link_libraries(${EXECUTABLE_NAME} gcc)
 
 set(STAGE2_BINARY ${EXECUTABLE_NAME} PARENT_SCOPE)

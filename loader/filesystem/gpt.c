@@ -1,10 +1,10 @@
 #include "common/helpers.h"
 #include "common/log.h"
 
-#include "gpt.h"
-#include "guid.h"
-#include "filesystem.h"
-#include "filesystem_table.h"
+#include "filesystem/gpt.h"
+#include "filesystem/guid.h"
+#include "filesystem/filesystem.h"
+#include "filesystem/filesystem_table.h"
 
 struct gpt_header {
     u64 Signature;

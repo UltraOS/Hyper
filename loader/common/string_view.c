@@ -1,5 +1,5 @@
-#include "string_view.h"
-#include "ctype.h"
+#include "common/string_view.h"
+#include "common/ctype.h"
 
 bool sv_equals(struct string_view lhs, struct string_view rhs)
 {

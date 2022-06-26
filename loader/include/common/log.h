@@ -30,6 +30,9 @@ void print(const char *msg, ...);
 #define MSG_FMT(msg) msg
 #endif
 
+
+//static inline void dummy(const char *arg, ...) { (void) arg; }
+//#define print_info(msg, ...) dummy(msg __VA_OPT__(,) __VA_ARGS__)
 #define print_info(msg, ...) print((LOG_INFO MSG_FMT(msg)), ##__VA_ARGS__)
 
 #define print_dbg(cond, msg, ...)    \

@@ -1,5 +1,5 @@
-#include "dynamic_buffer.h"
-#include "string.h"
+#include "common/dynamic_buffer.h"
+#include "common/string.h"
 
 bool dynamic_buffer_grow(struct dynamic_buffer *db)
 {

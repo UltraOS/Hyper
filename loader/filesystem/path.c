@@ -1,7 +1,7 @@
 #include "common/ctype.h"
 #include "common/conversions.h"
 
-#include "path.h"
+#include "filesystem/path.h"
 
 bool next_path_node(struct string_view *path, struct string_view *node)
 {

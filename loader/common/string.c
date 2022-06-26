@@ -1,4 +1,4 @@
-#include "string.h"
+#include "common/string.h"
 
 #ifdef HARDENED_STRING
 #include "log.h"

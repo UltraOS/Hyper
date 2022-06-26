@@ -1,8 +1,9 @@
-#include "block_cache.h"
 #include "common/minmax.h"
 #include "common/string.h"
 #include "common/bug.h"
 #include "common/align.h"
+
+#include "filesystem/block_cache.h"
 
 void block_cache_init(struct block_cache *bc, bool (*refill_blocks_cb)(void*, void*, u64, size_t),
                       void *user_ptr, u8 block_shift, void *cache_buf, size_t buf_block_cap)

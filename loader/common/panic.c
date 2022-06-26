@@ -1,6 +1,6 @@
 #include <stdarg.h>
-#include "panic.h"
-#include "log.h"
+#include "common/panic.h"
+#include "common/log.h"
 #include "services.h"
 
 void panic(const char *reason, ...)

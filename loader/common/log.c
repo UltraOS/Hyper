@@ -1,6 +1,7 @@
-#include "log.h"
-#include "format.h"
-#include "string.h"
+#include "common/log.h"
+#include "common/string.h"
+#include "common/format.h"
+
 #include "video_services.h"
 
 static enum log_level current_level = LOG_LEVEL_INFO;

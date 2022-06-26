@@ -1,4 +1,4 @@
-#include "cpuid.h"
+#include "common/cpuid.h"
 
 void cpuid(u32 function, struct cpuid_res *id)
 {

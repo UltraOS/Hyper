@@ -10,9 +10,9 @@
 #include "common/dynamic_buffer.h"
 #include "common/align.h"
 
-#include "ultra.h"
+#include "protocols/ultra.h"
 #include "ultra_protocol/ultra_protocol.h"
-#include "elf/elf.h"
+#include "elf.h"
 #include "filesystem/filesystem_table.h"
 #include "allocator.h"
 #include "virtual_memory.h"

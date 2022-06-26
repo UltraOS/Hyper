@@ -1,7 +1,7 @@
 #include "common/align.h"
 #include "common/minmax.h"
 
-#include "bulk_read.h"
+#include "filesystem/bulk_read.h"
 
 struct bulk_read_req {
     struct file *f;

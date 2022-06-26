@@ -1,6 +1,6 @@
-#include "log.h"
-#include "io.h"
-#include "format.h"
+#include "common/log.h"
+#include "common/io.h"
+#include "common/format.h"
 #include "test_ctl.h"
 
 void vprint(const char *msg, va_list vlist)

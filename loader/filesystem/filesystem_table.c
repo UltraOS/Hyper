@@ -1,7 +1,5 @@
-#include "filesystem_table.h"
-#include "allocator.h"
-#include "common/constants.h"
 #include "common/dynamic_buffer.h"
+#include "filesystem/filesystem_table.h"
 
 static struct fs_entry origin_fs;
 static struct dynamic_buffer entry_buf;

@@ -2,9 +2,9 @@
 #include "common/range.h"
 #include "common/log.h"
 
-#include "filesystem.h"
-#include "filesystem_table.h"
-#include "mbr.h"
+#include "filesystem/filesystem.h"
+#include "filesystem/filesystem_table.h"
+#include "filesystem/mbr.h"
 
 struct PACKED mbr_partition_entry {
         u8 status;

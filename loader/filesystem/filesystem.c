@@ -3,12 +3,12 @@
 #include "common/types.h"
 #include "common/string_view.h"
 
-#include "filesystem.h"
-#include "filesystem_table.h"
-#include "mbr.h"
-#include "gpt.h"
-#include "fat/fat.h"
-#include "iso9660/iso9660.h"
+#include "filesystem/filesystem.h"
+#include "filesystem/filesystem_table.h"
+#include "filesystem/mbr.h"
+#include "filesystem/gpt.h"
+#include "filesystem/fat.h"
+#include "filesystem/iso9660.h"
 
 void fs_check_read(struct file *f, u64 offset, u32 size)
 {
