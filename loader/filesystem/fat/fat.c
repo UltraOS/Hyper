@@ -656,7 +656,7 @@ static void *get_range(void *ranges, size_t idx, u32 stride)
     return ranges + (idx * stride);
 }
 
-static u64 cluster_as_part_off(u32 cluster,  struct fat_filesystem *fs)
+static u64 cluster_as_part_off(u32 cluster, struct fat_filesystem *fs)
 {
     u64 off;
 

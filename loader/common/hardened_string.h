@@ -60,7 +60,7 @@ static ALWAYS_INLINE void *hardened_memset(void *dest, int val, size_t count,
 }
 #define memset(dest, val, count) hardened_memset(dest, val, count, __FILE__, __LINE__)
 
-static ALWAYS_INLINE int hardened_memcmp(const void *dest, const void* src, size_t count,
+static ALWAYS_INLINE int hardened_memcmp(const void *dest, const void *src, size_t count,
                                          const char *file, size_t line)
 {
     HARDENED_CHECK_OOB_DST_OR_SRC();

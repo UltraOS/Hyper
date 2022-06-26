@@ -34,5 +34,5 @@ static inline void block_range_make_hole(struct block_range *br)
 typedef bool (*file_get_range_t)(struct file*, u64 file_block_off,
                                  size_t want_blocks, struct block_range *out);
 
-bool bulk_read_file(struct file* f, void *buffer, u64 offset, u32 bytes,
+bool bulk_read_file(struct file *f, void *buffer, u64 offset, u32 bytes,
                     file_get_range_t get_range);
