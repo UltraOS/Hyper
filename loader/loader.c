@@ -27,7 +27,7 @@ void loader_entry(void)
     enum load_protocol prot;
 
     allocator_set_default_alloc_type(MEMORY_TYPE_LOADER_RECLAIMABLE);
-    fs_table_init();
+    fst_init();
 
     init_all_disks();
     init_config(&cfg);
@@ -51,7 +51,7 @@ void init_config(struct config *out_cfg)
     if (!cfg_file)
         oops("Couldn't find hyper.cfg anywhere on disk!\n");
 
-    set_origin_fs(fe);
+    fst_set_origin(fe);
     cfg_data = allocate_critical_bytes(cfg_file->size);
 
     if (!cfg_file->fs->read_file(cfg_file, cfg_data, 0, cfg_file->size))
@@ -100,12 +100,12 @@ struct file *find_config_file(struct fs_entry **out_entry)
 {
     struct fs_entry *entries;
     size_t i, j, entry_count;
-    entries = list_fs_entries(&entry_count);
+    entries = fst_list(&entry_count);
 
     for (i = 0; i < entry_count; ++i) {
         for (j = 0; j < ARRAY_SIZE(search_paths); ++j) {
             struct filesystem *fs = entries[i].fs;
-            struct file *f = fs_open(fs, search_paths[j]);
+            struct file *f = path_open(fs, search_paths[j]);
 
             if (!f)
                 continue;

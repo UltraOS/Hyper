@@ -5,10 +5,11 @@
 #include "common/helpers.h"
 #include "common/minmax.h"
 #include "common/ctype.h"
+
 #include "fat.h"
 #include "structures.h"
 #include "allocator.h"
-#include "disk_services.h"
+#include "filesystem/bulk_read.h"
 
 #define BPB_OFFSET 0x0B
 #define EBPB_OLD_SIGNATURE 0x28

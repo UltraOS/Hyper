@@ -6,12 +6,12 @@
 static struct fs_entry origin_fs;
 static struct dynamic_buffer entry_buf;
 
-void fs_table_init(void)
+void fst_init(void)
 {
     dynamic_buffer_init(&entry_buf, sizeof(struct fs_entry), true);
 }
 
-void add_raw_fs_entry(const struct disk *d, struct filesystem *fs)
+void fst_add_raw_fs_entry(const struct disk *d, struct filesystem *fs)
 {
     struct fs_entry *fse = dynamic_buffer_slot_alloc(&entry_buf);
     if (unlikely(!fse))
@@ -26,7 +26,7 @@ void add_raw_fs_entry(const struct disk *d, struct filesystem *fs)
     };
 }
 
-void add_mbr_fs_entry(const struct disk *d, u32 partition_index, struct filesystem *fs)
+void fst_add_mbr_fs_entry(const struct disk *d, u32 partition_index, struct filesystem *fs)
 {
     struct fs_entry *fse = dynamic_buffer_slot_alloc(&entry_buf);
     if (unlikely(!fse))
@@ -41,9 +41,9 @@ void add_mbr_fs_entry(const struct disk *d, u32 partition_index, struct filesyst
     };
 }
 
-void add_gpt_fs_entry(const struct disk *d, u32 partition_index,
-                      const struct guid *disk_guid, const struct guid *partition_guid,
-                      struct filesystem *fs)
+void fst_add_gpt_fs_entry(const struct disk *d, u32 partition_index,
+                          const struct guid *disk_guid, const struct guid *partition_guid,
+                          struct filesystem *fs)
 {
     struct fs_entry *fse = dynamic_buffer_slot_alloc(&entry_buf);
     if (unlikely(!fse))
@@ -60,7 +60,7 @@ void add_gpt_fs_entry(const struct disk *d, u32 partition_index,
     };
 }
 
-const struct fs_entry *fs_by_full_path(const struct full_path *path)
+const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
 {
     bool by_disk_index = false, by_partition_index = false, raw_partition = false;
     u32 disk_index = 0, partition_index = 0;
@@ -73,9 +73,9 @@ const struct fs_entry *fs_by_full_path(const struct full_path *path)
     if (path->disk_id_type == DISK_IDENTIFIER_ORIGIN) {
         if (path->partition_id_type == PARTITION_IDENTIFIER_ORIGIN ||
             path->partition_id_type == PARTITION_IDENTIFIER_RAW)
-            return get_origin_fs();
+            return fst_get_origin();
 
-        disk_index = get_origin_fs()->disk_id;
+        disk_index = fst_get_origin()->disk_id;
         by_disk_index = true;
     } else if (path->disk_id_type == DISK_IDENTIFIER_INDEX) {
         disk_index = path->disk_index;
@@ -115,17 +115,17 @@ const struct fs_entry *fs_by_full_path(const struct full_path *path)
     return NULL;
 }
 
-void set_origin_fs(struct fs_entry *entry)
+void fst_set_origin(struct fs_entry *entry)
 {
     origin_fs = *entry;
 }
 
-const struct fs_entry *get_origin_fs()
+const struct fs_entry *fst_get_origin()
 {
     return &origin_fs;
 }
 
-struct fs_entry *list_fs_entries(size_t *count)
+struct fs_entry *fst_list(size_t *count)
 {
     *count = entry_buf.size;
     return entry_buf.buf;

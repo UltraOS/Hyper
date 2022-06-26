@@ -40,7 +40,7 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le, st
         string_path = binary_val.as_string;
     }
 
-    if (!parse_path(string_path, &opts->path))
+    if (!path_parse(string_path, &opts->path))
         oops("invalid binary path %pSV\n", &string_path);
 }
 
@@ -140,14 +140,14 @@ static void module_load(struct config *cfg, struct value *module_value, struct u
         if (!has_path)
             cfg_oops_no_mandatory_key(SV("path"));
 
-        if (!parse_path(str_path, &path))
+        if (!path_parse(str_path, &path))
             oops("invalid module path %pSV\n", &str_path);
 
-        fse = fs_by_full_path(&path);
+        fse = fst_fs_by_full_path(&path);
         if (!fse)
             oops("no such disk/partition %pSV\n", &str_path);
 
-        module_file = fs_open(fse->fs, path.path_within_partition);
+        module_file = path_open(fse->fs, path.path_within_partition);
         if (!module_file)
             oops("no such file %pSV\n", &path.path_within_partition);
 
@@ -212,9 +212,9 @@ void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel
     struct load_result res = { 0 };
 
     get_binary_options(cfg, entry, &info->bin_opts);
-    fse = fs_by_full_path(&info->bin_opts.path);
+    fse = fst_fs_by_full_path(&info->bin_opts.path);
 
-    f = fs_open(fse->fs, info->bin_opts.path.path_within_partition);
+    f = path_open(fse->fs, info->bin_opts.path.path_within_partition);
     if (!f)
         oops("failed to open %pSV\n", &info->bin_opts.path.path_within_partition);
 
@@ -445,7 +445,7 @@ static void *write_kernel_info_attribute(struct ultra_kernel_info_attribute *att
     u32 partition_type = ki->bin_opts.path.partition_id_type;
 
     if (partition_type == PARTITION_IDENTIFIER_ORIGIN) {
-        switch (get_origin_fs()->entry_type) {
+        switch (fst_get_origin()->entry_type) {
         case FSE_TYPE_RAW:
             partition_type = ULTRA_PARTITION_TYPE_RAW;
             break;

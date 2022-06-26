@@ -1,6 +1,8 @@
 #pragma once
 
 #include "filesystem.h"
+#include "guid.h"
+#include "path.h"
 
 enum fse_type {
     FSE_TYPE_RAW,
@@ -18,21 +20,21 @@ struct fs_entry {
     struct filesystem *fs;
 };
 
-void fs_table_init(void);
+void fst_init(void);
 
-void add_raw_fs_entry(const struct disk *d, struct filesystem*);
+void fst_add_raw_fs_entry(const struct disk *d, struct filesystem*);
 
-void add_mbr_fs_entry(const struct disk *d, u32 partition_index,
-                      struct filesystem*);
+void fst_add_mbr_fs_entry(const struct disk *d, u32 partition_index,
+                          struct filesystem*);
 
-void add_gpt_fs_entry(const struct disk *d, u32 partition_index,
-                      const struct guid *disk_guid,
-                      const struct guid *partition_guid,
-                      struct filesystem*);
+void fst_add_gpt_fs_entry(const struct disk *d, u32 partition_index,
+                          const struct guid *disk_guid,
+                          const struct guid *partition_guid,
+                          struct filesystem*);
 
-const struct fs_entry *fs_by_full_path(const struct full_path *path);
+const struct fs_entry *fst_fs_by_full_path(const struct full_path *path);
 
-void set_origin_fs(struct fs_entry*);
-const struct fs_entry *get_origin_fs(void);
+void fst_set_origin(struct fs_entry*);
+const struct fs_entry *fst_get_origin(void);
 
-struct fs_entry *list_fs_entries(size_t *count);
+struct fs_entry *fst_list(size_t *count);
