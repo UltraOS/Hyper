@@ -294,6 +294,19 @@ static void file_insert_range_fat12_or_16(void *ranges, u32 idx, struct contiguo
     };
 }
 
+static void file_free_chain(struct fat_file *file, struct fat_ops *fops)
+{
+    if (file->ranges_extra) {
+        size_t offset_into_extra = file->range_count - fops->in_place_range_cap;
+        size_t extra_range_capacity = CEILING_DIVIDE(offset_into_extra,
+                                                     fops->ranges_per_page);
+        free_pages(file->ranges_extra, extra_range_capacity);
+    }
+
+    file->range_count = 0;
+    file->ranges_extra = NULL;
+}
+
 static bool file_emplace_range(struct fat_file *file, struct contiguous_file_range32 range,
                                struct fat_ops *fops)
 {
@@ -329,22 +342,34 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
         .file_offset_cluster = 0,
         .global_cluster = file->first_cluster
     };
+    u8 cs;
     u32 current_file_offset = 1;
-    u32 current_cluster = file->first_cluster;
+    u32 max_clusters, current_cluster = file->first_cluster;
     struct fat_filesystem *fs = container_of(file->f.fs, struct fat_filesystem, f);
+
+    /*
+     * Allow the chain to be longer than the file size by an arbitrary
+     * number, but limit it to prevent infinite loops for corrupted
+     * file systems.
+     */
+    cs = cluster_shift(fs);
+    max_clusters = (file->f.size >> cs) + 1024;
 
     for (;;) {
         u32 next_cluster = fat_entry_at(fs, current_cluster);
 
         switch (entry_type_of_fat_value(next_cluster, fs->fops)) {
         case FAT_ENTRY_END_OF_CHAIN: {
-            if (unlikely((current_file_offset << cluster_shift(fs)) < file->f.size)) {
-                print_warn("EOC before end of file");
-                return false;
+            u32 chain_bytes = current_file_offset << cs;
+
+            if (unlikely(chain_bytes < file->f.size)) {
+                print_warn("FAT chain is smaller than the declared file size (%u vs %llu)\n",
+                           chain_bytes, file->f.size);
+                file->f.size = chain_bytes;
             }
 
             if (!file_emplace_range(file, range, fs->fops))
-                return false;
+                goto error_out;
 
             return true;
         }
@@ -353,18 +378,27 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
                 break;
 
             if (!file_emplace_range(file, range, fs->fops))
-                return false;
+                goto error_out;
 
             range = (struct contiguous_file_range32) { current_file_offset + 1, next_cluster };
             break;
         default:
             print_warn("Unexpected cluster %u in chain after %u\n", next_cluster, current_cluster);
-            return false;
+            goto error_out;
+        }
+
+        if (current_file_offset++ > max_clusters) {
+            print_warn("infinite fat chain for file at %u!\n",
+                       file->first_cluster);
+            goto error_out;
         }
 
         current_cluster = next_cluster;
-        current_file_offset++;
     }
+
+error_out:
+    file_free_chain(file, fs->fops);
+    return false;
 }
 
 static size_t range32_get_offset(void *range)
@@ -780,12 +814,7 @@ static void fat_iter_ctx_init(struct filesystem *base_fs, struct dir_iter_ctx *c
 
 static void fat_file_free(struct fat_file *file, struct fat_ops *fops)
 {
-    if (file->ranges_extra) {
-        size_t offset_into_extra = file->range_count - fops->in_place_range_cap;
-        size_t extra_range_capacity = CEILING_DIVIDE(offset_into_extra, fops->ranges_per_page);
-        free_pages(file->ranges_extra, extra_range_capacity);
-    }
-
+    file_free_chain(file, fops);
     free_bytes(file, sizeof(struct fat_file));
 }
 
