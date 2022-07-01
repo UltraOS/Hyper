@@ -319,7 +319,7 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
                     struct ultra_framebuffer *out_fb)
 {
     struct value video_mode_val;
-    struct video_mode picked_vm;
+    struct video_mode picked_vm = { 0 };
     size_t mode_count, mode_idx;
     bool did_pick = false;
     struct resolution native_res = {
@@ -359,10 +359,17 @@ bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
             break;
         }
 
-        if (VM_GREATER_OR_EQUAL(m, rm) && VM_LESS_OR_EQUAL(m, native_res)) {
-            picked_vm = m;
-            did_pick = true;
-        }
+        if (!VM_LESS_OR_EQUAL(m, native_res))
+            continue;
+
+        if (!VM_GREATER_OR_EQUAL(m, rm))
+            continue;
+
+        if (did_pick && !VM_GREATER_OR_EQUAL(m, picked_vm))
+            continue;
+
+        picked_vm = m;
+        did_pick = true;
     }
 
     if (!did_pick) {
