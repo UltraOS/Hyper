@@ -260,33 +260,78 @@ out_force_eof:
     dir_iter_ctx_force_eof(ctx, cache);
     return false;
 }
+
+static u32 get_last_multiext_block(struct iso9660_fs *fs, u32 first_block, u64 bytes)
+{
+    u32 block_shift = fs_block_shift(&fs->f);
+
+    if (!IS_ALIGNED(bytes, 1 << block_shift)) {
+        print_warn("multi-extent file length not aligned to block size!\n");
+        return 0;
+    }
+
+    return first_block + (bytes >> block_shift);
 }
 
 #define MAX_SANE_CHAIN_LEN 200
 
-static bool dir_read_multiext_size(struct iso9660_fs *fs, struct iso9660_dir_iter_ctx *ctx,
+static bool dir_read_multiext_size(struct iso9660_fs *fs,
+                                   struct iso9660_dir_iter_ctx *ctx,
+                                   u32 last_block,
                                    u64 *out_file_size)
 {
     size_t records_read = 0;
     struct iso9660_dir_record *dr;
-    u8 flags;
+    u8 flags = 0;
+    u32 first_block, extent_bytes;
 
     for (;;) {
+        if (unlikely(!last_block))
+            goto out_skip_multiext;
+
         if (unlikely(records_read == MAX_SANE_CHAIN_LEN)) {
             print_warn("record chain is too long (>200), ignoring");
-            return false;
+            goto out_skip_multiext;
         }
 
         if (!directory_fetch_raw_entry(fs, ctx, &dr))
             return false;
 
+        first_block = ecma119_get_733(dr->location_of_extent_733) +
+                      ecma119_get_711(dr->extended_attr_rec_length_711);
+
         flags = ecma119_get_711(dr->flags_711);
-        *out_file_size += ecma119_get_733(dr->data_length_733);
+        extent_bytes = ecma119_get_733(dr->data_length_733);
+        *out_file_size += extent_bytes;
         records_read++;
+
+        if (first_block != last_block) {
+            print_warn("non-contiguous multi-extent file, skipped\n");
+            goto out_skip_multiext;
+        }
 
         if (!(flags & ISO9660_MULTI_EXT))
             return true;
+
+        last_block = get_last_multiext_block(fs, first_block, extent_bytes);
     }
+
+/*
+ * Skip the bogus multi-extent chain here so the main fetch loop
+ * doesn't have to deal with it.
+ */
+out_skip_multiext:
+    for (;;) {
+        if (!(flags & ISO9660_MULTI_EXT))
+            break;
+
+        if (!directory_fetch_raw_entry(fs, ctx, &dr))
+            break;
+
+        flags = ecma119_get_711(dr->flags_711);
+    }
+
+    return false;
 }
 
 static void susp_release_ref(struct susp_iteration_ctx *ctx)
@@ -657,8 +702,13 @@ static bool dir_next_entry(struct iso9660_fs *fs, struct iso9660_dir_iter_ctx *c
         if (!get_record_name(fs, dr, out_rec->name, &out_rec->name_len))
             continue;
 
-        if ((flags & ISO9660_MULTI_EXT) && !dir_read_multiext_size(fs, ctx, &out_rec->size))
-            continue;
+        if (flags & ISO9660_MULTI_EXT) {
+            u32 last_block = get_last_multiext_block(fs, ir->first_block,
+                                                     out_rec->size);
+
+            if (!dir_read_multiext_size(fs, ctx, last_block, &out_rec->size))
+                continue;
+        }
 
         if ((flags & ISO9660_ASSOC_FILE) || (flags & ISO9660_HIDDEN_DIR))
             continue;
