@@ -37,7 +37,7 @@ build_dir="build_$platform"
 mkdir -p $build_dir || on_error
 
 pushd $build_dir
-cmake .. -DPLATFORM=$platform || on_error
+cmake .. -DHYPER_PLATFORM=$platform || on_error
 cmake --build . -j$cores || on_error
 popd
 
