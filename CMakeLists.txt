@@ -61,19 +61,37 @@ if (PLATFORM MATCHES "bios")
     set(ISO_MBR_FULL_PATH "${MBR_PATH}/${ISO_MBR_BINARY}")
     set(ISO_BOOT_REC_FULL_PATH "${MBR_PATH}/${ISO_BOOT_REC_BINARY}")
     set(STAGE2_FULL_PATH "${STAGE2_PATH}/${STAGE2_BINARY}")
+    set(ISO_STAGE2_FULL_PATH "${STAGE2_PATH}/hyper_iso_boot")
 
     add_custom_command(
-        OUTPUT ${STAGE2_PATH}/hyper_iso_boot
-        COMMAND cat ${ISO_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH} > ${STAGE2_PATH}/hyper_iso_boot
-        DEPENDS ${ISO_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH}
+        OUTPUT
+        ${ISO_STAGE2_FULL_PATH}
+        COMMAND
+        cat ${ISO_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH} > ${ISO_STAGE2_FULL_PATH}
+        DEPENDS
+        ${ISO_BOOT_REC_BINARY} ${STAGE2_BINARY}
+        COMMENT
+        "Generating iso stage2 loader"
     )
-    add_custom_target(hyper_iso_boot ALL DEPENDS ${STAGE2_PATH}/hyper_iso_boot)
+    add_custom_target(hyper_iso_boot ALL DEPENDS ${ISO_STAGE2_FULL_PATH})
 
     include(ExternalProject)
-    ExternalProject_Add(installer
-        SOURCE_DIR ${PROJECT_SOURCE_DIR}/installer
-        CMAKE_ARGS -DMBR_PATH=${MBR_FULL_PATH} -DISO_MBR_PATH=${ISO_MBR_FULL_PATH} -DSTAGE2_PATH=${STAGE2_FULL_PATH}
-        INSTALL_COMMAND cmake -E echo "Skipping install step."
+    ExternalProject_Add(
+        installer
+        SOURCE_DIR
+        ${PROJECT_SOURCE_DIR}/installer
+        CMAKE_ARGS
+        -DMBR_PATH=${MBR_FULL_PATH}
+        -DISO_MBR_PATH=${ISO_MBR_FULL_PATH}
+        -DSTAGE2_PATH=${STAGE2_FULL_PATH}
+        INSTALL_COMMAND
+        cmake -E echo "Skipping install step"
     )
-    ExternalProject_Add_StepDependencies(installer build ${MBR_FULL_PATH} ${STAGE2_FULL_PATH})
+    ExternalProject_Add_StepDependencies(
+        installer
+        build
+        ${MBR_BINARY}
+        ${ISO_MBR_BINARY}
+        ${STAGE2_BINARY}
+    )
 endif()
