@@ -185,6 +185,7 @@ class Brew(PackageManager):
         return [
             "python3",
             "pytest",
+            "llvm",
             "xorriso",
             "mtools",
             "qemu",
