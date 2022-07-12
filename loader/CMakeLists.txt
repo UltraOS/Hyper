@@ -1,38 +1,27 @@
 cmake_minimum_required(VERSION 3.16)
 
-set(ENV{HYPER_PLATFORM} ${PLATFORM})
-
 project(Loader ASM_NASM C)
 
-if (PLATFORM MATCHES "bios")
-    set(CMAKE_ASM_NASM_FLAGS "-felf32")
-    set(EXECUTABLE_NAME "hyper")
-    set(LINK_FLAGS "-T ${PROJECT_SOURCE_DIR}/${PLATFORM}/linker.ld -Wl,--oformat,binary")
-elseif (PLATFORM MATCHES "uefi")
-    set(CMAKE_ASM_NASM_FLAGS "-fwin64")
-    set(ADDITIONAL_FLAGS "-fno-stack-protector")
-    set(EXECUTABLE_NAME "BOOTX64.EFI")
-    set(LINK_FLAGS "-Wl,-dll -Wl,--subsystem,10 -e EfiMain -s -Wl,-Bsymbolic -shared")
+if (HYPER_PLATFORM MATCHES bios)
+    set(CMAKE_ASM_NASM_FLAGS -felf32)
+    set(LOADER_EXECUTABLE hyper)
+    set(LINK_FLAGS "-T${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/linker.ld" -Wl,--oformat,binary)
+elseif (HYPER_PLATFORM MATCHES uefi)
+    set(CMAKE_ASM_NASM_FLAGS -fwin64)
+    set(ADDITIONAL_FLAGS -fno-stack-protector)
+    set(LOADER_EXECUTABLE BOOTX64.EFI)
+    set(LINK_FLAGS -Wl,-dll -Wl,--subsystem,10 -e EfiMain -s -Wl,-Bsymbolic -shared)
 else ()
-    message(FATAL_ERROR "Unknown platform ${PLATFORM}")
+    message(FATAL_ERROR "Unknown platform ${HYPER_PLATFORM}")
 endif ()
 
-# Don't set flags if we're building cmake purely for the sake of syntax highlighting,
-# because obviously MSVC doesn't support these flags.
-if (NOT WIN32)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu17")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffreestanding")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -nostdlib")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ADDITIONAL_FLAGS}")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-builtin-macro-redefined -D'__FILE__=\"$(subst $(realpath ${CMAKE_SOURCE_DIR})/,,$(abspath $<))\"'")
-    set(CMAKE_ASM_NASM_COMPILE_OBJECT "<CMAKE_ASM_NASM_COMPILER> <FLAGS> -o <OBJECT> <SOURCE>")
-    set(CMAKE_C_COMPILE_OBJECT "<CMAKE_C_COMPILER> <DEFINES> <INCLUDES> ${CMAKE_C_FLAGS} -o <OBJECT> -c <SOURCE>")
-    set(CMAKE_C_LINK_EXECUTABLE "<CMAKE_C_COMPILER> ${CMAKE_C_FLAGS} ${LINK_FLAGS} <OBJECTS> <LINK_LIBRARIES> -o <TARGET>")
-endif ()
+macro(add_loader_c_flag FLAG)
+    target_compile_options(
+        ${LOADER_EXECUTABLE}
+        PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:${FLAG}>
+    )
+endmacro()
 
 FILE(GLOB C_FILES "${PROJECT_SOURCE_DIR}/*c"                    "${PROJECT_SOURCE_DIR}/*h"
                   "${PROJECT_SOURCE_DIR}/common/*c"             "${PROJECT_SOURCE_DIR}/common/*h"
@@ -41,16 +30,39 @@ FILE(GLOB C_FILES "${PROJECT_SOURCE_DIR}/*c"                    "${PROJECT_SOURC
                   "${PROJECT_SOURCE_DIR}/filesystem/fat/*c"     "${PROJECT_SOURCE_DIR}/filesystem/fat/*h"
                   "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*c" "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*h"
                   "${PROJECT_SOURCE_DIR}/protocols/*c"          "${PROJECT_SOURCE_DIR}/protocols/*h"
-                  "${PROJECT_SOURCE_DIR}/${PLATFORM}/*c"        "${PROJECT_SOURCE_DIR}/${PLATFORM}/*h")
-
-FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${PLATFORM}/*asm")
-
+                  "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*c"  "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*h")
+FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*asm")
 set(LOADER_SOURCES ${C_FILES} ${ASM_FILES})
 
-add_executable(${EXECUTABLE_NAME} ${LOADER_SOURCES})
-target_include_directories(${EXECUTABLE_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/include"
-                                                      "${PROJECT_SOURCE_DIR}/${PLATFORM}/include")
-target_link_libraries(${EXECUTABLE_NAME} gcc)
+add_executable(${LOADER_EXECUTABLE} ${LOADER_SOURCES})
 
-set(STAGE2_BINARY ${EXECUTABLE_NAME} PARENT_SCOPE)
+target_include_directories(
+    ${LOADER_EXECUTABLE}
+    PRIVATE
+    "${PROJECT_SOURCE_DIR}/include"
+    "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/include"
+)
+
+target_link_libraries(
+    ${LOADER_EXECUTABLE}
+    PRIVATE
+    gcc
+)
+
+add_loader_c_flag(-std=gnu17)
+add_loader_c_flag(-ffreestanding)
+add_loader_c_flag(-O2)
+add_loader_c_flag(-Wall)
+add_loader_c_flag(-Wextra)
+add_loader_c_flag(-Werror)
+add_loader_c_flag(-nostdlib)
+
+target_link_options(
+    ${LOADER_EXECUTABLE}
+    PRIVATE
+    ${LINK_FLAGS}
+    -nostdlib
+)
+
+set(STAGE2_BINARY ${LOADER_EXECUTABLE} PARENT_SCOPE)
 set(STAGE2_PATH ${PROJECT_BINARY_DIR} PARENT_SCOPE)

@@ -1,25 +1,25 @@
 cmake_minimum_required(VERSION 3.16)
 
-if (PLATFORM)
-    string(TOLOWER ${PLATFORM} PLATFORM)
+if (HYPER_PLATFORM)
+    string(TOLOWER ${HYPER_PLATFORM} HYPER_PLATFORM)
 endif ()
 
-if (NOT PLATFORM)
-    set(PLATFORM "bios")
-elseif ((NOT PLATFORM MATCHES "bios") AND (NOT PLATFORM MATCHES "uefi"))
-    message(FATAL_ERROR "Unknown platform ${PLATFORM}")
+if (NOT HYPER_PLATFORM)
+    set(HYPER_PLATFORM "bios")
+elseif ((NOT HYPER_PLATFORM MATCHES bios) AND (NOT HYPER_PLATFORM MATCHES uefi))
+    message(FATAL_ERROR "Unknown platform ${HYPER_PLATFORM}")
 endif ()
 
-if (PLATFORM MATCHES "uefi")
-    set(COMPILER_PREFIX "x86_64-w64-mingw32")
-    set(CMAKE_SYSTEM_PROCESSOR "x86_64")
+if (HYPER_PLATFORM MATCHES uefi)
+    set(COMPILER_PREFIX x86_64-w64-mingw32)
+    set(CMAKE_SYSTEM_PROCESSOR x86_64)
 else ()
-    set(COMPILER_PREFIX "i686-elf")
-    set(CMAKE_SYSTEM_PROCESSOR "i686")
+    set(COMPILER_PREFIX i686-elf)
+    set(CMAKE_SYSTEM_PROCESSOR i686)
 endif ()
 
 execute_process(
-    COMMAND python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${PLATFORM}
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${HYPER_PLATFORM}
     RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
     OUTPUT_FILE "/dev/stdout"
 )
@@ -33,7 +33,7 @@ set(CMAKE_SYSROOT "")
 # Do this because cmake attempts to link against -lc and crt0
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${PLATFORM})
+set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${HYPER_PLATFORM})
 set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
 set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-)
 
@@ -41,16 +41,11 @@ set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc)
 set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}gcc)
 set(CMAKE_LINKER ${TOOLCHAIN_PREFIX}ld)
 
-# We override CMAKE_C_COMPILE_OBJECT, which breaks this option
-set(CMAKE_DEPENDS_USE_COMPILER FALSE)
-
 project(Hyper C ASM_NASM)
-
-set(ENV{HYPER_PLATFORM} ${PLATFORM})
 
 add_subdirectory(loader)
 
-if (PLATFORM MATCHES "bios")
+if (HYPER_PLATFORM MATCHES "bios")
     add_subdirectory(bios)
 
     set(MBR_FULL_PATH "${MBR_PATH}/${MBR_BINARY}")
