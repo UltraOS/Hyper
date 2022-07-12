@@ -12,41 +12,37 @@ endif ()
 
 if (PLATFORM MATCHES "uefi")
     set(COMPILER_PREFIX "x86_64-w64-mingw32")
+    set(CMAKE_SYSTEM_PROCESSOR "x86_64")
 else ()
     set(COMPILER_PREFIX "i686-elf")
+    set(CMAKE_SYSTEM_PROCESSOR "i686")
 endif ()
 
-if (NOT WIN32)
-    execute_process(
-        COMMAND python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${PLATFORM}
-        RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
-        OUTPUT_FILE "/dev/stdout"
-    )
-    if (TOOLCHAIN_BUILD_FAILED)
-        message(FATAL_ERROR "-- Toolchain build error.")
-    endif()
-
-    # dirty hack because it tries to compile with -lc and crt0.o
-    set(CMAKE_C_COMPILER_WORKS 1)
-    set(CMAKE_CXX_COMPILER_WORKS 1)
-
-    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${PLATFORM})
-    set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
-    set(PATH_TO_FILT "${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-c++filt")
-    set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-)
-
-    set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc)
-    set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}gcc)
-    set(CMAKE_LINKER ${TOOLCHAIN_PREFIX}ld)
-    set(CMAKE_RANLIB ${TOOLCHAIN_PREFIX}gcc-ranlib)
-    set(CMAKE_STRIP ${TOOLCHAIN_PREFIX}strip)
-    set(CMAKE_AR ${TOOLCHAIN_PREFIX}gcc-ar)
-
-    # We override CMAKE_C_COMPILE_OBJECT, which breaks this option
-    set(CMAKE_DEPENDS_USE_COMPILER FALSE)
-else ()
-    add_compile_options("/std:c++latest")
+execute_process(
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${PLATFORM}
+    RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
+    OUTPUT_FILE "/dev/stdout"
+)
+if (TOOLCHAIN_BUILD_FAILED)
+    message(FATAL_ERROR "-- Toolchain build error.")
 endif()
+
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSROOT "")
+
+# Do this because cmake attempts to link against -lc and crt0
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+
+set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${PLATFORM})
+set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
+set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-)
+
+set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc)
+set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}gcc)
+set(CMAKE_LINKER ${TOOLCHAIN_PREFIX}ld)
+
+# We override CMAKE_C_COMPILE_OBJECT, which breaks this option
+set(CMAKE_DEPENDS_USE_COMPILER FALSE)
 
 project(Hyper C ASM_NASM)
 
