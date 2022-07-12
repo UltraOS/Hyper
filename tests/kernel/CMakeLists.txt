@@ -1,22 +1,28 @@
 cmake_minimum_required(VERSION 3.16)
 
+if (APPLE)
+    execute_process(
+        COMMAND
+        brew --prefix llvm
+        OUTPUT_VARIABLE
+        BREW_LLVM_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    set(LLD_LINKER "${BREW_LLVM_PREFIX}/bin/ld.lld")
+else ()
+    set(LLD_LINKER "ld.lld")
+endif ()
+
 set(CMAKE_C_COMPILER "clang")
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSROOT "")
+set(
+    CMAKE_C_LINK_EXECUTABLE
+    "${LLD_LINKER} <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> \
+     <OBJECTS> -o <TARGET> <LINK_LIBRARIES>"
+)
 
 project(test_kernel C)
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu17")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffreestanding")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ggdb")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-mmx")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-3dnow")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-sse")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-sse2")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -nostdlib")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -static -Wno-unused-variable -Wno-unused-function")
 
 set(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(LOADER_ROOT_DIR "${PROJECT_ROOT}/loader")
@@ -72,19 +78,45 @@ FILE(GLOB SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/*.c"        "${CMAKE_CURRENT
                        "${CMAKE_CURRENT_SOURCE_DIR}/common/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/common/*.h")
 LIST(APPEND SOURCE_FILES "${EXTERNAL_LOADER_FILES_LOCAL}")
 
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+set(COMMON_C_FLAGS
+    -std=gnu17
+    -ffreestanding
+    -O0
+    -ggdb
+    -mno-mmx -mno-3dnow -mno-sse -mno-sse2
+    -Wall -Wextra -Werror
+    -nostdlib
+    -static
+    -Wno-unused-variable
+    -Wno-unused-function
+)
 
-add_executable(kernel_i686 ${SOURCE_FILES})
-add_dependencies(kernel_i686 external_files)
-set_target_properties(kernel_i686 PROPERTIES COMPILE_FLAGS "--target=i686-none-none")
-set_target_properties(kernel_i686 PROPERTIES LINK_FLAGS "--target=i686-none-none -T${PROJECT_SOURCE_DIR}/link_1mb_generic.ld")
+macro(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
+    add_executable(${KERNEL_NAME} ${SOURCE_FILES})
+    add_dependencies(${KERNEL_NAME} external_files)
 
-add_executable(kernel_amd64_lower_half ${SOURCE_FILES})
-add_dependencies(kernel_amd64_lower_half external_files)
-set_target_properties(kernel_amd64_lower_half PROPERTIES COMPILE_FLAGS "--target=x86_64-none-none")
-set_target_properties(kernel_amd64_lower_half PROPERTIES LINK_FLAGS "--target=x86_64-none-none -T${PROJECT_SOURCE_DIR}/link_1mb_generic.ld")
+    target_compile_options(
+        ${KERNEL_NAME}
+        PRIVATE
+        ${COMMON_C_FLAGS}
+        --target=${TARGET_ARCH}-none-none
+        ${ARGN}
+    )
 
-add_executable(kernel_amd64_higher_half ${SOURCE_FILES})
-add_dependencies(kernel_amd64_higher_half external_files)
-set_target_properties(kernel_amd64_higher_half PROPERTIES COMPILE_FLAGS "--target=x86_64-none-none -mcmodel=kernel")
-set_target_properties(kernel_amd64_higher_half PROPERTIES LINK_FLAGS "--target=x86_64-none-none -mcmodel=kernel -T${PROJECT_SOURCE_DIR}/link_amd64_higher_half.ld")
+    target_link_options(
+        ${KERNEL_NAME}
+        PRIVATE
+        -nostdlib
+        "-T${PROJECT_SOURCE_DIR}/${LINK_SCRIPT}"
+    )
+
+    target_include_directories(
+        ${KERNEL_NAME}
+        PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+endmacro()
+
+add_kernel(kernel_i686 i686 link_1mb_generic.ld)
+add_kernel(kernel_amd64_lower_half amd64 link_1mb_generic.ld)
+add_kernel(kernel_amd64_higher_half amd64 link_amd64_higher_half.ld -mcmodel=kernel)
