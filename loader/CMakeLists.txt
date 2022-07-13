@@ -62,6 +62,7 @@ target_link_options(
     PRIVATE
     ${LINK_FLAGS}
     -nostdlib
+    -Wl,--orphan-handling=error
 )
 
 set(STAGE2_BINARY ${LOADER_EXECUTABLE} PARENT_SCOPE)
