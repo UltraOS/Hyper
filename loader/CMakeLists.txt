@@ -5,7 +5,7 @@ project(Loader ASM_NASM C)
 if (HYPER_PLATFORM MATCHES bios)
     set(CMAKE_ASM_NASM_FLAGS -felf32)
     set(LOADER_EXECUTABLE hyper)
-    set(LINK_FLAGS "-T${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/linker.ld" -Wl,--oformat,binary)
+    set(LINK_FLAGS -Wl,--oformat,binary)
 elseif (HYPER_PLATFORM MATCHES uefi)
     set(CMAKE_ASM_NASM_FLAGS -fwin64)
     set(ADDITIONAL_FLAGS -fno-stack-protector)
@@ -61,6 +61,7 @@ target_link_options(
     ${LOADER_EXECUTABLE}
     PRIVATE
     ${LINK_FLAGS}
+    "-T${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/linker.ld"
     -nostdlib
     -Wl,--orphan-handling=error
 )
