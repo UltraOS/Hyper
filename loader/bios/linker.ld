@@ -39,4 +39,10 @@ SECTIONS
 
         ASSERT(. < EBDA_BEGIN, "Loader executable is too large");
     }
+
+    /DISCARD/ : {
+        *(.comment*)
+        *(.eh_frame)
+        *(.debug*)
+    }
 }
