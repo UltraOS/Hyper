@@ -15,3 +15,6 @@
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 
 #define ERROR_EMITTER(msg) __attribute__((__error__(msg)))
+
+#define SECTION(name) __attribute__((section(#name)))
+#define USED __attribute__((used))
