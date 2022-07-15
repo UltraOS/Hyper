@@ -2,11 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 
 project(Loader ASM_NASM C)
 
-if (HYPER_PLATFORM STREQUAL bios)
+if (HYPER_PLATFORM STREQUAL "bios")
     set(CMAKE_ASM_NASM_FLAGS -felf32)
     set(LOADER_EXECUTABLE hyper)
     set(LINK_FLAGS -Wl,--oformat,binary)
-elseif (HYPER_PLATFORM STREQUAL uefi)
+elseif (HYPER_PLATFORM STREQUAL "uefi")
     set(CMAKE_ASM_NASM_FLAGS -fwin64)
     set(ADDITIONAL_FLAGS -fno-stack-protector)
     set(LOADER_EXECUTABLE BOOTX64.EFI)
