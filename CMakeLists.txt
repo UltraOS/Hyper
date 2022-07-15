@@ -6,11 +6,11 @@ endif ()
 
 if (NOT HYPER_PLATFORM)
     set(HYPER_PLATFORM "bios")
-elseif ((NOT HYPER_PLATFORM MATCHES bios) AND (NOT HYPER_PLATFORM MATCHES uefi))
+elseif ((NOT HYPER_PLATFORM STREQUAL bios) AND (NOT HYPER_PLATFORM STREQUAL uefi))
     message(FATAL_ERROR "Unknown platform ${HYPER_PLATFORM}")
 endif ()
 
-if (HYPER_PLATFORM MATCHES uefi)
+if (HYPER_PLATFORM STREQUAL uefi)
     set(COMPILER_PREFIX x86_64-w64-mingw32)
     set(CMAKE_SYSTEM_PROCESSOR x86_64)
 else ()
@@ -45,7 +45,7 @@ project(Hyper C ASM_NASM)
 
 add_subdirectory(loader)
 
-if (HYPER_PLATFORM MATCHES "bios")
+if (HYPER_PLATFORM STREQUAL bios)
     add_subdirectory(bios)
 
     set(MBR_FULL_PATH "${MBR_PATH}/${MBR_BINARY}")
