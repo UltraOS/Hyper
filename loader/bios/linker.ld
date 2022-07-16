@@ -25,6 +25,12 @@ SECTIONS
         *(.rodata .rodata.*)
     }
 
+    .boot_protos : {
+        boot_protocols_begin = .;
+        *(.boot_protos)
+        boot_protocols_end = .;
+    }
+
     .data : {
         *(.data .data.*)
     }

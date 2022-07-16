@@ -20,6 +20,12 @@ SECTIONS
         *(SORT(.rdata$*))
     }
 
+    .boot_protos : {
+        boot_protocols_begin = .;
+        *(.boot_protos)
+        boot_protocols_end = .;
+    }
+
     .bss ALIGN(__section_alignment__) : {
         *(.bss)
         *(COMMON)

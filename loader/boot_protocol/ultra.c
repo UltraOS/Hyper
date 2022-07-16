@@ -10,7 +10,7 @@
 #include "common/dynamic_buffer.h"
 #include "common/align.h"
 
-#include "protocols/ultra.h"
+#include "boot_protocol.h"
 #include "ultra_protocol/ultra_protocol.h"
 #include "elf.h"
 #include "filesystem/filesystem_table.h"
@@ -766,22 +766,13 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le, stru
     } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
 }
 
-static u64 ultra_known_map_types[] = {
-    MEMORY_TYPE_FREE,
-    MEMORY_TYPE_RESERVED,
-    MEMORY_TYPE_ACPI_RECLAIMABLE,
-    MEMORY_TYPE_NVS,
-    MEMORY_TYPE_LOADER_RECLAIMABLE,
-    MEMORY_TYPE_INVALID,
-};
-
-void ultra_protocol_load(struct config *cfg, struct loadable_entry *le)
+NORETURN
+void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
 {
     struct attribute_array_spec spec = { 0 };
     u64 pt, attr_arr_addr;
     bool is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
 
-    mm_declare_known_mm_types(ultra_known_map_types);
     dynamic_buffer_init(&spec.module_buf, sizeof(struct ultra_module_info_attribute), true);
 
     load_kernel(cfg, le, &spec.kern_info);
@@ -835,3 +826,19 @@ void ultra_protocol_load(struct config *cfg, struct loadable_entry *le)
     kernel_handover64(spec.kern_info.bin_info.entrypoint_address, spec.stack_address, pt,
                       attr_arr_addr, ULTRA_MAGIC, is_higher_half_exclusive);
 }
+
+static u64 ultra_known_mm_types[] = {
+    MEMORY_TYPE_FREE,
+    MEMORY_TYPE_RESERVED,
+    MEMORY_TYPE_ACPI_RECLAIMABLE,
+    MEMORY_TYPE_NVS,
+    MEMORY_TYPE_LOADER_RECLAIMABLE,
+    MEMORY_TYPE_INVALID,
+};
+
+static struct boot_protocol ultra_boot_protocol = {
+    .name = SV("ultra"),
+    .boot = ultra_protocol_boot,
+    .known_mm_types = ultra_known_mm_types
+};
+DECLARE_BOOT_PROTOCOL(ultra_boot_protocol);
