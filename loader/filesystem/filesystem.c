@@ -26,7 +26,7 @@ void fs_check_read(struct file *f, u64 offset, u32 size)
     return;
 
 die:
-    panic("BUG: invalid read at offset %llu with size %u", offset, size);
+    panic("BUG: invalid read at offset %llu with size %u!\n", offset, size);
 }
 
 struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range,
