@@ -5,7 +5,7 @@
 #include "filesystem/filesystem.h"
 #include "filesystem/filesystem_table.h"
 #include "config.h"
-#include "protocols/ultra.h"
+#include "boot_protocol.h"
 
 void init_all_disks(void);
 void init_config(struct config *out_cfg);
@@ -13,18 +13,10 @@ void init_config(struct config *out_cfg);
 struct file *find_config_file(struct fs_entry **fe);
 void pick_loadable_entry(struct config *cfg, struct loadable_entry *le);
 
-
-enum load_protocol {
-    LOAD_PROTOCOL_ULTRA,
-    // Maybe multiboot/stivale in the future?
-};
-enum load_protocol get_load_protocol(struct config *cfg, struct loadable_entry*);
-
 void loader_entry(void)
 {
     struct config cfg = { 0 };
     struct loadable_entry le;
-    enum load_protocol prot;
 
     allocator_set_default_alloc_type(MEMORY_TYPE_LOADER_RECLAIMABLE);
     fst_init();
@@ -33,10 +25,7 @@ void loader_entry(void)
     init_config(&cfg);
 
     pick_loadable_entry(&cfg, &le);
-    prot = get_load_protocol(&cfg, &le);
-
-    BUG_ON(prot != LOAD_PROTOCOL_ULTRA);
-    ultra_protocol_load(&cfg, &le);
+    boot(&cfg, &le);
 }
 
 // TODO: support chain-loading configs
@@ -132,17 +121,4 @@ void pick_loadable_entry(struct config *cfg, struct loadable_entry *le)
 
     if (!cfg_get_loadable_entry(cfg, loadable_entry_name, le))
         oops("no loadable entry \"%pSV\"\n", &loadable_entry_name);
-}
-
-#define PROTOCOL_KEY SV("protocol")
-
-enum load_protocol get_load_protocol(struct config *cfg, struct loadable_entry *entry)
-{
-    struct string_view protocol_name;
-    CFG_MANDATORY_GET(string, cfg, entry, PROTOCOL_KEY, &protocol_name);
-
-    if (!sv_equals_caseless(protocol_name, SV("ultra")))
-        oops("unsupported load protocol: %pSV\n", &protocol_name);
-
-    return LOAD_PROTOCOL_ULTRA;
 }

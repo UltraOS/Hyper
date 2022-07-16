@@ -69,7 +69,7 @@ LOADER_FILE(PATH "common" FILE "string_view.c")
 LOADER_FILE(PATH "common" FILE "format.c")
 LOADER_FILE(PATH "common" FILE "cpuid.c")
 LOADER_FILE(PATH "common" FILE "conversions.c")
-LOADER_FILE(PATH "protocols/ultra_protocol" FILE "ultra_protocol.h" LOCAL_PATH "include")
+LOADER_FILE(PATH "boot_protocol/ultra_protocol" FILE "ultra_protocol.h" LOCAL_PATH "include")
 
 get_property(EXTERNAL_LOADER_FILES_LOCAL GLOBAL PROPERTY EXTERNAL_LOADER_FILES)
 add_custom_target(external_files DEPENDS "${EXTERNAL_LOADER_FILES_LOCAL}")

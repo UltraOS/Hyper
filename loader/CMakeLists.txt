@@ -29,7 +29,7 @@ FILE(GLOB C_FILES "${PROJECT_SOURCE_DIR}/*c"                    "${PROJECT_SOURC
                   "${PROJECT_SOURCE_DIR}/filesystem/*c"         "${PROJECT_SOURCE_DIR}/filesystem/*h"
                   "${PROJECT_SOURCE_DIR}/filesystem/fat/*c"     "${PROJECT_SOURCE_DIR}/filesystem/fat/*h"
                   "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*c" "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*h"
-                  "${PROJECT_SOURCE_DIR}/protocols/*c"          "${PROJECT_SOURCE_DIR}/protocols/*h"
+                  "${PROJECT_SOURCE_DIR}/boot_protocol/*c"      "${PROJECT_SOURCE_DIR}/boot_protocol/*h"
                   "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*c"  "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*h")
 FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*asm")
 set(LOADER_SOURCES ${C_FILES} ${ASM_FILES})
