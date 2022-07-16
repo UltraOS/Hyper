@@ -95,7 +95,8 @@ static u64 module_get_load_address(struct config *cfg, struct value *module_valu
     return load_at_value.as_unsigned;
 }
 
-static void module_load(struct config *cfg, struct value *module_value, struct ultra_module_info_attribute *attrs)
+static void module_load(struct config *cfg, struct value *module_value,
+                        struct ultra_module_info_attribute *attrs)
 {
     bool has_path;
     struct string_view str_path, module_name = { 0 };
@@ -204,7 +205,7 @@ struct kernel_info {
     size_t blob_size;
 };
 
-void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel_info *info)
+static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel_info *info)
 {
     const struct fs_entry *fse;
     struct file *f;
@@ -258,7 +259,8 @@ struct requested_video_mode {
 #define VM_GREATER_OR_EQUAL(l, r) ((l).width >= (r).width && (l).height >= (r).height && (l).bpp >= (r).bpp)
 #define VM_LESS_OR_EQUAL(l, r) ((l).width <= (r).width && (l).height <= (r).height)
 
-void video_mode_from_value(struct config *cfg, struct value *val, struct requested_video_mode *mode)
+static void video_mode_from_value(struct config *cfg, struct value *val,
+                                  struct requested_video_mode *mode)
 {
     u64 cfg_width, cfg_height, cfg_bpp;
     struct string_view constraint_str;
@@ -315,8 +317,8 @@ void video_mode_from_value(struct config *cfg, struct value *val, struct request
 #define DEFAULT_HEIGHT 768
 #define DEFAULT_BPP 32
 
-bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
-                    struct ultra_framebuffer *out_fb)
+static bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
+                           struct ultra_framebuffer *out_fb)
 {
     struct value video_mode_val;
     struct video_mode picked_vm = { 0 };
@@ -446,7 +448,8 @@ static void *write_platform_info(struct ultra_platform_info_attribute *pi, u64 r
     return ++pi;
 }
 
-static void *write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr, const struct kernel_info *ki)
+static void *write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
+                                         const struct kernel_info *ki)
 {
     struct string_view path_str = ki->bin_opts.path.path_within_partition;
     u32 partition_type = ki->bin_opts.path.partition_id_type;
@@ -488,7 +491,8 @@ static void *write_kernel_info_attribute(struct ultra_kernel_info_attribute *att
     return ++attr;
 }
 
-static void *write_framebuffer(struct ultra_framebuffer_attribute *fb_attr, const struct attribute_array_spec *spec)
+static void *write_framebuffer(struct ultra_framebuffer_attribute *fb_attr,
+                               const struct attribute_array_spec *spec)
 {
     fb_attr->header.type = ULTRA_ATTRIBUTE_FRAMEBUFFER_INFO;
     fb_attr->header.size = sizeof(struct ultra_framebuffer_attribute);
@@ -615,7 +619,8 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
     return ret;
 }
 
-u64 build_page_table(struct binary_info *bi, u64 max_address, bool higher_half_exclusive, bool null_guard)
+static u64 build_page_table(struct binary_info *bi, u64 max_address,
+                            bool higher_half_exclusive, bool null_guard)
 {
     struct page_table pt;
     u64 max_address_rounded_up;
@@ -673,7 +678,7 @@ u64 build_page_table(struct binary_info *bi, u64 max_address, bool higher_half_e
     return (ptr_t)pt.root;
 }
 
-u64 pick_stack(struct config *cfg, struct loadable_entry *le)
+static u64 pick_stack(struct config *cfg, struct loadable_entry *le)
 {
     struct value val;
     u64 address = 0;
@@ -726,7 +731,8 @@ static struct ultra_module_info_attribute *module_alloc(struct dynamic_buffer *b
     return out;
 }
 
-static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le, struct attribute_array_spec *spec)
+static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
+                                  struct attribute_array_spec *spec)
 {
     bool kernel_as_module = false;
     struct ultra_module_info_attribute *mi;
@@ -750,7 +756,8 @@ static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
     return true;
 }
 
-static void load_all_modules(struct config *cfg, struct loadable_entry *le, struct attribute_array_spec *spec)
+static void load_all_modules(struct config *cfg, struct loadable_entry *le,
+                             struct attribute_array_spec *spec)
 {
     struct value module_value;
 
@@ -767,7 +774,7 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le, stru
 }
 
 NORETURN
-void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
+static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
 {
     struct attribute_array_spec spec = { 0 };
     u64 pt, attr_arr_addr;
