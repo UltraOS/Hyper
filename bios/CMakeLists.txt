@@ -2,11 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 project(MBR ASM_NASM)
 
-# Have to set this manually as cmake hardcodes '-f<native-binary-format>'
-set(
-    CMAKE_ASM_NASM_COMPILE_OBJECT
-    "<CMAKE_ASM_NASM_COMPILER> -fbin <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT> <SOURCE>"
-)
+set(CMAKE_ASM_NASM_FLAGS -fbin)
 
 # Prevent cmake from attempting to link the flat binary
 set(CMAKE_ASM_NASM_LINK_EXECUTABLE "cp <OBJECTS> <TARGET>")

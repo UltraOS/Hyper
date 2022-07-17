@@ -42,7 +42,7 @@ def guess_path_to_installer():
 
 def guess_path_to_hyper_uefi():
     guess = os.path.join(abs_path_to_project_root(),
-                         "build_uefi/loader/BOOTX64.EFI")
+                         "build_uefi/loader/hyper_uefi")
     return __guess_or_none(guess)
 
 

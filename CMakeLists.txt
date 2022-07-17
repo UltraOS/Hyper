@@ -42,6 +42,12 @@ set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc)
 set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}gcc)
 set(CMAKE_LINKER ${TOOLCHAIN_PREFIX}ld)
 
+# Have to set this manually as cmake hardcodes '-f<native-binary-format>'
+set(
+    CMAKE_ASM_NASM_COMPILE_OBJECT
+    "<CMAKE_ASM_NASM_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT> <SOURCE>"
+)
+
 project(Hyper C ASM_NASM)
 
 add_subdirectory(loader)

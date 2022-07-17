@@ -74,10 +74,6 @@ LOADER_FILE(PATH "boot_protocol/ultra_protocol" FILE "ultra_protocol.h" LOCAL_PA
 get_property(EXTERNAL_LOADER_FILES_LOCAL GLOBAL PROPERTY EXTERNAL_LOADER_FILES)
 add_custom_target(external_files DEPENDS "${EXTERNAL_LOADER_FILES_LOCAL}")
 
-FILE(GLOB SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/*.c"        "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-                       "${CMAKE_CURRENT_SOURCE_DIR}/common/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/common/*.h")
-LIST(APPEND SOURCE_FILES "${EXTERNAL_LOADER_FILES_LOCAL}")
-
 set(COMMON_C_FLAGS
     -std=gnu17
     -ffreestanding
@@ -92,8 +88,21 @@ set(COMMON_C_FLAGS
 )
 
 macro(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
-    add_executable(${KERNEL_NAME} ${SOURCE_FILES})
+    add_executable(${KERNEL_NAME})
     add_dependencies(${KERNEL_NAME} external_files)
+
+    target_sources(
+        ${KERNEL_NAME}
+        PRIVATE
+        fb_font.c
+        fb_tty.c
+        gcc_builtins.c
+        kernel.c
+        test_ctl.c
+        ultra_helpers.c
+        common/log.c
+        ${EXTERNAL_LOADER_FILES_LOCAL}
+    )
 
     target_compile_options(
         ${KERNEL_NAME}
