@@ -2,51 +2,54 @@ cmake_minimum_required(VERSION 3.16)
 
 project(Loader ASM_NASM C)
 
-if (HYPER_PLATFORM STREQUAL "bios")
-    set(CMAKE_ASM_NASM_FLAGS -felf32)
-    set(LOADER_EXECUTABLE hyper)
-    set(LINK_FLAGS -Wl,--oformat,binary)
-elseif (HYPER_PLATFORM STREQUAL "uefi")
-    set(CMAKE_ASM_NASM_FLAGS -fwin64)
-    set(ADDITIONAL_FLAGS -fno-stack-protector)
-    set(LOADER_EXECUTABLE BOOTX64.EFI)
-    set(LINK_FLAGS -Wl,--subsystem,10 -e EfiMain -s)
-else ()
-    message(FATAL_ERROR "Unknown platform ${HYPER_PLATFORM}")
-endif ()
+set(LOADER_EXECUTABLE "hyper_${HYPER_PLATFORM}")
 
-macro(add_loader_c_flag FLAG)
+macro(add_loader_lang_flag LANG FLAG)
     target_compile_options(
         ${LOADER_EXECUTABLE}
         PRIVATE
-        $<$<COMPILE_LANGUAGE:C>:${FLAG}>
+        $<$<COMPILE_LANGUAGE:${LANG}>:${FLAG}>
     )
 endmacro()
 
-FILE(GLOB C_FILES "${PROJECT_SOURCE_DIR}/*c"                    "${PROJECT_SOURCE_DIR}/*h"
-                  "${PROJECT_SOURCE_DIR}/common/*c"             "${PROJECT_SOURCE_DIR}/common/*h"
-                  "${PROJECT_SOURCE_DIR}/elf/*c"                "${PROJECT_SOURCE_DIR}/elf/*h"
-                  "${PROJECT_SOURCE_DIR}/filesystem/*c"         "${PROJECT_SOURCE_DIR}/filesystem/*h"
-                  "${PROJECT_SOURCE_DIR}/filesystem/fat/*c"     "${PROJECT_SOURCE_DIR}/filesystem/fat/*h"
-                  "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*c" "${PROJECT_SOURCE_DIR}/filesystem/iso9660/*h"
-                  "${PROJECT_SOURCE_DIR}/boot_protocol/*c"      "${PROJECT_SOURCE_DIR}/boot_protocol/*h"
-                  "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*c"  "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*h")
-FILE(GLOB ASM_FILES "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/*asm")
-set(LOADER_SOURCES ${C_FILES} ${ASM_FILES})
+macro(add_loader_c_flag FLAG)
+    add_loader_lang_flag(C ${FLAG})
+endmacro()
 
-add_executable(${LOADER_EXECUTABLE} ${LOADER_SOURCES})
+macro(add_loader_nasm_flag FLAG)
+    add_loader_lang_flag(ASM_NASM ${FLAG})
+endmacro()
+
+add_executable(
+    ${LOADER_EXECUTABLE}
+    allocator.c
+    config.c
+    edid.c
+    loader.c
+    memory_services.c
+    services_impl.c
+    virtual_memory.c
+)
 
 target_include_directories(
     ${LOADER_EXECUTABLE}
     PRIVATE
-    "${PROJECT_SOURCE_DIR}/include"
-    "${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/include"
+    include
+    "${HYPER_PLATFORM}/include"
 )
 
 target_link_libraries(
     ${LOADER_EXECUTABLE}
     PRIVATE
     gcc
+)
+
+target_link_options(
+    ${LOADER_EXECUTABLE}
+    PRIVATE
+    -nostdlib
+    -Wl,--orphan-handling=error
+    -Wl,-o${LOADER_EXECUTABLE}
 )
 
 add_loader_c_flag(-std=gnu17)
@@ -57,14 +60,11 @@ add_loader_c_flag(-Wextra)
 add_loader_c_flag(-Werror)
 add_loader_c_flag(-nostdlib)
 
-target_link_options(
-    ${LOADER_EXECUTABLE}
-    PRIVATE
-    ${LINK_FLAGS}
-    "-T${PROJECT_SOURCE_DIR}/${HYPER_PLATFORM}/linker.ld"
-    -nostdlib
-    -Wl,--orphan-handling=error
-)
+add_subdirectory(boot_protocol)
+add_subdirectory(common)
+add_subdirectory(elf)
+add_subdirectory(filesystem)
+add_subdirectory(${HYPER_PLATFORM})
 
 set(STAGE2_BINARY ${LOADER_EXECUTABLE} PARENT_SCOPE)
 set(STAGE2_PATH ${PROJECT_BINARY_DIR} PARENT_SCOPE)
