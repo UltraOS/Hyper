@@ -9,6 +9,7 @@ target_link_options(
 
 add_loader_nasm_flag(-fwin64)
 add_loader_c_flag(-fno-stack-protector)
+add_loader_c_flag(-mno-stack-arg-probe)
 
 target_sources(
     ${LOADER_EXECUTABLE}
