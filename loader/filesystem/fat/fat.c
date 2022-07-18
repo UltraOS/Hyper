@@ -8,7 +8,6 @@
 
 #include "structures.h"
 #include "allocator.h"
-#include "filesystem/fat.h"
 #include "filesystem/bulk_read.h"
 
 #define BPB_OFFSET 0x0B
@@ -973,14 +972,15 @@ static struct fat_ops fat32_ops = {
     .range_get_global_cluster = range32_get_global_cluster
 };
 
-struct fat_ops *ft_to_fat_ops[] = {
+static struct fat_ops *ft_to_fat_ops[] = {
     [FAT_TYPE_12] = &fat12_ops,
     [FAT_TYPE_16] = &fat16_ops,
     [FAT_TYPE_32] = &fat32_ops
 };
 
-struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
-                                  struct block_cache *bc)
+static struct filesystem *fat_detect(const struct disk *d,
+                                     struct range lba_range,
+                                     struct block_cache *bc)
 {
     void *bpb;
     u64 abs_bpb_off = (lba_range.begin << d->block_shift) + BPB_OFFSET;
@@ -1049,3 +1049,9 @@ struct filesystem *try_create_fat(const struct disk *d, struct range lba_range,
 
     return &fs->f;
 }
+
+static struct filesystem_type fat_fs = {
+    .name = SV("FAT"),
+    .detect = fat_detect
+};
+DECLARE_FILESYSTEM(fat_fs);

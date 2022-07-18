@@ -56,6 +56,31 @@ struct filesystem {
     bool (*read_file)(struct file*, void *buffer, u64 offset, u32 bytes);
 };
 
+typedef
+struct filesystem*
+(*fs_detect_t)(
+    const struct disk *d,
+    struct range lba_range,
+    struct block_cache *bc
+);
+
+#define FS_TYPE_CD (1 << 0)
+
+struct filesystem_type {
+    struct string_view name;
+    u32 flags;
+    fs_detect_t detect;
+};
+
+typedef struct filesystem_type *filesystem_type_entry;
+
+#define DECLARE_FILESYSTEM(type) \
+    static filesystem_type_entry CONCAT(type, hook) \
+           SECTION(.filesystems) USED = &type
+
+extern filesystem_type_entry filesystems_begin[];
+extern filesystem_type_entry filesystems_end[];
+
 static inline u8 fs_block_shift(struct filesystem *fs)
 {
     return fs->block_shift;
