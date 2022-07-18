@@ -7,7 +7,6 @@
 
 #include "iso9660_structures.h"
 #include "allocator.h"
-#include "filesystem/iso9660.h"
 #include "filesystem/bulk_read.h"
 
 #define ISO9660_DEBUG 0
@@ -124,47 +123,6 @@ struct iso9660_file {
     struct file f;
     u32 first_block;
 };
-static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd *pvd);
-
-struct filesystem *try_create_iso9660(const struct disk *d, struct block_cache *bc)
-{
-    struct filesystem *ret = NULL;
-    struct iso9660_vd *vd;
-    size_t cur_off;
-
-    // Technically possible and could be valid, but we don't support it
-    if (unlikely(disk_block_size(d) > 2048))
-        return NULL;
-
-    cur_off = ISO9660_LOGICAL_SECTOR_SIZE * ISO9660_SYSTEM_AREA_BLOCKS;
-
-    for (;;) {
-        if (!block_cache_take_ref(bc, (void**)&vd, cur_off, sizeof(struct iso9660_vd)))
-            return NULL;
-
-        if (memcmp(vd->standard_identifier, ISO9660_IDENTIFIER,
-                   sizeof(vd->standard_identifier)) != 0)
-            goto out;
-
-        enum vd_type type = ecma119_get_711(vd->descriptor_type_711);
-
-        // We don't check supplementary for now because we don't support joliet
-        if (type == VD_TYPE_PRIMARY)
-            break;
-
-        if (type == VD_TYPE_TERMINATOR)
-            goto out;
-
-        cur_off += sizeof(struct iso9660_vd);
-        block_cache_release_ref(bc);
-    }
-
-    ret = iso9660_init(d, (struct iso9660_pvd*)vd);
-
-out:
-    block_cache_release_ref(bc);
-    return ret;
-}
 
 static bool iso9660_file_get_range(struct file *f, u64 file_block_off, size_t want_blocks,
                                    struct block_range *out_range)
@@ -1000,3 +958,55 @@ err_out:
     free_pages(fs, 1);
     return NULL;
 }
+
+static struct filesystem *iso9660_detect(const struct disk *d,
+                                         struct range lba_range,
+                                         struct block_cache *bc)
+{
+    struct filesystem *ret = NULL;
+    struct iso9660_vd *vd;
+    size_t cur_off;
+
+    // Technically possible and could be valid, but we don't support it
+    if (unlikely(disk_block_size(d) > 2048))
+        return NULL;
+
+    // We assume the entire disk is covered by us
+    UNUSED(lba_range);
+
+    cur_off = ISO9660_LOGICAL_SECTOR_SIZE * ISO9660_SYSTEM_AREA_BLOCKS;
+
+    for (;;) {
+        if (!block_cache_take_ref(bc, (void**)&vd, cur_off, sizeof(struct iso9660_vd)))
+            return NULL;
+
+        if (memcmp(vd->standard_identifier, ISO9660_IDENTIFIER,
+                   sizeof(vd->standard_identifier)) != 0)
+            goto out;
+
+        enum vd_type type = ecma119_get_711(vd->descriptor_type_711);
+
+        // We don't check supplementary for now because we don't support joliet
+        if (type == VD_TYPE_PRIMARY)
+            break;
+
+        if (type == VD_TYPE_TERMINATOR)
+            goto out;
+
+        cur_off += sizeof(struct iso9660_vd);
+        block_cache_release_ref(bc);
+    }
+
+    ret = iso9660_init(d, (struct iso9660_pvd*)vd);
+
+out:
+    block_cache_release_ref(bc);
+    return ret;
+}
+
+static struct filesystem_type iso9660_fs = {
+    .name = SV("ISO9660"),
+    .flags = FS_TYPE_CD,
+    .detect = iso9660_detect
+};
+DECLARE_FILESYSTEM(iso9660_fs);

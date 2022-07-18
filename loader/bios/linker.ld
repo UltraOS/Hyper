@@ -31,6 +31,12 @@ SECTIONS
         boot_protocols_end = .;
     }
 
+    .filesystems : {
+        filesystems_begin = .;
+        *(.filesystems)
+        filesystems_end = .;
+    }
+
     .data : {
         *(.data .data.*)
     }

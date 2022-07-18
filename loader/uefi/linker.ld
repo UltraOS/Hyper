@@ -26,6 +26,12 @@ SECTIONS
         boot_protocols_end = .;
     }
 
+    .filesystems : {
+        filesystems_begin = .;
+        *(.filesystems)
+        filesystems_end = .;
+    }
+
     .bss ALIGN(__section_alignment__) : {
         *(.bss)
         *(COMMON)
