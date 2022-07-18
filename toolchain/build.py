@@ -85,7 +85,8 @@ class Apt(PackageManager):
             "libmpfr-dev",
             "texinfo",
             "libisl-dev",
-            "nasm"
+            "nasm",
+            "parted",
         ]
 
     @staticmethod
@@ -133,6 +134,7 @@ class Pacman(PackageManager):
             "libmpc",
             "mpfr",
             "nasm",
+            "parted",
         ]
 
     @staticmethod
