@@ -54,7 +54,7 @@ def file_resize_to_mib(path, mib):
                            "bs=1M", f"count={mib}"])
 
 
-def image_partition(path, br_type, fs_type, align_mib):
+def image_partition(path, br_type, fs_type, align_mib, part_len_mib):
     label = "gpt" if br_type == "GPT" else "msdos"
     subprocess.check_call(["parted", "-s", path, "mklabel", label])
 
@@ -64,8 +64,10 @@ def image_partition(path, br_type, fs_type, align_mib):
     if fs_type == "fat12":
         fs_type = "fat16" # parted doesn't support fat12 labels
 
-    subprocess.check_call(["parted", "-s", path, "mkpart", part_type,
-                           fs_type, f"{align_mib}MiB", "100%"])
+    subprocess.check_call(["parted", "-s", path,
+                           "mkpart", part_type,
+                           fs_type, f"{align_mib}M",
+                           f"{align_mib + part_len_mib}M"])
 
 
 def get_fs_mib_size_for_type(fs_type):
@@ -166,11 +168,17 @@ class DiskImage:
 
         if not is_iso:
             fs_size = get_fs_mib_size_for_type(self.fs_type)
-            file_resize_to_mib(self.__path, fs_size + DiskImage.part_align_mibs)
+            image_size = fs_size + DiskImage.part_align_mibs
+
+            # Make sure the backup header is intact
+            if br_type == "GPT":
+                image_size += 1
+
+            file_resize_to_mib(self.__path, image_size)
 
             if self.__br_type == "MBR" or self.__br_type == "GPT":
                 image_partition(self.__path, self.__br_type, self.__fs_type,
-                                DiskImage.part_align_mibs)
+                                DiskImage.part_align_mibs, fs_size)
 
         make_fs(self.__path, self.__fs_type, DiskImage.part_align_mibs,
                 fs_size, self.__fs_root_dir, has_uefi, has_iso_br)
