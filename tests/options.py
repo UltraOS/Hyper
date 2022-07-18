@@ -7,24 +7,18 @@ HYPER_UEFI_OPT = "--hyper-uefi-path"
 HYPER_ISO_BR_OPT = "--hyper-iso-br-path"
 UEFI_FIRMWARE_OPT = "--uefi-firmware-path"
 QEMU_GUI_OPT = "--qemu-enable-gui"
-
-def __on_guess_failed(optname):
-    raise FileNotFoundError(f"Failed to guess {optname}! "
-                             "Please specify manually.")
     
 
 def add_base_options(add_opt_cb):
     binaries_path = path_guesser.guess_path_to_kernel_binaries()
-    if binaries_path is None:
-        __on_guess_failed(KERNEL_DIR_OPT)
-
     installer_path = path_guesser.guess_path_to_installer()
     hyper_uefi_path = path_guesser.guess_path_to_hyper_uefi()
     hyper_iso_br_path = path_guesser.guess_path_to_hyper_iso_br()
 
     add_opt_cb(KERNEL_DIR_OPT, type=str,
                default=binaries_path,
-               help="Path to the directory with kernel binaries")
+               help="Path to the directory with kernel binaries",
+               required=binaries_path is None)
     add_opt_cb(INTERM_DIR_OPT, type=str,
                default=path_guesser.guess_path_to_interm_dir(),
                help="Path to the intermediate data directory")
