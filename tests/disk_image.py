@@ -4,6 +4,7 @@ import tempfile
 import shutil
 import os
 import options
+import platform
 
 HYPER_ISO_BOOT_RECORD = "hyper_iso_boot"
 FS_IMAGE_RELPATH = "boot"
@@ -54,7 +55,7 @@ def file_resize_to_mib(path, mib):
                            "bs=1M", f"count={mib}"])
 
 
-def image_partition(path, br_type, fs_type, align_mib, part_len_mib):
+def linux_image_partition(path, br_type, fs_type, align_mib, part_len_mib):
     label = "gpt" if br_type == "GPT" else "msdos"
     subprocess.check_call(["parted", "-s", path, "mklabel", label])
 
@@ -68,6 +69,68 @@ def image_partition(path, br_type, fs_type, align_mib, part_len_mib):
                            "mkpart", part_type,
                            fs_type, f"{align_mib}M",
                            f"{align_mib + part_len_mib}M"])
+
+
+def darwin_image_partition_gpt(path, fs_type, align_mib, part_len_mib):
+    part_begin = (align_mib * 1024 * 1024) // 512
+    part_end = part_begin + ((part_len_mib * 1024 * 1024) // 512)
+
+    gdisk_fmt = "n\n" # New partition
+    gdisk_fmt += "1\n" # At index 1
+    gdisk_fmt += f"{part_begin}\n" # Starts here
+    gdisk_fmt += f"{part_end}\n" # Ends here
+    gdisk_fmt += "\n" # With default GUID (some Apple thing)
+    gdisk_fmt += "w\n" # Write the new changes
+    gdisk_fmt += "y\n" # Yes, overwrite everything
+
+    gdp = subprocess.Popen(["gdisk", path], stdin=subprocess.PIPE)
+    gdp.stdin.write(gdisk_fmt.encode("ascii"))
+    gdp.stdin.close()
+
+    gdp.wait(5)
+    if gdp.returncode != 0:
+        raise RuntimeError("gdisk exited with error")
+
+
+# Darwin doesn't have 'parted', instead it ships with a weird version of 'fdisk'
+def darwin_image_partition_mbr(path, fs_type, align_mib, part_len_mib):
+    fs_type_to_id = {
+        "FAT12": 0x01,
+        "FAT16": 0x04,
+        "FAT32": 0x0C
+    }
+
+    part_begin = (align_mib * 1024 * 1024) // 512
+    part_len_mib = (part_len_mib * 1024 * 1024) // 512
+    id = "{:02X}".format(fs_type_to_id[fs_type])
+
+    fdisk_fmt = f"{part_begin},{part_len_mib},{id}\n"
+
+    fdp = subprocess.Popen(["fdisk", "-yr", path], stdin=subprocess.PIPE)
+    fdp.stdin.write(fdisk_fmt.encode("ascii"))
+    fdp.stdin.close()
+
+    fdp.wait(5)
+    if fdp.returncode != 0:
+        raise RuntimeError("fdisk exited with error")
+
+
+def darwin_image_partition(path, br_type, fs_type, align_mib, part_len_mib):
+    if br_type == "MBR":
+        darwin_image_partition_mbr(path, fs_type, align_mib, part_len_mib)
+    else:
+        darwin_image_partition_gpt(path, fs_type, align_mib, part_len_mib)
+
+
+SYSTEM_TO_IMAGE_PARTITION = {
+    "Linux": linux_image_partition,
+    "Darwin": darwin_image_partition,
+}
+
+
+def image_partition(path, br_type, fs_type, align_mib, part_len_mib):
+    part_fn = SYSTEM_TO_IMAGE_PARTITION[platform.system()]
+    part_fn(path, br_type, fs_type, align_mib, part_len_mib)
 
 
 def get_fs_mib_size_for_type(fs_type):
