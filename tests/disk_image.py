@@ -51,7 +51,7 @@ def make_normal_boot_config(default_entry, cmdline):
 
 def file_resize_to_mib(path, mib):
     subprocess.check_call(["dd", "if=/dev/zero", f"of={path}",
-                           "bs=1MiB", f"count={mib}"])
+                           "bs=1M", f"count={mib}"])
 
 
 def image_partition(path, br_type, fs_type, align_mib):
@@ -130,7 +130,7 @@ def make_iso(image_path, root_path, has_uefi, has_bios):
 
 def image_embed(image_path, mib_offset, fs_image):
     subprocess.check_call(["dd", f"if={fs_image}", f"seek={mib_offset}",
-                           "bs=1MiB", f"of={image_path}", "conv=notrunc"])
+                           "bs=1M", f"of={image_path}", "conv=notrunc"])
 
 
 def make_fs(image_path, fs_type, image_mib_offset, size, root_path,
