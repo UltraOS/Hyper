@@ -1,4 +1,6 @@
 import os
+import platform
+import subprocess
 
 
 def abs_path_to_current_dir() -> str:
@@ -57,6 +59,15 @@ def guess_path_to_uefi_firmware():
         "/usr/share/ovmf/OVMF.fd",
         "/usr/share/edk2-ovmf/x64/OVMF.fd"
     ]
+    if platform.system() == "Darwin":
+        bp = subprocess.run(["brew", "--prefix", "qemu"],
+                            stdout=subprocess.PIPE,
+                            universal_newlines=True)
+        if bp.returncode == 0:
+            uefi_path = os.path.join(bp.stdout.strip(), "share", "qemu",
+                                     "edk2-x86_64-code.fd")
+            guesses.append(uefi_path)
+
     res = None
 
     for guess in guesses:

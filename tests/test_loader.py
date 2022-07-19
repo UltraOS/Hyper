@@ -56,7 +56,8 @@ def run_qemu(disk_image: DiskImage, is_uefi: bool, config):
         if not firmware_path:
             pytest.skip("No UEFI firmware provided")
 
-        qemu_args.extend(["-bios", firmware_path])
+        drive_opts = f"file={firmware_path},if=pflash,format=raw,readonly=on"
+        qemu_args.extend(["-drive", drive_opts])
 
     qp = subprocess.Popen(qemu_args, stdout=subprocess.PIPE)
     try:
