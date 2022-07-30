@@ -268,7 +268,7 @@ static void *efi_memmove(void *dest, void *src, size_t count)
         return dest;
     }
 
-    return memcpy_generic(dest, src, count);
+    return memmove_generic(dest, src, count);
 }
 
 static void *efi_memset(void *dest, int val, size_t count)
