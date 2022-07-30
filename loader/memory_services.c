@@ -17,7 +17,7 @@ static bool map_is_dirty = true;
 
 static bool mask_is_set(u64 type_mask)
 {
-    return (known_standard_mask & type_mask) != 0;
+    return (known_standard_mask & type_mask) == type_mask;
 }
 
 void mm_declare_known_mm_types(u64 *types)
