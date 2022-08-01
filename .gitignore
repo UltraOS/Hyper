@@ -3,6 +3,7 @@ build_uefi/
 build_bios/
 !toolchain
 toolchain/*
+!toolchain/toolchain_gcc.cmake
 installer/build
 installer/tmp
 installer/src
