@@ -1,7 +1,5 @@
 #pragma once
 
-#include <stddef.h>
-
 #define DO_CONCAT(x, y) x##y
 #define CONCAT(x, y) DO_CONCAT(x, y)
 #define UNIQUE(x) CONCAT(x, __COUNTER__)
