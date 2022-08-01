@@ -3,6 +3,8 @@ target_link_options(
     PRIVATE
     -Wl,--oformat,binary
     -T${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
+    -nostdlib
+    --orphan-handling=error
 )
 
 add_loader_nasm_flag(-felf32)

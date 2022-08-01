@@ -44,13 +44,6 @@ target_link_libraries(
     gcc
 )
 
-target_link_options(
-    ${LOADER_EXECUTABLE}
-    PRIVATE
-    -nostdlib
-    -Wl,--orphan-handling=error
-    -Wl,-o${LOADER_EXECUTABLE}
-)
 
 add_loader_c_flag(-std=gnu17)
 add_loader_c_flag(-ffreestanding)
