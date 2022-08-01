@@ -11,42 +11,38 @@ elseif ((NOT HYPER_PLATFORM STREQUAL "bios") AND
     message(FATAL_ERROR "Unknown platform '${HYPER_PLATFORM}'")
 endif ()
 
-if (HYPER_PLATFORM STREQUAL "uefi")
-    set(COMPILER_PREFIX x86_64-w64-mingw32)
-    set(CMAKE_SYSTEM_PROCESSOR x86_64)
-else ()
-    set(COMPILER_PREFIX i686-elf)
-    set(CMAKE_SYSTEM_PROCESSOR i686)
+if (HYPER_TOOLCHAIN)
+    string(TOLOWER ${HYPER_TOOLCHAIN} HYPER_TOOLCHAIN)
 endif ()
 
-execute_process(
-    COMMAND python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${HYPER_PLATFORM}
-    RESULT_VARIABLE TOOLCHAIN_BUILD_FAILED
-    OUTPUT_FILE "/dev/stdout"
-)
-if (TOOLCHAIN_BUILD_FAILED)
-    message(FATAL_ERROR "-- Toolchain build error.")
-endif()
+if (NOT HYPER_TOOLCHAIN)
+    set(HYPER_TOOLCHAIN "gcc")
+elseif (NOT HYPER_TOOLCHAIN STREQUAL "gcc")
+    message(FATAL_ERROR "Unknown toolchain '${HYPER_TOOLCHAIN}'")
+endif ()
 
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSROOT "")
 
-# Do this because cmake attempts to link against -lc and crt0
-set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-
-set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/toolchain/tools_${HYPER_PLATFORM})
-set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
-set(TOOLCHAIN_PREFIX ${TOOLCHAIN_PATH}/${COMPILER_PREFIX}-)
-
-set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc)
-set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}gcc)
-set(CMAKE_LINKER ${TOOLCHAIN_PREFIX}ld)
+if (HYPER_TOOLCHAIN STREQUAL "gcc")
+    execute_process(
+        COMMAND
+        python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${HYPER_TOOLCHAIN}
+        RESULT_VARIABLE
+        TOOLCHAIN_BUILD_FAILED
+        OUTPUT_FILE
+        "/dev/stdout"
+    )
+    if (TOOLCHAIN_BUILD_FAILED)
+        message(FATAL_ERROR "-- Toolchain build error.")
+    endif ()
+endif ()
 
 # Have to set this manually as cmake hardcodes '-f<native-binary-format>'
 set(
     CMAKE_ASM_NASM_COMPILE_OBJECT
     "<CMAKE_ASM_NASM_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT> <SOURCE>"
 )
+set(HYPER_TOOLCHAIN_DIR "${CMAKE_SOURCE_DIR}/toolchain")
+include("${HYPER_TOOLCHAIN_DIR}/toolchain_${HYPER_TOOLCHAIN}.cmake")
 
 project(Hyper C ASM_NASM)
 
