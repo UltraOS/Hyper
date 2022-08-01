@@ -4,6 +4,9 @@
 #define CONCAT(x, y) DO_CONCAT(x, y)
 #define UNIQUE(x) CONCAT(x, __COUNTER__)
 
+#define DO_PASTE(x, y) x##y
+#define PASTE(x, y) DO_PASTE(x, y)
+
 #define DO_TO_STR(x) #x
 #define TO_STR(x) DO_TO_STR(x)
 
