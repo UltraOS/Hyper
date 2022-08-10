@@ -103,7 +103,7 @@ static void pretty_print_drive_info(u8 drive_idx, u64 sectors, u32 bytes_per_sec
         snprintf(sectors_buf, 32, "%llu", sectors);
     }
 
-    print_info("drive: 0x%X -> sectors: %s, bps: %hu, removable: %s\n",
+    print_info("drive: 0x%X -> sectors: %s, bps: %u, removable: %s\n",
                drive_idx, sectors_buf, bytes_per_sector,
                is_removable ? "yes" : "no");
 }
