@@ -1,15 +1,11 @@
 target_link_options(
     ${LOADER_EXECUTABLE}
     PRIVATE
-    -Wl,--subsystem,10
-    -Wl,--entry,EfiMain
-    -Wl,--strip-all
-    -Wl,--script,${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
-    -Wl,--orphan-handling=error
-
-    # Workaround for a "feature" where it appends .exe to the output file
-    -Wl,--output,${LOADER_EXECUTABLE}
-
+    --subsystem 10
+    --entry EfiMain
+    --strip-all
+    --script ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
+    --orphan-handling=error
     -nostdlib
 )
 
