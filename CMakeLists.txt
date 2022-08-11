@@ -22,6 +22,11 @@ elseif (NOT HYPER_TOOLCHAIN STREQUAL "gcc" AND
     message(FATAL_ERROR "Unknown toolchain '${HYPER_TOOLCHAIN}'")
 endif ()
 
+if ($ENV{CLION_IDE})
+    set(HYPER_TOOLCHAIN dummy)
+    message("Detected CLion, using a dummy toolchain file")
+endif ()
+
 # Have to set this manually as cmake hardcodes '-f<native-binary-format>'
 set(
     CMAKE_ASM_NASM_COMPILE_OBJECT
