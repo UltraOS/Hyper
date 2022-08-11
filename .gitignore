@@ -3,6 +3,7 @@ build-*/
 toolchain/*
 !toolchain/toolchain_gcc.cmake
 !toolchain/toolchain_clang.cmake
+!toolchain/toolchain_dummy.cmake
 installer/build
 installer/tmp
 installer/src
