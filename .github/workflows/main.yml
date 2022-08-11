@@ -14,6 +14,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         platform: [bios, uefi]
+        toolchain: [gcc, clang]
         exclude:
           # FIXME: the build somehow ends up being corrupted with GCC's
           #        libexec/cc1 containing garbage data.
@@ -24,13 +25,14 @@ jobs:
         with:
           submodules: true
 
-      - uses: actions/cache@v3.0.2
+      - if: ${{ matrix.toolchain == 'gcc' }}
+        uses: actions/cache@v3.0.2
         with:
           path: "${{ github.workspace }}/toolchain/tools_${{ matrix.platform }}"
-          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc-toolchain"
+          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc"
 
       - name: Build platform toolchain & Hyper
-        run: "${{ github.workspace }}/build.py ${{ matrix.platform }} --toolchain gcc --fetch-test-dependencies --no-tune-native"
+        run: "${{ github.workspace }}/build.py ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native"
 
       - name: Build test kernel
         run: ${{ github.workspace }}/tests/kernel/build.sh
