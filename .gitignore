@@ -1,6 +1,4 @@
-build/
-build_uefi/
-build_bios/
+build-*/
 !toolchain
 toolchain/*
 !toolchain/toolchain_gcc.cmake

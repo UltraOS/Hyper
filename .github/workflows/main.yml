@@ -29,11 +29,8 @@ jobs:
           path: "${{ github.workspace }}/toolchain/tools_${{ matrix.platform }}"
           key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc-toolchain"
 
-      - name: Build platform toolchain
-        run: "${{ github.workspace }}/toolchain/build.py ${{ matrix.platform }} --force-fetch-dependencies --fetch-test-dependencies --no-tune-native"
-
-      - name: Build hyper
-        run: ${{ github.workspace }}/build.sh ${{ matrix.platform }}
+      - name: Build platform toolchain & Hyper
+        run: "${{ github.workspace }}/build.py ${{ matrix.platform }} --toolchain gcc --fetch-test-dependencies --no-tune-native"
 
       - name: Build test kernel
         run: ${{ github.workspace }}/tests/kernel/build.sh
