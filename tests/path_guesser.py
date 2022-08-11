@@ -76,25 +76,22 @@ def guess_path_to_hyper_iso_br():
 
 
 def guess_path_to_uefi_firmware():
-    guesses = [
-        "/usr/share/ovmf/OVMF.fd",
-        "/usr/share/edk2-ovmf/x64/OVMF.fd"
+    middle_parts = [
+        "ovmf",
+        os.path.join("edk2-ovmf", "x64"),
     ]
-    if platform.system() == "Darwin":
+    prefix = os.path.join("/usr", "share")
+    postfix = "OVMF.fd"
+
+    res = __guess_with_middle_parts_or_none(middle_parts, postfix, prefix)
+
+    if res is None and platform.system() == "Darwin":
         bp = subprocess.run(["brew", "--prefix", "qemu"],
                             stdout=subprocess.PIPE,
                             universal_newlines=True)
         if bp.returncode == 0:
-            uefi_path = os.path.join(bp.stdout.strip(), "share", "qemu",
-                                     "edk2-x86_64-code.fd")
-            guesses.append(uefi_path)
-
-    res = None
-
-    for guess in guesses:
-        res = __guess_or_none(guess)
-
-        if res is not None:
-            break
+            guess = os.path.join(bp.stdout.strip(), "share", "qemu",
+                                 "edk2-x86_64-code.fd")
+            res = __guess_or_none(guess)
 
     return res
