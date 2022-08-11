@@ -76,7 +76,7 @@ typedef struct filesystem_type *filesystem_type_entry;
 
 #define DECLARE_FILESYSTEM(type) \
     static filesystem_type_entry CONCAT(type, hook) \
-           SECTION(.filesystems) USED = &type
+           CTOR_SECTION(filesystems) USED = &type
 
 extern filesystem_type_entry filesystems_begin[];
 extern filesystem_type_entry filesystems_end[];

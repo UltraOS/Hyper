@@ -10,7 +10,7 @@ typedef struct boot_protocol *boot_protocol_entry;
 
 #define DECLARE_BOOT_PROTOCOL(type) \
     static boot_protocol_entry CONCAT(type, hook) \
-           SECTION(.boot_protos) USED = &type
+           CTOR_SECTION(boot_protocols) USED = &type
 
 extern boot_protocol_entry boot_protocols_begin[];
 extern boot_protocol_entry boot_protocols_end[];

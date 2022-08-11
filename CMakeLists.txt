@@ -17,7 +17,8 @@ endif ()
 
 if (NOT HYPER_TOOLCHAIN)
     set(HYPER_TOOLCHAIN "gcc")
-elseif (NOT HYPER_TOOLCHAIN STREQUAL "gcc")
+elseif (NOT HYPER_TOOLCHAIN STREQUAL "gcc" AND
+        NOT HYPER_TOOLCHAIN STREQUAL "clang")
     message(FATAL_ERROR "Unknown toolchain '${HYPER_TOOLCHAIN}'")
 endif ()
 

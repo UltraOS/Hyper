@@ -9,6 +9,12 @@ target_link_options(
 
 add_loader_nasm_flag(-felf32)
 
+add_loader_c_flag(-mno-80387)
+add_loader_c_flag(-mno-mmx)
+add_loader_c_flag(-mno-3dnow)
+add_loader_c_flag(-mno-sse)
+add_loader_c_flag(-mno-sse2)
+
 target_sources(
     ${LOADER_EXECUTABLE}
     PRIVATE
