@@ -22,21 +22,6 @@ elseif (NOT HYPER_TOOLCHAIN STREQUAL "gcc" AND
     message(FATAL_ERROR "Unknown toolchain '${HYPER_TOOLCHAIN}'")
 endif ()
 
-
-if (HYPER_TOOLCHAIN STREQUAL "gcc")
-    execute_process(
-        COMMAND
-        python3 ${CMAKE_SOURCE_DIR}/toolchain/build.py ${HYPER_TOOLCHAIN}
-        RESULT_VARIABLE
-        TOOLCHAIN_BUILD_FAILED
-        OUTPUT_FILE
-        "/dev/stdout"
-    )
-    if (TOOLCHAIN_BUILD_FAILED)
-        message(FATAL_ERROR "-- Toolchain build error.")
-    endif ()
-endif ()
-
 # Have to set this manually as cmake hardcodes '-f<native-binary-format>'
 set(
     CMAKE_ASM_NASM_COMPILE_OBJECT

@@ -18,9 +18,22 @@ def __guess_or_none(guess, validity_check=os.F_OK):
     return guess if os.access(guess, validity_check) else None
 
 
+def __guess_with_middle_parts_or_none(middle_parts, postfix,
+                                      prefix=abs_path_to_project_root(),
+                                      validity_check=os.F_OK):
+    for mp in middle_parts:
+        path = os.path.join(prefix, mp, postfix)
+
+        res = __guess_or_none(path, validity_check)
+        if res is not None:
+            return res
+
+    return None
+
+
 def guess_path_to_kernel_binaries():
     guess = os.path.join(abs_path_to_current_dir(), "kernel/build")
-    
+
     kernels = [
         "kernel_i686",
         "kernel_amd64_higher_half",
@@ -29,7 +42,7 @@ def guess_path_to_kernel_binaries():
     for kernel in kernels:
         if not os.access(os.path.join(guess, kernel), os.F_OK):
             return None
-    
+
     return guess
 
 
@@ -43,15 +56,23 @@ def guess_path_to_installer():
 
 
 def guess_path_to_hyper_uefi():
-    guess = os.path.join(abs_path_to_project_root(),
-                         "build_uefi/loader/hyper_uefi")
-    return __guess_or_none(guess)
+    middle_parts = [
+        "build-clang-uefi",
+        "build-gcc-uefi",
+    ]
+    postfix = os.path.join("loader", "hyper_uefi")
+
+    return __guess_with_middle_parts_or_none(middle_parts, postfix)
 
 
 def guess_path_to_hyper_iso_br():
-    guess = os.path.join(abs_path_to_project_root(),
-                         "build_bios/loader/hyper_iso_boot")
-    return __guess_or_none(guess)
+    middle_parts = [
+        "build-clang-bios",
+        "build-gcc-bios",
+    ]
+    postfix = os.path.join("loader", "hyper_iso_boot")
+
+    return __guess_with_middle_parts_or_none(middle_parts, postfix)
 
 
 def guess_path_to_uefi_firmware():
