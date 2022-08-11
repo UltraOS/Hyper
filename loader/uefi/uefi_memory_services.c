@@ -30,7 +30,7 @@ static EFI_MEMORY_TYPE native_memory_type_to_efi(u32 type)
 
 static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
 {
-    if (type >= VALID_LOADER_MEMORY_TYPE_BASE)
+    if ((u32)type >= VALID_LOADER_MEMORY_TYPE_BASE)
         return type;
 
     switch (type) {
