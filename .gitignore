@@ -4,6 +4,7 @@ build_bios/
 !toolchain
 toolchain/*
 !toolchain/toolchain_gcc.cmake
+!toolchain/toolchain_clang.cmake
 installer/build
 installer/tmp
 installer/src
@@ -25,6 +26,7 @@ tests/kernel/include/common/*
 !tests/kernel/include/common/io.h
 !tests/kernel/include/common/string_ex.h
 !tests/kernel/common/log.c
+tests/kernel/gcc_builtins.c
 cmake-build-debug/
 .idea/
 .vscode/

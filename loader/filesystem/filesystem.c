@@ -7,6 +7,7 @@
 #include "filesystem/filesystem_table.h"
 #include "filesystem/mbr.h"
 #include "filesystem/gpt.h"
+CTOR_SECTION_DEFINE_ITERATOR(filesystem_type_entry, filesystems);
 
 void fs_check_read(struct file *f, u64 offset, u32 size)
 {

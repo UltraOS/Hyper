@@ -25,9 +25,9 @@ SECTIONS
         *(.rodata .rodata.*)
     }
 
-    .boot_protos : {
+    .boot_protocols : {
         boot_protocols_begin = .;
-        *(.boot_protos)
+        *(.boot_protocols)
         boot_protocols_end = .;
     }
 
@@ -52,9 +52,34 @@ SECTIONS
         ASSERT(. < EBDA_BEGIN, "Loader executable is too large");
     }
 
+    /*
+     * Must be a separate section because of "section type mismatch for ..."
+     */
+    .rel_sections : {
+        *(.rel.plt)
+        *(.rel.dyn)
+    }
+
+    .gotplt_sections : {
+        *(.got)
+        *(.got.plt)
+        *(.plt)
+        *(.iplt)
+    }
+
+    ASSERT(SIZEOF(.gotplt_sections) == 0 && SIZEOF(.rel_sections) == 0,
+           "Relocation sections are not empty, recheck build flags")
+
+    .symtab : { *(.symtab) }
+    .strtab : { *(.strtab) }
+    .shstrtab : { *(.shstrtab) }
+    .symtab_shndx : { *(.symtab_shndx) }
+    ASSERT(SIZEOF(.symtab_shndx) == 0, "Too many sections(?)")
+
     /DISCARD/ : {
         *(.comment*)
         *(.eh_frame)
         *(.debug*)
+        *(.note.*)
     }
 }

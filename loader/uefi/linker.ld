@@ -20,9 +20,9 @@ SECTIONS
         *(SORT(.rdata$*))
     }
 
-    .boot_protos : {
+    .boot_protocols : {
         boot_protocols_begin = .;
-        *(.boot_protos)
+        *(.boot_protocols)
         boot_protocols_end = .;
     }
 

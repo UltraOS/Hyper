@@ -38,12 +38,33 @@ target_include_directories(
     "${HYPER_PLATFORM}/include"
 )
 
-target_link_libraries(
-    ${LOADER_EXECUTABLE}
-    PRIVATE
-    gcc
-)
+if (HYPER_TOOLCHAIN STREQUAL "gcc")
+    execute_process(
+        COMMAND
+        ${CMAKE_C_COMPILER} -print-libgcc-file-name
+        OUTPUT_VARIABLE
+        LIBGCC_PATH
+        RESULT_VARIABLE
+        LIBGCC_RESULT
+    )
+    if (NOT LIBGCC_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to detect libgcc path")
+    endif ()
 
+    string(STRIP "${LIBGCC_PATH}" LIBGCC_PATH)
+
+    target_link_libraries(
+        ${LOADER_EXECUTABLE}
+        PRIVATE
+        ${LIBGCC_PATH}
+    )
+else ()
+    target_sources(
+        ${LOADER_EXECUTABLE}
+        PRIVATE
+        gcc_builtins.c
+    )
+endif ()
 
 add_loader_c_flag(-std=gnu17)
 add_loader_c_flag(-ffreestanding)
