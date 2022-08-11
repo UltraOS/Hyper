@@ -16,9 +16,10 @@ jobs:
         platform: [bios, uefi]
         toolchain: [gcc, clang]
         exclude:
-          # FIXME: the build somehow ends up being corrupted with GCC's
+          # FIXME: the GCC build somehow ends up being corrupted with
           #        libexec/cc1 containing garbage data.
           - os: macos-latest
+            toolchain: gcc
 
     steps:
       - uses: actions/checkout@v3
