@@ -1,7 +1,7 @@
 target_link_options(
     ${LOADER_EXECUTABLE}
     PRIVATE
-    -Wl,--oformat,binary
+    --oformat binary
     -T${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
     -nostdlib
     --orphan-handling=error
