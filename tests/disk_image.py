@@ -45,6 +45,14 @@ video-mode:
 higher-half-exclusive = true
 """
 
+
+def dd_mebibyte_postfix():
+    if platform.system() == "Darwin":
+        return "m"
+
+    return "M"
+
+
 def make_normal_boot_config(default_entry, cmdline):
     return normal_boot_cfgs.format(default_entry=default_entry,
                                    cmdline=cmdline)
@@ -52,7 +60,7 @@ def make_normal_boot_config(default_entry, cmdline):
 
 def file_resize_to_mib(path, mib):
     subprocess.check_call(["dd", "if=/dev/zero", f"of={path}",
-                           "bs=1M", f"count={mib}"])
+                           f"bs=1{dd_mebibyte_postfix()}", f"count={mib}"])
 
 
 def linux_image_partition(path, br_type, fs_type, align_mib, part_len_mib):
@@ -195,7 +203,8 @@ def make_iso(image_path, root_path, has_uefi, has_bios):
 
 def image_embed(image_path, mib_offset, fs_image):
     subprocess.check_call(["dd", f"if={fs_image}", f"seek={mib_offset}",
-                           "bs=1M", f"of={image_path}", "conv=notrunc"])
+                           f"bs=1{dd_mebibyte_postfix()}", f"of={image_path}",
+                           "conv=notrunc"])
 
 
 def make_fs(image_path, fs_type, image_mib_offset, size, root_path,
