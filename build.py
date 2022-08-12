@@ -44,6 +44,7 @@ TEST_DEPS = {
         "llvm",
         "xorriso",
         "mtools",
+        "gdisk",
         "qemu",
     ],
 }
