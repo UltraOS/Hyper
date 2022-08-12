@@ -80,7 +80,7 @@ set(COMMON_C_FLAGS
     -ffreestanding
     -O0
     -ggdb
-    -mno-mmx -mno-3dnow -mno-sse -mno-sse2
+    -mno-80387 -mno-mmx -mno-3dnow -mno-sse -mno-sse2
     -Wall -Wextra -Werror
     -nostdlib
     -static
