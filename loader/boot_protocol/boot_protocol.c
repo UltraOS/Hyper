@@ -1,4 +1,5 @@
 #include "boot_protocol.h"
+
 CTOR_SECTION_DEFINE_ITERATOR(boot_protocol_entry, boot_protocols);
 
 #define PROTOCOL_KEY SV("protocol")
