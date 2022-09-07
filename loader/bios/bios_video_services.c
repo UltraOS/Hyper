@@ -327,11 +327,11 @@ static void fetch_all_video_modes(void)
         if (fb_format == FB_FORMAT_INVALID)
             continue;
 
-        buffer_idx = video_mode_count++;
-        if (buffer_idx >= MODE_BUFFER_CAPACITY) {
-            print_warn("Exceeded video mode storage capacity, skipping the rest\n");
+	if (video_mode_count == MODE_BUFFER_CAPACITY) {
+            print_warn("exceeded video mode storage capacity, skipping the rest\n");
             return;
         }
+        buffer_idx = video_mode_count++;
 
         print_info("video-mode[%u] %ux%u fmt: %s\n", buffer_idx, info.width, info.height,
                    fb_format_as_str(fb_format));
