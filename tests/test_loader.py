@@ -45,7 +45,7 @@ def run_qemu(disk_image: DiskImage, is_uefi: bool, config):
     qemu_args = ["qemu-system-x86_64",
                  "-cdrom" if disk_image.is_cd() else "-hda",
                  disk_image.path, "-debugcon", "stdio",
-                 "-serial", "mon:null"]
+                 "-serial", "mon:null", "-cpu", "qemu64,vendor=GenuineIntel"]
 
     with_gui = config.getoption(options.QEMU_GUI_OPT)
     if not with_gui:
