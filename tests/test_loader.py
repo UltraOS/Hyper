@@ -61,7 +61,7 @@ def run_qemu(disk_image: DiskImage, is_uefi: bool, config):
 
     qp = subprocess.Popen(qemu_args, stdout=subprocess.PIPE)
     try:
-        ret = qp.wait(30 if is_uefi else 15)
+        ret = qp.wait(30 if is_uefi else 3)
     except:
         print("Test timeout!")
         qp.kill()
