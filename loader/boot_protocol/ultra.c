@@ -691,8 +691,8 @@ static u64 pick_stack(struct config *cfg, struct loadable_entry *le)
         struct value alloc_at_val, size_val;
         bool has_alloc_at, has_size;
 
-        has_alloc_at = cfg_get_one_of(cfg, le, SV("allocate-at"), VALUE_STRING | VALUE_UNSIGNED, &alloc_at_val);
-        has_size = cfg_get_one_of(cfg, le, SV("size"), VALUE_STRING | VALUE_UNSIGNED, &size_val);
+        has_alloc_at = cfg_get_one_of(cfg, &val, SV("allocate-at"), VALUE_STRING | VALUE_UNSIGNED, &alloc_at_val);
+        has_size = cfg_get_one_of(cfg, &val, SV("size"), VALUE_STRING | VALUE_UNSIGNED, &size_val);
 
         if (has_alloc_at && value_is_string(&alloc_at_val)) {
             if (!sv_equals(alloc_at_val.as_string, SV("anywhere")))
