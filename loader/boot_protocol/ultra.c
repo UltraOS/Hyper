@@ -188,11 +188,6 @@ static void module_load(struct config *cfg, struct value *module_value,
         memzero(module_data, module_pages * PAGE_SIZE);
     }
 
-    attrs->header = (struct ultra_attribute_header) {
-        .type = ULTRA_ATTRIBUTE_MODULE_INFO,
-        .size = sizeof(struct ultra_module_info_attribute)
-    };
-
     attrs->address = (ptr_t)module_data;
     attrs->type = module_type;
     attrs->size = module_size;
@@ -725,10 +720,18 @@ static u64 pick_stack(struct config *cfg, struct loadable_entry *le)
 
 static struct ultra_module_info_attribute *module_alloc(struct dynamic_buffer *buf)
 {
-    void *out = dynamic_buffer_slot_alloc(buf);
-    DIE_ON(!out);
+    struct ultra_module_info_attribute *attr;
 
-    return out;
+    attr = dynamic_buffer_slot_alloc(buf);
+    DIE_ON(!attr);
+
+    *attr = (struct ultra_module_info_attribute) {
+        .header = {
+            ULTRA_ATTRIBUTE_MODULE_INFO,
+            sizeof(struct ultra_module_info_attribute)
+        },
+    };
+    return attr;
 }
 
 static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
@@ -742,15 +745,9 @@ static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
         return false;
 
     mi = module_alloc(&spec->module_buf);
-    *mi = (struct ultra_module_info_attribute) {
-        .header = {
-            ULTRA_ATTRIBUTE_MODULE_INFO,
-            sizeof(struct ultra_module_info_attribute)
-        },
-        .type = ULTRA_MODULE_TYPE_FILE,
-        .address = (ptr_t)spec->kern_info.elf_blob,
-        .size = spec->kern_info.blob_size
-    };
+    mi->type = ULTRA_MODULE_TYPE_FILE;
+    mi->address = (ptr_t)spec->kern_info.elf_blob;
+    mi->size = spec->kern_info.blob_size;
     sv_terminated_copy(mi->name, SV("__KERNEL__"));
 
     return true;
