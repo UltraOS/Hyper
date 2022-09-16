@@ -59,6 +59,9 @@ static uint32_t module_get_size(struct config *cfg, struct value *module_value)
         return 0;
     }
 
+    if (size_value.as_unsigned == 0)
+        oops("invalid value for module/size '0'\n");
+
     return size_value.as_unsigned;
 }
 
@@ -77,30 +80,70 @@ static uint32_t module_get_type(struct config *cfg, struct value *module_value)
     oops("invalid value for module/type \"%pSV\"\n", &type_value.as_string);
 }
 
-static u64 module_get_load_address(struct config *cfg, struct value *module_value)
+static u64 module_get_load_address(struct config *cfg, struct value *module_value,
+                                   bool *has_load_address)
 {
     const uint32_t type_mask = VALUE_STRING | VALUE_UNSIGNED | VALUE_NONE;
     struct value load_at_value;
 
     if (!cfg_get_one_of(cfg, module_value, SV("load-at"), type_mask, &load_at_value) ||
         value_is_null(&load_at_value))
+    {
+        *has_load_address = false;
         return 0;
+    }
 
     if (value_is_string(&load_at_value)) {
         if (!sv_equals(load_at_value.as_string, SV("auto")))
             oops("invalid value for module/load-at \"%pSV\"\n", &load_at_value.as_string);
+
+        *has_load_address = false;
         return 0;
     }
 
+    *has_load_address = true;
     return load_at_value.as_unsigned;
+}
+
+static void *module_data_alloc(u64 addr, size_t size, size_t zero_after_offset,
+                               bool has_load_address)
+{
+    size_t zeroed_bytes;
+    struct allocation_spec as = {
+        .addr = addr,
+        .flags = ALLOCATE_CRITICAL,
+        .type = ULTRA_MEMORY_TYPE_MODULE
+    };
+
+    as.pages = PAGE_ROUND_UP(size);
+    zeroed_bytes = as.pages - zero_after_offset;
+    as.pages >>= PAGE_SHIFT;
+
+    if (has_load_address) {
+        as.flags |= ALLOCATE_PRECISE;
+
+        if ((addr + size) < addr) {
+            oops("invalid module address 0x%016llX - size %zu combination\n",
+                 addr, size);
+        }
+
+        if (range_outside_of_address_space(addr, size)) {
+            oops("inaccessible module at 0x%016llX (%zu bytes)\n",
+                 addr, size);
+        }
+    }
+
+    addr = allocate_pages_ex(&as);
+
+    return memzero(ADDR_TO_PTR(addr), zeroed_bytes);
 }
 
 static void module_load(struct config *cfg, struct value *module_value,
                         struct ultra_module_info_attribute *attrs)
 {
-    bool has_path;
+    bool has_path, has_load_address = false;
     struct string_view str_path, module_name = { 0 };
-    size_t module_pages, module_size = 0;
+    size_t module_size = 0;
     uint32_t module_type = ULTRA_MODULE_TYPE_FILE;
     u64 load_address = 0;
     void *module_data;
@@ -113,7 +156,7 @@ static void module_load(struct config *cfg, struct value *module_value,
         has_path = cfg_get_string(cfg, module_value, SV("path"), &str_path);
         module_size = module_get_size(cfg, module_value);
         module_type = module_get_type(cfg, module_value);
-        load_address = module_get_load_address(cfg, module_value);
+        load_address = module_get_load_address(cfg, module_value, &has_load_address);
     } else {
         str_path = module_value->as_string;
         has_path = true;
@@ -160,32 +203,21 @@ static void module_load(struct config *cfg, struct value *module_value,
             bytes_to_read = module_size;
         }
 
-        module_pages = CEILING_DIVIDE(module_size, PAGE_SIZE);
+        module_data = module_data_alloc(load_address, module_size,
+                                        bytes_to_read, has_load_address);
 
-        // TODO: check this doesn't go above 4GB
-        if (load_address)
-            module_data = allocate_critical_pages_with_type_at(load_address, module_pages, ULTRA_MEMORY_TYPE_MODULE);
-        else
-            module_data = allocate_critical_pages_with_type(module_pages, ULTRA_MEMORY_TYPE_MODULE);
-
-        if (!module_file->fs->read_file(module_file, module_data, 0, bytes_to_read))
+        if (!module_file->fs->read_file(module_file, module_data, 0,
+                                        bytes_to_read)) {
             oops("failed to read module file\n");
+        }
 
-        memzero(module_data + bytes_to_read, (module_pages * PAGE_SIZE) - bytes_to_read);
         fse->fs->close_file(module_file);
     } else { // module_type == ULTRA_MODULE_TYPE_MEMORY
         if (!module_size)
-            oops("module size cannot be 0 for type \"memory\"\n");
+            oops("module size cannot be \"auto\" for type \"memory\"\n");
 
-        module_pages = CEILING_DIVIDE(module_size, PAGE_SIZE);
-
-        // TODO: check this doesn't go above 4GB
-        if (load_address)
-            module_data = allocate_critical_pages_with_type_at(load_address, module_pages, ULTRA_MEMORY_TYPE_MODULE);
-        else
-            module_data = allocate_critical_pages_with_type(module_pages, ULTRA_MEMORY_TYPE_MODULE);
-
-        memzero(module_data, module_pages * PAGE_SIZE);
+        module_data = module_data_alloc(load_address, module_size, 0,
+                                        has_load_address);
     }
 
     attrs->address = (ptr_t)module_data;
