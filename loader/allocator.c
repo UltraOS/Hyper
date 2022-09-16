@@ -18,37 +18,39 @@ u32 allocator_set_default_alloc_type(u32 type)
 
 #define ANY_ADDRESS "<any-address>"
 
-static void log_allocation_failure(u64 address, size_t count, u32 type, bool warning)
+static void allocation_did_fail(const struct allocation_spec *spec)
 {
-    enum log_level lvl = warning ? LOG_LEVEL_WARN : LOG_LEVEL_ERR;
+    u32 type = spec->type ?: default_alloc_type;
+    bool is_critical = spec->flags & ALLOCATE_CRITICAL;
+    enum log_level lvl = is_critical ? LOG_LEVEL_ERR : LOG_LEVEL_WARN;
     char address_as_string[32];
 
-    if (address) {
-        snprintf(address_as_string, sizeof(address_as_string), "0x%016llX", address);
+    if (spec->flags & ALLOCATE_PRECISE) {
+        snprintf(address_as_string, sizeof(address_as_string), "0x%016llX",
+                 spec->addr);
     } else {
         struct string_view any_address_str = SV(ANY_ADDRESS);
         memcpy(address_as_string, any_address_str.text, any_address_str.size + 1);
     }
 
-    printlvl(lvl, "failed to satisfy an allocation at %s with %zu pages of type 0x%08X\n",
-             address_as_string, count, type);
+    printlvl(lvl,
+        "failed to satisfy an allocation at %s with %zu pages of type 0x%08X\n",
+        address_as_string, spec->pages, type);
+
+    if (is_critical)
+        loader_abort();
 }
 
-NORETURN
-static void on_failed_critical_allocation(u64 address, size_t count, u32 type)
+u64 allocate_pages_ex(const struct allocation_spec *spec)
 {
-    log_allocation_failure(address, count, type, false);
-    loader_abort();
-}
+    u64 result;
+    u32 type = spec->type ?: default_alloc_type;
 
-static void *do_allocate_with_type_at(u64 address, size_t count, u32 type, bool critical)
-{
-    void *result;
-
-    if (!address) {
-        result = (void*)((ptr_t)ms_allocate_pages(count, 4ull * GB, type));
+    if (spec->flags & ALLOCATE_PRECISE) {
+        result = ms_allocate_pages_at(spec->addr, spec->pages, type);
     } else {
-        result = (void*)((ptr_t)ms_allocate_pages_at(address, count, type));
+        u64 ceiling = spec->ceiling ?: ALLOCATOR_DEFAULT_CEILING;
+        result = ms_allocate_pages(spec->pages, ceiling, type);
     }
 
     if (result) {
@@ -59,62 +61,11 @@ static void *do_allocate_with_type_at(u64 address, size_t count, u32 type, bool 
         for (i = 0 ; i < ((count * PAGE_SIZE) / 4); ++i)
             mem[i] = 0xDEADBEEF;
 #endif
-
         return result;
     }
 
-    if (critical)
-        on_failed_critical_allocation(address, count, type);
-
-    log_allocation_failure(address, count, type, !critical);
-    return result;
-}
-
-void *allocate_pages_with_type_at(u64 address, size_t count, u32 type)
-{
-    return do_allocate_with_type_at(address, count, type, false);
-}
-
-void *allocate_pages_with_type(size_t count, u32 type)
-{
-    return allocate_pages_with_type_at(0, count, type);
-}
-
-void *allocate_pages(size_t count)
-{
-    return allocate_pages_with_type(count, default_alloc_type);
-}
-
-void *allocate_bytes(size_t count)
-{
-    size_t page_count = PAGE_ROUND_UP(count) / PAGE_SIZE;
-    return allocate_pages(page_count);
-}
-
-void *allocate_critical_pages_with_type_at(u64 address, size_t count, u32 type)
-{
-    return do_allocate_with_type_at(address, count, type, true);
-}
-
-void *allocate_critical_pages_with_type(size_t count, u32 type)
-{
-    return allocate_critical_pages_with_type_at(0, count, type);
-}
-
-void *allocate_critical_pages_at(u64 address, size_t count)
-{
-    return allocate_critical_pages_with_type_at(address, count, default_alloc_type);
-}
-
-void *allocate_critical_pages(size_t count)
-{
-    return allocate_critical_pages_with_type(count, default_alloc_type);
-}
-
-void *allocate_critical_bytes(size_t count)
-{
-    size_t page_count = PAGE_ROUND_UP(count) / PAGE_SIZE;
-    return allocate_critical_pages(page_count);
+    allocation_did_fail(spec);
+    return 0;
 }
 
 void free_pages(void *address, size_t count)
