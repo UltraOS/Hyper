@@ -19,6 +19,7 @@ typedef unsigned int u32;
 typedef uint64_t u64;
 
 typedef size_t ptr_t;
+#define ADDR_TO_PTR(addr) ((void*)((ptr_t)(addr)))
 
 #if defined(__x86_64__) || defined(__aarch64__)
 typedef i64 ssize_t;
