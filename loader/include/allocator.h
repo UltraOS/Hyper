@@ -8,8 +8,7 @@
 #include "memory_services.h"
 
 #define ALLOCATOR_DEFAULT_CEILING (4ull * GB)
-
-u32 allocator_set_default_alloc_type(u32 type);
+#define ALLOCATOR_DEFAULT_ALLOC_TYPE MEMORY_TYPE_LOADER_RECLAIMABLE
 
 // ALLOCATE_CEILING is implicit if ALLOCATE_PRECISE is not set
 #define ALLOCATE_PRECISE  (1 << 0)
