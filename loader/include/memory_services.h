@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/types.h"
+#include "common/constants.h"
 
 // These are consistent with the ACPI specification
 #define MEMORY_TYPE_INVALID            0x00000000
@@ -90,3 +91,29 @@ size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
 u64 ms_get_highest_map_address(void);
 
 void mm_declare_known_mm_types(u64 *types);
+
+static inline bool addr_outside_of_address_space(u64 addr)
+{
+    if (sizeof(void*) > 4)
+        return false;
+
+    return addr >= (4ull * GB);
+}
+
+static inline bool range_outside_of_address_space(u64 addr, size_t bytes)
+{
+    if (unlikely(!addr && !bytes))
+        return false;
+
+    addr += bytes;
+    return addr_outside_of_address_space(addr - 1);
+}
+
+static inline bool page_range_outside_of_address_space(u64 addr, size_t count)
+{
+    if (unlikely(!addr && !count))
+        return false;
+
+    addr += ((u64)count) << PAGE_SHIFT;
+    return addr_outside_of_address_space(addr - 1);
+}
