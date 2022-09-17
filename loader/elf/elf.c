@@ -107,6 +107,22 @@ static void get_load_ph(void *data, struct load_ph *out, u8 bitness)
     }
 }
 
+static u64 data_alloc(u64 address, size_t pages, u32 type, bool alloc_anywhere)
+{
+    struct allocation_spec as = {
+        .pages = pages,
+        .flags = ALLOCATE_CRITICAL,
+        .type = type
+    };
+
+    if (!alloc_anywhere) {
+        as.addr = address;
+        as.flags |= ALLOCATE_PRECISE;
+    }
+
+    return allocate_pages_ex(&as);
+}
+
 static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
                     Elf64_Half machine_type, u8 bitness, u32 binary_alloc_type,
                     struct load_result *res)
@@ -190,12 +206,11 @@ static bool do_load(u8 *data, size_t size, bool use_va, bool alloc_anywhere,
     info->physical_ceiling = PAGE_ROUND_UP(info->physical_ceiling);
 
     pages = (info->virtual_ceiling - info->virtual_base) / PAGE_SIZE;
-    if (alloc_anywhere) {
-        info->physical_base = (u64)((ptr_t)(allocate_critical_pages_with_type(pages, binary_alloc_type)));
+    info->physical_base = data_alloc(info->physical_base, pages,
+                                     binary_alloc_type, alloc_anywhere);
+
+    if (alloc_anywhere)
         info->physical_ceiling = info->physical_base + (pages * PAGE_SIZE);
-    } else {
-        allocate_critical_pages_with_type_at(info->physical_base, pages, binary_alloc_type);
-    }
 
     ph_addr = data + ph_begin;
     for (i = 0; i < ph_count; ++i, ph_addr += ph_size) {
