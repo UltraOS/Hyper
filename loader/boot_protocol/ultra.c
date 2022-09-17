@@ -708,9 +708,12 @@ static u64 build_page_table(struct binary_info *bi, u64 max_address,
 static u64 pick_stack(struct config *cfg, struct loadable_entry *le)
 {
     struct value val;
-    u64 address = 0;
     size_t size = 16 * KB;
     bool has_val;
+    struct allocation_spec as = {
+        .flags = ALLOCATE_CRITICAL | ALLOCATE_STACK,
+        .type = ULTRA_MEMORY_TYPE_KERNEL_STACK,
+    };
 
     has_val = cfg_get_one_of(cfg, le, SV("stack"), VALUE_STRING | VALUE_OBJECT, &val);
 
@@ -725,29 +728,29 @@ static u64 pick_stack(struct config *cfg, struct loadable_entry *le)
             if (!sv_equals(alloc_at_val.as_string, SV("anywhere")))
                 oops("invalid value for \"allocate-at\": %pSV\n", &alloc_at_val.as_string);
         } else if (has_alloc_at) { // unsigned
-            address = alloc_at_val.as_unsigned;
+            as.addr = alloc_at_val.as_unsigned;
+            as.flags |= ALLOCATE_PRECISE;
         }
 
         if (has_size && value_is_string(&size_val)) {
             if (!sv_equals(size_val.as_string, SV("auto")))
                 oops("invalid value for \"size\": %pSV\n", &size_val.as_string);
         } else if (has_size) { // unsigned
-            size = size_val.as_unsigned;
+            size = PAGE_ROUND_UP(size_val.as_unsigned);
         }
     } else if (has_val) { // string
         if (!sv_equals(val.as_string, SV("auto")))
             oops("invalid value for \"stack\": %pSV\n", &val.as_string);
     }
 
-    size_t pages = CEILING_DIVIDE(size, PAGE_SIZE);
 
-    if (address)
-        allocate_critical_pages_with_type_at(address, pages, ULTRA_MEMORY_TYPE_KERNEL_STACK);
-    else
-        address = (ptr_t)allocate_critical_pages_with_type(pages, ULTRA_MEMORY_TYPE_KERNEL_STACK);
+    if (unlikely(!size || ((as.addr + size) < as.addr))) {
+        oops("invalid stack address (0x%016llX) + size (%zu) combination\n",
+             as.addr, size);
+    }
 
-    address += pages * PAGE_SIZE;
-    return address;
+    as.pages = size >> PAGE_SHIFT;
+    return allocate_pages_ex(&as);
 }
 
 static struct ultra_module_info_attribute *module_alloc(struct dynamic_buffer *buf)
