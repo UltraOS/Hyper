@@ -30,31 +30,32 @@ struct allocation_spec {
 u64 allocate_pages_ex(const struct allocation_spec*);
 
 static ALWAYS_INLINE
-void *allocate_pages(size_t count)
+void *allocate_pages_with_flags(size_t count, u32 flags)
 {
     struct allocation_spec spec = {
-        .pages = count
+        .pages = count,
+        .flags = flags
     };
     return ADDR_TO_PTR(allocate_pages_ex(&spec));
 }
 
 static ALWAYS_INLINE
-void *allocate_bytes(size_t count)
+void *allocate_pages(size_t count)
 {
-    struct allocation_spec spec = {
-        .pages = PAGE_ROUND_UP(count) >> PAGE_SHIFT
-    };
-    return ADDR_TO_PTR(allocate_pages_ex(&spec));
+    return allocate_pages_with_flags(count, 0);
 }
 
 static ALWAYS_INLINE
 void *allocate_critical_pages(size_t count)
 {
-    struct allocation_spec spec = {
-        .pages = count,
-        .flags = ALLOCATE_CRITICAL,
-    };
-    return ADDR_TO_PTR(allocate_pages_ex(&spec));
+    return allocate_pages_with_flags(count, ALLOCATE_CRITICAL);
+}
+
+static ALWAYS_INLINE
+void *allocate_bytes(size_t count)
+{
+    size_t page_count = PAGE_ROUND_UP(count) >> PAGE_SHIFT;
+    return allocate_pages(page_count);
 }
 
 static ALWAYS_INLINE
