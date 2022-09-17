@@ -32,6 +32,27 @@ static void allocation_did_fail(const struct allocation_spec *spec)
         loader_abort();
 }
 
+#ifdef MEM_DEBUG_SPRAY
+static void allocation_spray(u64 ptr, size_t pages)
+{
+    size_t i, dwords;
+    u32 *dword_ptr = ADDR_TO_PTR(ptr);
+
+    if (page_range_outside_of_address_space(ptr, pages))
+        return;
+
+    dwords = pages << (PAGE_SHIFT - 2);
+    for (i = 0; i < dwords; ++i)
+        dword_ptr[i] = 0xDEADBEEF;
+}
+#else
+static void allocation_spray(u64 ptr, size_t pages)
+{
+    UNUSED(ptr);
+    UNUSED(pages);
+}
+#endif
+
 u64 allocate_pages_ex(const struct allocation_spec *spec)
 {
     u64 result;
@@ -44,19 +65,14 @@ u64 allocate_pages_ex(const struct allocation_spec *spec)
         result = ms_allocate_pages(spec->pages, ceiling, type);
     }
 
-    if (result) {
-#ifdef MEM_DEBUG_SPRAY
-        size_t i;
-        u32 *mem = result;
-
-        for (i = 0 ; i < ((count * PAGE_SIZE) / 4); ++i)
-            mem[i] = 0xDEADBEEF;
-#endif
-        return result;
+    if (!result) {
+        allocation_did_fail(spec);
+        return 0;
     }
 
-    allocation_did_fail(spec);
-    return 0;
+    allocation_spray(result, spec->pages);
+
+    return result;
 }
 
 void free_pages(void *address, size_t count)
