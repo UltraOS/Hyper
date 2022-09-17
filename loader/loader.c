@@ -18,7 +18,6 @@ void loader_entry(void)
     struct config cfg = { 0 };
     struct loadable_entry le;
 
-    allocator_set_default_alloc_type(MEMORY_TYPE_LOADER_RECLAIMABLE);
     fst_init();
 
     init_all_disks();

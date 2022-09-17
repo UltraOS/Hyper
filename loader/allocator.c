@@ -7,20 +7,11 @@
 #include "services.h"
 #include "memory_services.h"
 
-static u32 default_alloc_type = MEMORY_TYPE_RESERVED;
-
-u32 allocator_set_default_alloc_type(u32 type)
-{
-    u32 prev = default_alloc_type;
-    default_alloc_type = type;
-    return prev;
-}
-
 #define ANY_ADDRESS "<any-address>"
 
 static void allocation_did_fail(const struct allocation_spec *spec)
 {
-    u32 type = spec->type ?: default_alloc_type;
+    u32 type = spec->type ?: ALLOCATOR_DEFAULT_ALLOC_TYPE;
     bool is_critical = spec->flags & ALLOCATE_CRITICAL;
     enum log_level lvl = is_critical ? LOG_LEVEL_ERR : LOG_LEVEL_WARN;
     char address_as_string[32];
@@ -44,7 +35,7 @@ static void allocation_did_fail(const struct allocation_spec *spec)
 u64 allocate_pages_ex(const struct allocation_spec *spec)
 {
     u64 result;
-    u32 type = spec->type ?: default_alloc_type;
+    u32 type = spec->type ?: ALLOCATOR_DEFAULT_ALLOC_TYPE;
 
     if (spec->flags & ALLOCATE_PRECISE) {
         result = ms_allocate_pages_at(spec->addr, spec->pages, type);
