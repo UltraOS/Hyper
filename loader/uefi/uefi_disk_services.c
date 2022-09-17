@@ -183,7 +183,7 @@ static void enumerate_disks(void)
         d->sectors = bio->Media->LastBlock + 1;
         block_shift = __builtin_ctz(bio->Media->BlockSize);
 
-        buf = allocate_critical_pages_with_type(1, MEMORY_TYPE_LOADER_RECLAIMABLE);
+        buf = allocate_critical_pages(1);
 
         block_cache_init(&d->bc, uefi_refill_blocks, d,
                          block_shift,
