@@ -48,29 +48,6 @@ void *allocate_bytes(size_t count)
 }
 
 static ALWAYS_INLINE
-void *allocate_critical_pages_with_type_at(u64 addr, size_t count, u32 type)
-{
-    struct allocation_spec spec = {
-        .addr = addr,
-        .pages = count,
-        .flags = ALLOCATE_CRITICAL | ALLOCATE_PRECISE,
-        .type = type,
-    };
-    return ADDR_TO_PTR(allocate_pages_ex(&spec));
-}
-
-static ALWAYS_INLINE
-void *allocate_critical_pages_with_type(size_t count, u32 type)
-{
-    struct allocation_spec spec = {
-        .pages = count,
-        .flags = ALLOCATE_CRITICAL,
-        .type = type,
-    };
-    return ADDR_TO_PTR(allocate_pages_ex(&spec));
-}
-
-static ALWAYS_INLINE
 void *allocate_critical_pages(size_t count)
 {
     struct allocation_spec spec = {
