@@ -247,7 +247,13 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct
         oops("failed to open %pSV\n", &info->bin_opts.path.path_within_partition);
 
     info->blob_size = f->size;
-    info->elf_blob = allocate_critical_bytes(info->blob_size);
+
+    /*
+     * We can use module_data_alloc here because the binary either ends up
+     * getting freed later on or handed over to the kernel as a module
+     * (in case 'kernel-as-module' is enabled).
+     */
+    info->elf_blob = module_data_alloc(0, info->blob_size, info->blob_size, false);
 
     if (!f->fs->read_file(f, info->elf_blob, 0, info->blob_size))
         oops("failed to read file\n");
