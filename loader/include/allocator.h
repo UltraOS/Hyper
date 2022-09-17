@@ -13,6 +13,7 @@
 // ALLOCATE_CEILING is implicit if ALLOCATE_PRECISE is not set
 #define ALLOCATE_PRECISE  (1 << 0)
 #define ALLOCATE_CRITICAL (1 << 1)
+#define ALLOCATE_STACK    (1 << 2)
 
 struct allocation_spec {
     union {

@@ -72,6 +72,9 @@ u64 allocate_pages_ex(const struct allocation_spec *spec)
 
     allocation_spray(result, spec->pages);
 
+    if (spec->flags & ALLOCATE_STACK)
+        result += ((u64)spec->pages) << PAGE_SHIFT;
+
     return result;
 }
 
