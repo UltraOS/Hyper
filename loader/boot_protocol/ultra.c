@@ -794,6 +794,9 @@ static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
     mi->size = spec->kern_info.blob_size;
     sv_terminated_copy(mi->name, SV("__KERNEL__"));
 
+    if (spec->higher_half_pointers)
+        mi->address += DIRECT_MAP_BASE;
+
     return true;
 }
 
