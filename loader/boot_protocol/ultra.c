@@ -109,6 +109,7 @@ static void *module_data_alloc(u64 addr, size_t size, size_t zero_after_offset,
                                bool has_load_address)
 {
     size_t zeroed_bytes;
+    void *ret;
     struct allocation_spec as = {
         .addr = addr,
         .flags = ALLOCATE_CRITICAL,
@@ -134,8 +135,10 @@ static void *module_data_alloc(u64 addr, size_t size, size_t zero_after_offset,
     }
 
     addr = allocate_pages_ex(&as);
+    ret = ADDR_TO_PTR(addr);
 
-    return memzero(ADDR_TO_PTR(addr), zeroed_bytes);
+    memzero(ret + zero_after_offset, zeroed_bytes);
+    return ret;
 }
 
 static void module_load(struct config *cfg, struct value *module_value,
