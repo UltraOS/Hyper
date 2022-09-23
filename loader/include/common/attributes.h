@@ -42,6 +42,9 @@
     __declspec(allocate(MSVC_WRAP_CTOR_SECTION(section, c)))              \
     static unsigned PASTE(section, _guard_lable_end) USED = 0xCAFEBABE;
 #else
-#define CTOR_SECTION_DEFINE_ITERATOR(type, section)
+#define CTOR_SECTION_DEFINE_ITERATOR(type, section) \
+    extern type PASTE(section, _begin)[];           \
+    extern type PASTE(section, _end)[];
+
 #define CTOR_SECTION(name) STRING_SECTION("." TO_STR(name))
 #endif
