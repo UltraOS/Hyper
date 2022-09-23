@@ -978,6 +978,16 @@ static struct fat_ops *ft_to_fat_ops[] = {
     [FAT_TYPE_32] = &fat32_ops
 };
 
+static void fat_release(struct filesystem *fs)
+{
+    struct fat_filesystem *ffs = container_of(fs, struct fat_filesystem, f);
+
+    if (ffs->fat_view)
+        free_pages(ffs->fat_view, FAT_VIEW_BYTES / PAGE_SIZE);
+
+    free_bytes(ffs, sizeof(struct fat_filesystem));
+}
+
 static struct filesystem *fat_detect(const struct disk *d,
                                      struct range lba_range,
                                      struct block_cache *bc)
@@ -1015,6 +1025,7 @@ static struct filesystem *fat_detect(const struct disk *d,
         .open_file = fat_open_file,
         .close_file = fat_file_close,
         .read_file = fat_read_file,
+        .release = fat_release,
     };
 
     fs->fops = fops;
