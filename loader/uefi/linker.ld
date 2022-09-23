@@ -32,6 +32,12 @@ SECTIONS
         filesystems_end = .;
     }
 
+    .cleanup_handlers : {
+        cleanup_handlers_begin = .;
+        *(.cleanup_handlers)
+        cleanup_handlers_end = .;
+    }
+
     .bss ALIGN(__section_alignment__) : {
         *(.bss)
         *(COMMON)
