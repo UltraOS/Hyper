@@ -54,6 +54,8 @@ struct filesystem {
     struct file *(*open_file)(struct filesystem *fs, struct dir_rec *rec);
     void (*close_file)(struct file*);
     bool (*read_file)(struct file*, void *buffer, u64 offset, u32 bytes);
+
+    void (*release)(struct filesystem *fs);
 };
 
 typedef
