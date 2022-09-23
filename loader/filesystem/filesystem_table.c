@@ -1,4 +1,5 @@
 #include "common/dynamic_buffer.h"
+#include "services_impl.h"
 #include "filesystem/filesystem_table.h"
 
 static struct fs_entry origin_fs;
@@ -8,6 +9,22 @@ void fst_init(void)
 {
     dynamic_buffer_init(&entry_buf, sizeof(struct fs_entry), true);
 }
+
+static void fst_fini(void)
+{
+    size_t i;
+    struct fs_entry *fse = entry_buf.buf;
+
+    for (i = 0; i < entry_buf.size; ++i) {
+        struct filesystem *fs = fse->fs;
+
+        if (fs->release)
+            fs->release(fs);
+    }
+
+    dynamic_buffer_release(&entry_buf);
+}
+DECLARE_CLEANUP_HANDLER(fst_fini);
 
 void fst_add_raw_fs_entry(const struct disk *d, struct filesystem *fs)
 {
