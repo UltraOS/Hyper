@@ -101,7 +101,13 @@ struct config_error {
     size_t line_start_pos;
 };
 
+struct config_source {
+    char *text;
+    size_t size;
+};
+
 struct config {
+    struct config_source src;
     struct config_error last_error;
 
     // Offset + 1, or 0 if none
@@ -116,8 +122,10 @@ static inline bool cfg_empty(struct config *cfg)
     return cfg->entries_buf.size == 0;
 }
 
-bool cfg_parse(struct string_view text, struct config *cfg);
-void cfg_pretty_print_error(const struct config_error *err, struct string_view config_as_view);
+bool cfg_parse(struct config_source src, struct config *cfg);
+void cfg_pretty_print_error(const struct config *cfg);
+
+void cfg_release(struct config *cfg);
 
 bool cfg_get_loadable_entry(struct config *cfg, struct string_view key, struct loadable_entry *val);
 bool cfg_first_loadable_entry(struct config *cfg, struct loadable_entry *entry);
