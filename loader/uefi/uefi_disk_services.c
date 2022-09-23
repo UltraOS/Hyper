@@ -195,6 +195,18 @@ static void enumerate_disks(void)
     }
 }
 
+static void uefi_disk_services_cleanup(void)
+{
+    size_t i;
+
+    for (i = 0; i < disk_count; ++i)
+        block_cache_release(&disks[i].bc);
+
+    g_st->BootServices->FreePool(disks);
+    disk_count = 0;
+}
+DECLARE_CLEANUP_HANDLER(uefi_disk_services_cleanup);
+
 void uefi_disk_services_init(void)
 {
     enumerate_disks();
