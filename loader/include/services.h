@@ -26,3 +26,10 @@ NORETURN void loader_abort(void);
  * Platform-agnostic loader entrypoint.
  */
 NORETURN void loader_entry(void);
+
+/*
+ * Runs all registered cleanup handlers.
+ * All services aside from memory management & handover are assumed to be
+ * unusable after this function returns.
+ */
+void services_cleanup(void);

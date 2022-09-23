@@ -32,3 +32,9 @@ size_t mm_fixup(struct memory_map_entry *buf, size_t count, size_t cap, u8 flags
 
 ssize_t mm_find_first_that_contains(struct memory_map_entry *buf, u64 count,
                                     u64 value, bool allow_one_above);
+
+typedef void (*cleanup_handler)(void);
+
+#define DECLARE_CLEANUP_HANDLER(handler)         \
+    static cleanup_handler CONCAT(handler, hook) \
+           CTOR_SECTION(cleanup_handlers) USED = &handler

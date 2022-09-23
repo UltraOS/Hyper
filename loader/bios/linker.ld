@@ -37,6 +37,12 @@ SECTIONS
         filesystems_end = .;
     }
 
+    .cleanup_handlers : {
+        cleanup_handlers_begin = .;
+        *(.cleanup_handlers)
+        cleanup_handlers_end = .;
+    }
+
     .data : {
         *(.data .data.*)
     }
