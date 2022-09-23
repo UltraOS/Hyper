@@ -24,6 +24,7 @@ struct block_cache {
 
 void block_cache_init(struct block_cache *bc, bool (*refill_blocks_cb)(void*, void*, u64, size_t),
                       void *user_ptr, u8 block_shift, void *cache_buf, size_t buf_block_cap);
+void block_cache_release(struct block_cache *bc);
 
 /*
  * Refill the cache with blocks starting at 'base_block'
