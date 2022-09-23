@@ -78,9 +78,6 @@ typedef struct filesystem_type *filesystem_type_entry;
     static filesystem_type_entry CONCAT(type, hook) \
            CTOR_SECTION(filesystems) USED = &type
 
-extern filesystem_type_entry filesystems_begin[];
-extern filesystem_type_entry filesystems_end[];
-
 static inline u8 fs_block_shift(struct filesystem *fs)
 {
     return fs->block_shift;

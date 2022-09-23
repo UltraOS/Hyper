@@ -12,9 +12,6 @@ typedef struct boot_protocol *boot_protocol_entry;
     static boot_protocol_entry CONCAT(type, hook) \
            CTOR_SECTION(boot_protocols) USED = &type
 
-extern boot_protocol_entry boot_protocols_begin[];
-extern boot_protocol_entry boot_protocols_end[];
-
 struct boot_protocol {
     struct string_view name;
     u64 *known_mm_types;
