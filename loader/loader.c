@@ -59,11 +59,15 @@ void init_config(struct config *out_cfg)
 void init_all_disks(void)
 {
     size_t disk_index;
-    u32 disk_count = ds_get_disk_count();
+    u32 disk_count;
     struct block_cache bc;
-    void *buf = allocate_pages(1);
+    void *buf;
+
+    buf = allocate_pages(1);
     if (unlikely(!buf))
         return;
+
+    disk_count = ds_get_disk_count();
 
     for (disk_index = 0; disk_index < disk_count; ++disk_index) {
         struct disk d;
@@ -93,8 +97,9 @@ struct file *find_config_file(struct fs_entry **out_entry)
     for (i = 0; i < entry_count; ++i) {
         for (j = 0; j < ARRAY_SIZE(search_paths); ++j) {
             struct filesystem *fs = entries[i].fs;
-            struct file *f = path_open(fs, search_paths[j]);
+            struct file *f;
 
+            f = path_open(fs, search_paths[j]);
             if (!f)
                 continue;
 
