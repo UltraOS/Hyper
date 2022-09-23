@@ -855,6 +855,9 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     */
     spec.fb_present = set_video_mode(cfg, le, &spec.fb);
 
+    // NOTE: No config access is allowed beyond this line
+    cfg_release(cfg);
+
     /*
      * This also acquires the memory map, so we can no longer use
      * any services after this call.
