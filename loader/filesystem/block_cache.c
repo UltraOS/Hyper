@@ -3,6 +3,7 @@
 #include "common/bug.h"
 #include "common/align.h"
 
+#include "allocator.h"
 #include "filesystem/block_cache.h"
 
 void block_cache_init(struct block_cache *bc, bool (*refill_blocks_cb)(void*, void*, u64, size_t),
@@ -17,6 +18,17 @@ void block_cache_init(struct block_cache *bc, bool (*refill_blocks_cb)(void*, vo
         .block_shift = block_shift,
         .flags = BC_EMPTY,
     };
+}
+
+void block_cache_release(struct block_cache *bc)
+{
+    BUG_ON(bc->nocopy_refs);
+
+    if (!bc->cache_buf)
+        return;
+
+    free_bytes(bc->cache_buf, bc->cache_block_cap << bc->block_shift);
+    memzero(bc, sizeof(*bc));
 }
 
 struct cached_span {
