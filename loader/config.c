@@ -111,7 +111,7 @@ struct config_parser {
     struct config_pos pos;
 
     struct config *cfg;
-    struct string_view src;
+    struct config_source src;
 
     size_t ind_count;
     char   ind_char;
@@ -630,7 +630,7 @@ bool cfg_parse_objects(struct config_parser *p)
     return true;
 }
 
-bool cfg_parse(struct string_view src, struct config *cfg)
+bool cfg_parse(struct config_source src, struct config *cfg)
 {
     struct config_parser p = {
         .cfg = cfg,
@@ -640,6 +640,8 @@ bool cfg_parse(struct string_view src, struct config *cfg)
     bool ret = true;
 
     memzero(p.cfg, sizeof(struct config));
+
+    cfg->src = src;
     dynamic_buffer_init(&cfg->entries_buf, sizeof(struct config_entry), true);
 
     // Skip whitespace/comments at the beginning of config
@@ -710,8 +712,11 @@ out:
     return ret;
 }
 
-void cfg_pretty_print_error(const struct config_error *err, struct string_view src)
+void cfg_pretty_print_error(const struct config *cfg)
 {
+    const struct config_error *err = &cfg->last_error;
+    struct config_source src = cfg->src;
+
     size_t i = err->line_start_pos;
     struct string_view line_view = {
         .text = &src.text[err->line_start_pos],
@@ -731,6 +736,16 @@ void cfg_pretty_print_error(const struct config_error *err, struct string_view s
         print_err(" ");
 
     print_err("^-- %pSV here\n", &err->message);
+}
+
+void cfg_release(struct config *cfg)
+{
+    struct config_source *src = &cfg->src;
+    if (src->size)
+        free_bytes(src->text, src->size);
+
+    dynamic_buffer_release(&cfg->entries_buf);
+    memzero(cfg, sizeof(*cfg));
 }
 
 bool cfg_get_loadable_entry(struct config *cfg, struct string_view key, struct loadable_entry *val)

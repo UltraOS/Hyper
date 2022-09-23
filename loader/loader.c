@@ -33,7 +33,7 @@ void init_config(struct config *out_cfg)
     struct fs_entry *fe;
     struct file *cfg_file;
     char *cfg_data;
-    struct string_view cfg_view;
+    struct config_source cfg_src;
 
     cfg_file = find_config_file(&fe);
     if (!cfg_file)
@@ -45,13 +45,13 @@ void init_config(struct config *out_cfg)
     if (!cfg_file->fs->read_file(cfg_file, cfg_data, 0, cfg_file->size))
         oops("failed to read config file\n");
 
-    cfg_view = (struct string_view) {
+    cfg_src = (struct config_source) {
         .text = cfg_data,
         .size = cfg_file->size
     };
 
-    if (!cfg_parse(cfg_view, out_cfg)) {
-        cfg_pretty_print_error(&out_cfg->last_error, cfg_view);
+    if (!cfg_parse(cfg_src, out_cfg)) {
+        cfg_pretty_print_error(out_cfg);
         loader_abort();
     }
 }
