@@ -299,6 +299,13 @@ static void gfx_modes_init(void)
     }
 }
 
+static void uefi_video_services_cleanup(void)
+{
+    g_st->BootServices->FreePool(video_modes);
+    mode_count = 0;
+}
+DECLARE_CLEANUP_HANDLER(uefi_video_services_cleanup);
+
 static void gop_init(void)
 {
     EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
