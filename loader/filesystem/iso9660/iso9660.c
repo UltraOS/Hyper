@@ -880,6 +880,14 @@ out:
     return ret;
 }
 
+static void iso9660_release(struct filesystem *fs)
+{
+    struct iso9660_fs *ifs = container_of(fs, struct iso9660_fs, f);
+
+    block_cache_release(&ifs->ca_cache);
+    block_cache_release(&ifs->dir_cache);
+}
+
 static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd *pvd)
 {
     u8 block_shift;
@@ -935,6 +943,7 @@ static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd 
             .open_file = iso9660_open_file,
             .close_file = iso9660_close_file,
             .read_file = iso9660_read_file,
+            .release = iso9660_release,
         },
         .root_block = root_block,
         .root_size = root_size,
