@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import os
 import pytest
 import options
 import disk_image as di
@@ -15,15 +16,41 @@ def fs_root(request) -> str:
     shutil.rmtree(fs_root)
 
 
+@pytest.fixture(scope="session")
+def default_modules(fs_root) -> str:
+    modules_dir_name = "modules"
+    modules_dir = os.path.join(fs_root, modules_dir_name)
+    os.makedirs(modules_dir)
+
+    cc_module_file_name = "cc-fill.bin"
+    cc_fill_module = os.path.join(modules_dir, cc_module_file_name)
+    cc_module_loader_path = os.path.join("/", modules_dir_name,
+                                         cc_module_file_name)
+    cc_module_size = 0x2000
+    cc_module_fill_size = 0x1234
+
+    with open(cc_fill_module, "wb") as f:
+        f.write(b'\xCC' * cc_module_size)
+
+    modules = [
+        di.UltraModule("__KERNEL__", True),
+        di.UltraModule("memory0", False, size=0x3000),
+        di.UltraModule("cc-fill", True, path=cc_module_loader_path,
+                       size=cc_module_fill_size),
+    ]
+
+    return modules
+
+
 @pytest.fixture
-def disk_image(request, fs_root) -> DiskImage:
+def disk_image(request, fs_root, default_modules) -> DiskImage:
     br_type, fs_type, kernel_type = request.param
     cfg = request.config
 
     has_uefi, _, has_bios_iso = options.check_availability(cfg.getoption)
     installer_path = cfg.getoption(options.INSTALLER_OPT)
 
-    cfg = di.make_normal_boot_config(kernel_type, kernel_type)
+    cfg = di.make_normal_boot_config(kernel_type, kernel_type, default_modules)
     di.fs_root_set_cfg(fs_root, cfg)
 
     with DiskImage(fs_root, br_type, fs_type, has_uefi, has_bios_iso,
