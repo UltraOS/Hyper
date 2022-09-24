@@ -886,6 +886,8 @@ static void iso9660_release(struct filesystem *fs)
 
     block_cache_release(&ifs->ca_cache);
     block_cache_release(&ifs->dir_cache);
+
+    free_pages(ifs, 1);
 }
 
 static struct filesystem *iso9660_init(const struct disk *d, struct iso9660_pvd *pvd)
