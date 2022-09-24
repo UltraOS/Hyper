@@ -74,6 +74,7 @@ void vm_shutdown()
 
 void test_vfail(const char *reason, va_list vlist)
 {
+    print("TEST FAIL!\n");
     vprint(reason, vlist);
 
     if (is_in_hypervisor() && should_shutdown) {
