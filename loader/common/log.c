@@ -42,6 +42,18 @@ static enum color get_color_for_level(enum log_level level)
     }
 }
 
+
+static void write_0xe9(const char *msg, size_t len)
+{
+#ifdef HYPER_E9_LOG
+    while (len--)
+        asm volatile("outb %0, %1" ::"a"(*msg++), "Nd"(0xE9));
+#else
+    UNUSED(msg);
+    UNUSED(len);
+#endif
+}
+
 void vprintlvl(enum log_level level, const char *msg, va_list vlist)
 {
     static char log_buf[256];
@@ -57,6 +69,7 @@ void vprintlvl(enum log_level level, const char *msg, va_list vlist)
     col = get_color_for_level(level);
 
     chars = vscnprintf(log_buf, sizeof(log_buf), msg, vlist);
+    write_0xe9(log_buf, chars);
     vs_write_tty(log_buf, chars, col);
 }
 

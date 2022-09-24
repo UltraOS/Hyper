@@ -20,6 +20,14 @@ macro(add_loader_nasm_flag FLAG)
     add_loader_lang_flag(ASM_NASM ${FLAG})
 endmacro()
 
+macro(add_loader_definition VALUE)
+    target_compile_definitions(
+        ${LOADER_EXECUTABLE}
+        PUBLIC
+        ${VALUE}
+    )
+endmacro()
+
 add_executable(
     ${LOADER_EXECUTABLE}
     allocator.c
@@ -30,6 +38,12 @@ add_executable(
     services_impl.c
     virtual_memory.c
 )
+
+option(HYPER_E9_LOG "Enables 0xE9 debug logging" OFF)
+
+if (HYPER_E9_LOG)
+    add_loader_definition(HYPER_E9_LOG)
+endif ()
 
 target_include_directories(
     ${LOADER_EXECUTABLE}
