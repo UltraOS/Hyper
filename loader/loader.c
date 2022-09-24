@@ -50,6 +50,8 @@ void init_config(struct config *out_cfg)
         .size = cfg_file->size
     };
 
+    cfg_file->fs->close_file(cfg_file);
+
     if (!cfg_parse(cfg_src, out_cfg)) {
         cfg_pretty_print_error(out_cfg);
         loader_abort();
