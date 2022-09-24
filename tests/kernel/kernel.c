@@ -221,6 +221,8 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
 
 int main(struct ultra_boot_context *bctx, uint32_t magic)
 {
+    print("============== BEGINNING OF KERNEL LOG =============\n");
+
     if (magic != ULTRA_MAGIC)
         test_fail("invalid magic %u\n", magic);
 
