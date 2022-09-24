@@ -261,24 +261,18 @@ void uefi_memory_services_init(void)
     has_efi_memops = g_st->BootServices->Hdr.Revision >= EFI_1_10_SYSTEM_TABLE_REVISION;
 }
 
-static void *efi_memmove(void *dest, void *src, size_t count)
+static bool can_use_efi_memops(void)
 {
-    if (has_efi_memops && !services_offline) {
-        g_st->BootServices->CopyMem(dest, src, count);
-        return dest;
-    }
-
-    return memmove_generic(dest, src, count);
+    return has_efi_memops && !services_offline;
 }
 
-static void *efi_memset(void *dest, int val, size_t count)
+static bool efi_copy_mem(void *dest, void *src, size_t count)
 {
-    if (has_efi_memops && !services_offline) {
-        g_st->BootServices->SetMem(dest, count, val);
-        return dest;
-    }
+    if (!can_use_efi_memops())
+        return false;
 
-    return memset_generic(dest, val, count);
+    g_st->BootServices->CopyMem(dest, src, count);
+    return true;
 }
 
 #ifdef memset
@@ -287,7 +281,12 @@ static void *efi_memset(void *dest, int val, size_t count)
 
 void *memset(void *dest, int val, size_t count)
 {
-    return efi_memset(dest, val, count);
+    if (can_use_efi_memops())
+        g_st->BootServices->SetMem(dest, count, val);
+    else
+        memset_generic(dest, val, count);
+
+    return dest;
 }
 
 #ifdef memcpy
@@ -296,7 +295,10 @@ void *memset(void *dest, int val, size_t count)
 
 void *memcpy(void *dest, void *src, size_t count)
 {
-    return efi_memmove(dest, src, count);
+    if (!efi_copy_mem(dest, src, count))
+        memcpy_generic(dest, src, count);
+
+    return dest;
 }
 
 #ifdef memmove
@@ -305,5 +307,8 @@ void *memcpy(void *dest, void *src, size_t count)
 
 void *memmove(void *dest, void *src, size_t count)
 {
-    return efi_memmove(dest, src, count);
+    if (!efi_copy_mem(dest, src, count))
+        memmove_generic(dest, src, count);
+
+    return dest;
 }
