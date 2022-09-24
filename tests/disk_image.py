@@ -22,6 +22,8 @@ binary     = "/boot/kernel_i686"
 video-mode:
     format = xrgb8888
 
+{extra_cfg_entries}
+
 [amd64_lower_half]
 protocol=ultra
 
@@ -30,6 +32,8 @@ binary     = "/boot/kernel_amd64_lower_half"
 
 video-mode:
     format = xrgb8888
+
+{extra_cfg_entries}
 
 [amd64_higher_half]
 protocol=ultra
@@ -43,7 +47,36 @@ video-mode:
     format = xrgb8888
 
 higher-half-exclusive = true
+
+{extra_cfg_entries}
 """
+
+class UltraModule:
+    format_string = \
+"""
+module:
+    name = "{name}"
+    type = "{type}"
+    path = "{path}"
+    size = "{size}"
+"""
+
+    def __init__(self, name, is_file, path=None, size=None):
+        self.name = name
+        self.is_file = is_file
+        self.path = path
+        self.size = size
+
+    def __str__(self):
+        if self.name == "__KERNEL__":
+            return "kernel-as-module = true"
+
+        type = "file" if self.is_file else "memory"
+        path = self.path or ""
+        size = self.size or "auto"
+
+        return UltraModule.format_string.format(name=self.name, type=type,
+                                                path=path, size=size)
 
 
 def dd_mebibyte_postfix():
@@ -53,9 +86,16 @@ def dd_mebibyte_postfix():
     return "M"
 
 
-def make_normal_boot_config(default_entry, cmdline):
+def make_normal_boot_config(default_entry, cmdline, modules=[]):
+    extra_cfg_entries = ""
+
+    for module in modules:
+        extra_cfg_entries += str(module)
+        extra_cfg_entries += "\n"
+
     return normal_boot_cfgs.format(default_entry=default_entry,
-                                   cmdline=cmdline)
+                                   cmdline=cmdline,
+                                   extra_cfg_entries=extra_cfg_entries)
 
 
 def file_resize_to_mib(path, mib):
