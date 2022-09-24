@@ -99,16 +99,21 @@ def build_toolchain(args):
 
 def build_hyper(args):
     build_dir = get_build_dir(args.platform, args.toolchain)
-    rerun_cmake = args.reconfigure or not os.path.isdir(build_dir)
+    has_build_dir = os.path.isdir(build_dir)
+    extra_cmake_args = []
 
-    if rerun_cmake:
+    if args.e9_debug_log:
+        extra_cmake_args.append(f"-DHYPER_E9_LOG={args.e9_debug_log.upper()}")
+
+    if args.reconfigure or extra_cmake_args or not has_build_dir:
         # Only rerun toolchain builder if reconfigure is not artificial
-        if not args.reconfigure:
+        if not has_build_dir:
             build_toolchain(args)
 
         os.makedirs(build_dir, exist_ok=True)
         cmake_args = [f"-DHYPER_PLATFORM={args.platform}",
                       f"-DHYPER_TOOLCHAIN={args.toolchain}"]
+        cmake_args.extend(extra_cmake_args)
         subprocess.run(["cmake", "..", *cmake_args], check=True, cwd=build_dir)
     else:
         print("Not rerunning cmake since build directory already exists "
@@ -131,6 +136,8 @@ def main():
                         help="also fetch packages used for running the loader tests")
     parser.add_argument("--reconfigure", action="store_true",
                         help="Reconfigure cmake before building")
+    parser.add_argument("--e9-debug-log", choices=["on", "off"],
+                        help="Enable/disable 0xE9 logging")
     args = parser.parse_args()
 
     build_hyper(args)
