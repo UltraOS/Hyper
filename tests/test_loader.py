@@ -37,7 +37,7 @@ def disk_image_pretty_name(param):
 
 
 def print_output(stdout):
-    print("Kernel output:")
+    print("Kernel/loader output:")
     print(stdout.decode("ascii"))
 
 
