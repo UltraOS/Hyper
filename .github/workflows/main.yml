@@ -33,7 +33,7 @@ jobs:
           key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc"
 
       - name: Build platform toolchain & Hyper
-        run: "${{ github.workspace }}/build.py ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native"
+        run: "${{ github.workspace }}/build.py ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native --e9-debug-log=on"
 
       - name: Build test kernel
         run: ${{ github.workspace }}/tests/kernel/build.sh
