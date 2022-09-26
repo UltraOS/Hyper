@@ -817,9 +817,33 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le,
     } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
 }
 
+#define MAX_CMDLINE_LEN 256
+
+static bool get_cmdline(struct config *cfg, struct loadable_entry *le,
+                        char *storage, struct string_view *out_str)
+{
+    if (!cfg_get_string(cfg, le, SV("cmdline"), out_str))
+        return false;
+
+    if (out_str->size > MAX_CMDLINE_LEN)
+        oops("command line is too big %zu vs max 256\n", out_str->size);
+
+    memcpy(storage, out_str->text, out_str->size);
+
+    /*
+     * Repoint the view to internal storage as we don't want to keep a
+     * reference to a string inside the configuration file here as we
+     * free it later on before building the attribute array.
+     */
+    out_str->text = storage;
+
+    return true;
+}
+
 NORETURN
 static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
 {
+    char cmdline_buf[MAX_CMDLINE_LEN];
     struct attribute_array_spec spec = { 0 };
     u64 pt, attr_arr_addr;
     bool is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
@@ -835,7 +859,7 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
         oops("Higher half exclusive mode is only allowed for higher half kernels\n");
 
     spec.higher_half_pointers = is_higher_half_exclusive;
-    spec.cmdline_present = cfg_get_string(cfg, le, SV("cmdline"), &spec.cmdline);
+    spec.cmdline_present = get_cmdline(cfg, le, cmdline_buf, &spec.cmdline);
 
     if (!load_kernel_as_module(cfg, le, &spec)) {
         free_bytes(spec.kern_info.elf_blob, spec.kern_info.blob_size);
