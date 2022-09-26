@@ -1,11 +1,15 @@
-#include "allocator.h"
+#undef HYPER_ALLOCATION_AUDIT
+
 #include "common/log.h"
 #include "common/format.h"
 #include "common/string.h"
 #include "common/align.h"
 #include "common/string_view.h"
+
 #include "services.h"
 #include "memory_services.h"
+
+#include "allocator.h"
 
 #define ANY_ADDRESS "<any-address>"
 

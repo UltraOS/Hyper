@@ -40,9 +40,14 @@ add_executable(
 )
 
 option(HYPER_E9_LOG "Enables 0xE9 debug logging" OFF)
+option(HYPER_ALLOCATION_AUDIT "Enables the dynamic memory allocation audit logging" OFF)
 
 if (HYPER_E9_LOG)
     add_loader_definition(HYPER_E9_LOG)
+endif ()
+
+if (HYPER_ALLOCATION_AUDIT)
+    add_loader_definition(HYPER_ALLOCATION_AUDIT)
 endif ()
 
 target_include_directories(

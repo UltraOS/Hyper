@@ -109,6 +109,9 @@ def build_hyper(args):
     if args.e9_debug_log:
         opt = make_hyper_option_arg("E9_LOG", args.e9_debug_log)
         extra_cmake_args.append(opt)
+    if args.allocation_audit:
+        opt = make_hyper_option_arg("ALLOCATION_AUDIT", args.allocation_audit)
+        extra_cmake_args.append(opt)
 
     if args.reconfigure or extra_cmake_args or not has_build_dir:
         # Only rerun toolchain builder if reconfigure is not artificial
@@ -143,6 +146,8 @@ def main():
                         help="Reconfigure cmake before building")
     parser.add_argument("--e9-debug-log", choices=["on", "off"],
                         help="Enable/disable 0xE9 logging")
+    parser.add_argument("--allocation-audit", choices=["on", "off"],
+                        help="Enable/disable dynamic allocation audit logging")
     args = parser.parse_args()
 
     build_hyper(args)
