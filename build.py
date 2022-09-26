@@ -97,13 +97,18 @@ def build_toolchain(args):
     tb.build_toolchain(tp)
 
 
+def make_hyper_option_arg(arg, setting):
+    return f"-DHYPER_{arg}={setting.upper()}"
+
+
 def build_hyper(args):
     build_dir = get_build_dir(args.platform, args.toolchain)
     has_build_dir = os.path.isdir(build_dir)
     extra_cmake_args = []
 
     if args.e9_debug_log:
-        extra_cmake_args.append(f"-DHYPER_E9_LOG={args.e9_debug_log.upper()}")
+        opt = make_hyper_option_arg("E9_LOG", args.e9_debug_log)
+        extra_cmake_args.append(opt)
 
     if args.reconfigure or extra_cmake_args or not has_build_dir:
         # Only rerun toolchain builder if reconfigure is not artificial
