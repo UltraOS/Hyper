@@ -558,6 +558,19 @@ static void *write_memory_map(void *attr_ptr, size_t entry_count)
     return entry_ptr + entries_bytes;
 }
 
+static void *write_command_line_attribute(void *attr_ptr,
+                                          struct string_view cmdline,
+                                          size_t aligned_len)
+{
+    struct ultra_command_line_attribute *cattr = attr_ptr;
+    cattr->header.type = ULTRA_ATTRIBUTE_COMMAND_LINE;
+    cattr->header.size = aligned_len;
+
+    sv_terminated_copy(cattr->text, cmdline);
+
+    return attr_ptr + aligned_len;
+}
+
 static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
 {
     u32 cmdline_aligned_length = 0;
@@ -633,15 +646,8 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
     }
 
     if (spec->cmdline_present) {
-        *(struct ultra_command_line_attribute*)attr_ptr = (struct ultra_command_line_attribute) {
-            .header = { ULTRA_ATTRIBUTE_COMMAND_LINE, cmdline_aligned_length },
-        };
-
-        // Copy the cmdline string & null terminate
-        memcpy(attr_ptr + sizeof(struct ultra_command_line_attribute), spec->cmdline.text, spec->cmdline.size);
-        *((char*)attr_ptr + sizeof(struct ultra_attribute_header) + spec->cmdline.size) = '\0';
-
-        attr_ptr += cmdline_aligned_length;
+        attr_ptr = write_command_line_attribute(attr_ptr, spec->cmdline,
+                                                cmdline_aligned_length);
         *attr_count += 1;
     }
 
