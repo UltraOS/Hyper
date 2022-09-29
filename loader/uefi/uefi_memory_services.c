@@ -246,14 +246,18 @@ size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
     return buf_entry_count;
 }
 
-u64 ms_get_highest_map_address(void)
+void mm_foreach_entry(mme_foreach_t func, void *user)
 {
     SERVICE_FUNCTION();
+    size_t i;
 
     if (!buf_entry_count)
         fill_internal_memory_map_buffer();
 
-    return mme_end(mm_entry_at(buf_entry_count - 1));
+    for (i = 0; i < buf_entry_count; i++) {
+        if (!func(user, mm_entry_at(i)))
+            break;
+    }
 }
 
 void uefi_memory_services_init(void)

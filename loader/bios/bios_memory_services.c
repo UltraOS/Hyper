@@ -366,10 +366,15 @@ static void initialize_memory_map(void)
         print_warn("failed to mark loader base 0x%08X as allocated\n", STAGE2_BASE_PAGE);
 }
 
-u64 ms_get_highest_map_address(void)
+void mm_foreach_entry(mme_foreach_t func, void *user)
 {
+    size_t i;
     BUG_ON(entry_count == 0);
-    return mme_end(&entries_buffer[entry_count - 1]);
+
+    for (i = 0; i < entry_count; ++i) {
+        if (!func(user, &entries_buffer[i]))
+            break;
+    }
 }
 
 void bios_memory_services_init(void)

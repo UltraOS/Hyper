@@ -661,18 +661,59 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
     return ret;
 }
 
-static u64 build_page_table(struct binary_info *bi, u64 max_address,
-                            bool higher_half_exclusive, bool null_guard)
+#define DIRECT_MAP_MIN_SIZE (4ull * GB)
+
+struct page_mapper_ctx {
+    struct page_table *pt;
+    bool map_lower;
+};
+
+static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
+{
+    struct page_mapper_ctx *ctx = opaque;
+    u64 aligned_begin, aligned_end;
+    size_t page_count;
+
+    aligned_end = HUGE_PAGE_ROUND_UP(me->physical_address + me->size_in_bytes);
+
+    if (aligned_end <= DIRECT_MAP_MIN_SIZE)
+        return true;
+
+    aligned_begin = HUGE_PAGE_ROUND_DOWN(me->physical_address);
+    aligned_begin = MAX(DIRECT_MAP_MIN_SIZE, aligned_begin);
+    page_count = (aligned_end - aligned_begin) >> HUGE_PAGE_SHIFT;
+
+    print_info("mapping high memory: 0x%016llX -> 0x%016llX (%zu pages)\n",
+               aligned_begin, aligned_end, page_count);
+
+    if (ctx->map_lower) {
+        map_critical_huge_pages(
+            ctx->pt,
+            aligned_begin, aligned_begin,
+            page_count
+        );
+    }
+
+    map_critical_huge_pages(
+        ctx->pt,
+        aligned_begin + DIRECT_MAP_BASE, aligned_begin,
+        page_count
+    );
+
+    return true;
+}
+
+static u64 build_page_table(struct binary_info *bi, bool higher_half_exclusive,
+                            bool null_guard)
 {
     struct page_table pt;
-    u64 max_address_rounded_up;
+    struct page_mapper_ctx ctx = {
+        .pt = &pt,
+        .map_lower = !higher_half_exclusive
+    };
 
     if (bi->bitness != 64)
         return 0;
-
-    max_address_rounded_up = HUGE_PAGE_ROUND_UP(max_address);
-    max_address_rounded_up = MAX(4ull * GB, max_address_rounded_up);
-    print_info("going to map physical up to 0x%016llX\n", max_address_rounded_up);
 
     pt.root = (u64*)allocate_critical_pages(1);
     pt.levels = 4;
@@ -680,9 +721,9 @@ static u64 build_page_table(struct binary_info *bi, u64 max_address,
 
     // direct map higher half
     map_critical_huge_pages(&pt, DIRECT_MAP_BASE , 0x0000000000000000,
-                            max_address_rounded_up / HUGE_PAGE_SIZE);
+                            DIRECT_MAP_MIN_SIZE >> HUGE_PAGE_SHIFT);
 
-    if (!higher_half_exclusive) {
+    if (ctx.map_lower) {
         u64 base = 0x0000000000000000;
         size_t pages_to_map;
 
@@ -697,12 +738,14 @@ static u64 build_page_table(struct binary_info *bi, u64 max_address,
             base = 2 * MB;
         }
 
-        pages_to_map = (max_address_rounded_up - base) / HUGE_PAGE_SIZE;
+        pages_to_map = (DIRECT_MAP_MIN_SIZE - base) >> HUGE_PAGE_SHIFT;
         map_critical_huge_pages(&pt, base, base, pages_to_map);
     } else {
         // steal the direct mapping from higher half, we're gonna unmap it later
         pt.root[0] = pt.root[256];
     }
+
+    mm_foreach_entry(do_map_high_memory, &ctx);
 
     /*
      * If kernel had allocate-anywhere set to on, map virtual base to physical base,
@@ -874,8 +917,8 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     }
 
     load_all_modules(cfg, le, &spec);
-    pt = build_page_table(&spec.kern_info.bin_info, ms_get_highest_map_address(),
-                          is_higher_half_exclusive, null_guard);
+    pt = build_page_table(&spec.kern_info.bin_info, is_higher_half_exclusive,
+                          null_guard);
     spec.stack_address = pick_stack(cfg, le);
     spec.acpi_rsdp_address = services_find_rsdp();
 
