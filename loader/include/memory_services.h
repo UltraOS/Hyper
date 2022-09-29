@@ -86,9 +86,20 @@ size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
                                   mme_convert_t entry_convert);
 
 /*
- * Returns the address of the last byte of the last entry in the memory map + 1
+ * A handler that is invoked once per each range in the memory map
+ * user -> a user provided opaque pointer.
+ * entry -> current memory map entry.
+ * Returned boolean value indicates whether to break memory map iteration or
+ * continue.
  */
-u64 ms_get_highest_map_address(void);
+typedef bool (*mme_foreach_t) (void *user, const struct memory_map_entry *entry);
+
+/*
+ * Iterates the entire memory map and invokes 'func' for each entry
+ * func -> the handler that gets invoked.
+ * user -> user provided opaque pointer.
+ */
+void mm_foreach_entry(mme_foreach_t func, void *user);
 
 void mm_declare_known_mm_types(u64 *types);
 
