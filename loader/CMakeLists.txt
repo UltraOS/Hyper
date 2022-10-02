@@ -59,6 +59,11 @@ add_loader_option(
     OFF
 )
 
+add_loader_option(
+    HYPER_STRIP_INFO_LOG
+    "Strips all of the info-level logs improving performance & reducing the executable size"
+    OFF
+)
 
 target_include_directories(
     ${LOADER_EXECUTABLE}
