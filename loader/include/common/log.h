@@ -31,9 +31,15 @@ void print(const char *msg, ...);
 #endif
 
 
-//static inline void dummy(const char *arg, ...) { (void) arg; }
-//#define print_info(msg, ...) dummy(msg __VA_OPT__(,) __VA_ARGS__)
+#ifdef HYPER_STRIP_INFO_LOG
+PRINTF_DECL(1, 2)
+static inline void print_info(const char *msg, ...)
+{
+    UNUSED(msg);
+}
+#else
 #define print_info(msg, ...) print((LOG_INFO MSG_FMT(msg)), ##__VA_ARGS__)
+#endif
 
 #define print_dbg(cond, msg, ...)    \
     if (cond)                        \

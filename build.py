@@ -112,6 +112,9 @@ def build_hyper(args):
     if args.allocation_audit:
         opt = make_hyper_option_arg("ALLOCATION_AUDIT", args.allocation_audit)
         extra_cmake_args.append(opt)
+    if args.strip_info_log:
+        opt = make_hyper_option_arg("STRIP_INFO_LOG", args.strip_info_log)
+        extra_cmake_args.append(opt)
 
     if args.reconfigure or extra_cmake_args or not has_build_dir:
         # Only rerun toolchain builder if reconfigure is not artificial
@@ -148,6 +151,8 @@ def main():
                         help="Enable/disable 0xE9 logging")
     parser.add_argument("--allocation-audit", choices=["on", "off"],
                         help="Enable/disable dynamic allocation audit logging")
+    parser.add_argument("--strip-info-log", choices=["on", "off"],
+                        help="Enable/disable info-level log stripping")
     args = parser.parse_args()
 
     build_hyper(args)
