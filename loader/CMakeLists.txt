@@ -28,6 +28,14 @@ macro(add_loader_definition VALUE)
     )
 endmacro()
 
+macro(add_loader_option OPTION DESCRIPTION DEFAULT_VALUE)
+    option(${OPTION} ${DESCRIPTION} ${DEFAULT_VALUE})
+
+    if (${OPTION})
+        add_loader_definition(${OPTION})
+    endif()
+endmacro()
+
 add_executable(
     ${LOADER_EXECUTABLE}
     allocator.c
@@ -39,16 +47,18 @@ add_executable(
     virtual_memory.c
 )
 
-option(HYPER_E9_LOG "Enables 0xE9 debug logging" OFF)
-option(HYPER_ALLOCATION_AUDIT "Enables the dynamic memory allocation audit logging" OFF)
+add_loader_option(
+    HYPER_E9_LOG
+    "Enables 0xE9 debug logging"
+    OFF
+)
 
-if (HYPER_E9_LOG)
-    add_loader_definition(HYPER_E9_LOG)
-endif ()
+add_loader_option(
+    HYPER_ALLOCATION_AUDIT
+    "Enables the dynamic memory allocation audit logging"
+    OFF
+)
 
-if (HYPER_ALLOCATION_AUDIT)
-    add_loader_definition(HYPER_ALLOCATION_AUDIT)
-endif ()
 
 target_include_directories(
     ${LOADER_EXECUTABLE}
