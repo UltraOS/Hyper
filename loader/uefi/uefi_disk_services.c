@@ -136,7 +136,7 @@ static void enumerate_disks(void)
 
     if (unlikely(!uefi_pool_alloc(EfiLoaderData, sizeof(struct uefi_disk),
                  handle_count, (void**)&disks)))
-        return;
+        goto out;
 
     for (i = 0; i < handle_count; ++i) {
         EFI_BLOCK_IO_PROTOCOL *bio = NULL;
@@ -193,6 +193,9 @@ static void enumerate_disks(void)
         print_info("detected disk: block-size %u, %llu blocks\n",
                    bio->Media->BlockSize, bio->Media->LastBlock + 1);
     }
+
+out:
+    g_st->BootServices->FreePool(handles);
 }
 
 static void uefi_disk_services_cleanup(void)
