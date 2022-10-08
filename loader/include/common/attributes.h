@@ -48,3 +48,9 @@
 
 #define CTOR_SECTION(name) STRING_SECTION("." TO_STR(name))
 #endif
+
+#if __has_attribute(__fallthrough__)
+#define FALLTHROUGH __attribute__((__fallthrough__))
+#else
+#define FALLTHROUGH do {} while (0)
+#endif
