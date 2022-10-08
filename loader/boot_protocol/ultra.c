@@ -230,7 +230,7 @@ static void module_load(struct config *cfg, struct value *module_value,
 
 struct kernel_info {
     struct binary_options bin_opts;
-    struct binary_info bin_info;
+    struct elf_binary_info bin_info;
     void *elf_blob;
     size_t blob_size;
 };
@@ -239,15 +239,20 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct
 {
     const struct fs_entry *fse;
     struct file *f;
-    u8 bitness;
-    struct load_result res = { 0 };
+    struct binary_options *bo = &info->bin_opts;
 
-    get_binary_options(cfg, entry, &info->bin_opts);
-    fse = fst_fs_by_full_path(&info->bin_opts.path);
+    enum elf_arch arch;
+    struct elf_error err = { 0 };
+    struct elf_load_spec spec = {
+        .memory_type = ULTRA_MEMORY_TYPE_KERNEL_BINARY,
+    };
 
-    f = path_open(fse->fs, info->bin_opts.path.path_within_partition);
+    get_binary_options(cfg, entry, bo);
+    fse = fst_fs_by_full_path(&bo->path);
+
+    f = path_open(fse->fs, bo->path.path_within_partition);
     if (!f)
-        oops("failed to open %pSV\n", &info->bin_opts.path.path_within_partition);
+        oops("failed to open %pSV\n", &bo->path.path_within_partition);
 
     info->blob_size = f->size;
 
@@ -261,23 +266,31 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct
     if (!f->fs->read_file(f, info->elf_blob, 0, info->blob_size))
         oops("failed to read file\n");
 
-    bitness = elf_bitness(info->elf_blob, info->blob_size);
+    if (!elf_get_arch(info->elf_blob, info->blob_size, &arch, &err))
+        goto elf_error;
 
-    if (!bitness || (bitness != 32 && bitness != 64))
-        oops("invalid ELF bitness\n");
-
-    if (info->bin_opts.allocate_anywhere && bitness != 64)
+    if (bo->allocate_anywhere && arch != ELF_ARCH_AMD64)
         oops("allocate-anywhere is only allowed for 64 bit kernels\n");
-
-    if (bitness == 64 && !cpu_supports_long_mode())
+    if (arch == ELF_ARCH_AMD64 && !cpu_supports_long_mode())
         oops("attempted to load a 64 bit kernel on a CPU without long mode support\n");
 
-    if (!elf_load(info->elf_blob, info->blob_size, bitness == 64, info->bin_opts.allocate_anywhere,
-                  ULTRA_MEMORY_TYPE_KERNEL_BINARY, &res))
-        oops("failed to load kernel binary: %s\n", res.error_msg);
+    spec.data = info->elf_blob;
+    spec.size = info->blob_size;
+
+    if (arch == ELF_ARCH_AMD64)
+        spec.flags |= ELF_USE_VIRTUAL_ADDRESSES;
+    if (bo->allocate_anywhere)
+        spec.flags |= ELF_ALLOCATE_ANYWHERE;
+
+    if (!elf_load(&spec, &info->bin_info, &err))
+        goto elf_error;
 
     fse->fs->close_file(f);
-    info->bin_info = res.info;
+    return;
+
+elf_error:
+    elf_pretty_print_error(&err, "failed to load kernel binary");
+    loader_abort();
 }
 
 enum video_mode_constraint {
@@ -703,7 +716,8 @@ static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
     return true;
 }
 
-static u64 build_page_table(struct binary_info *bi, bool higher_half_exclusive,
+static u64 build_page_table(struct elf_binary_info *bi,
+                            bool higher_half_exclusive,
                             bool null_guard)
 {
     struct page_table pt;
@@ -712,7 +726,7 @@ static u64 build_page_table(struct binary_info *bi, bool higher_half_exclusive,
         .map_lower = !higher_half_exclusive
     };
 
-    if (bi->bitness != 64)
+    if (bi->arch != ELF_ARCH_AMD64)
         return 0;
 
     pt.root = (u64*)allocate_critical_pages(1);
@@ -947,7 +961,7 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
                spec.kern_info.bin_info.entrypoint_address, spec.stack_address,
                attr_arr_addr);
 
-    if (spec.kern_info.bin_info.bitness == 32)
+    if (spec.kern_info.bin_info.arch == ELF_ARCH_I386)
         kernel_handover32(spec.kern_info.bin_info.entrypoint_address, spec.stack_address,
                           (u32)attr_arr_addr, ULTRA_MAGIC);
 
