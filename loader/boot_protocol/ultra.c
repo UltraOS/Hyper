@@ -713,6 +713,47 @@ static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
     return true;
 }
 
+/*
+ * Always map the first 2MiB of physical memory with small pages.
+ * We do this to avoid accidentally crossing any MTRR boundaries
+ * with different cache types in the lower MiB.
+ *
+ * Intel® 64 and IA-32 Architectures Software Developer’s Manual:
+ *
+ * The Pentium 4, Intel Xeon, and P6 family processors provide special support
+ * for the physical memory range from 0 to 4 MBytes, which is potentially mapped
+ * by both the fixed and variable MTRRs. This support is invoked when a
+ * Pentium 4, Intel Xeon, or P6 family processor detects a large page
+ * overlapping the first 1 MByte of this memory range with a memory type that
+ * conflicts with the fixed MTRRs. Here, the processor maps the memory range as
+ * multiple 4-KByte pages within the TLB. This operation ensures correct
+ * behavior at the cost of performance. To avoid this performance penalty,
+ * operating-system software should reserve the large page option for regions
+ * of memory at addresses greater than or equal to 4 MBytes.
+ */
+static void map_lower_huge_page(struct page_mapping_spec *spec, bool null_guard)
+{
+    size_t old_count = spec->count;
+    size_t size_to_map = HUGE_PAGE_SIZE;
+
+    spec->type = PAGE_TYPE_NORMAL;
+    spec->physical_base = 0x0000000000000000;
+
+    if (null_guard) {
+        spec->physical_base += PAGE_SIZE;
+        spec->virtual_base += PAGE_SIZE;
+        size_to_map -= PAGE_SIZE;
+    }
+    spec->count = size_to_map >> PAGE_SHIFT;
+
+    map_pages(spec);
+
+    spec->type = PAGE_TYPE_HUGE;
+    spec->physical_base += size_to_map;
+    spec->virtual_base += size_to_map;
+    spec->count = old_count - 1;
+}
+
 static u64 build_page_table(struct elf_binary_info *bi,
                             bool higher_half_exclusive,
                             bool null_guard)
@@ -735,33 +776,18 @@ static u64 build_page_table(struct elf_binary_info *bi,
     pt.levels = 4;
     memzero(pt.root, PAGE_SIZE);
 
+    // Direct map higher half
     spec.virtual_base = DIRECT_MAP_BASE;
     spec.count = DIRECT_MAP_MIN_SIZE >> HUGE_PAGE_SHIFT;
 
-    // direct map higher half
+    map_lower_huge_page(&spec, false);
     map_pages(&spec);
 
     if (ctx.map_lower) {
-        spec.physical_base = 0x0000000000000000;
+        spec.virtual_base = 0x0000000000000000;
+        spec.count = DIRECT_MAP_MIN_SIZE >> HUGE_PAGE_SHIFT;
 
-        /*
-         * Don't use huge pages for the first 2M in case there's a null guard,
-         * we only want to unmap the first 4K page.
-         */
-        if (null_guard) {
-            spec.physical_base += PAGE_SIZE;
-            spec.virtual_base = spec.physical_base;
-            spec.type = PAGE_TYPE_NORMAL;
-
-            spec.count = (HUGE_PAGE_SIZE / PAGE_SIZE) - 1;
-            map_pages(&spec);
-
-            spec.physical_base = HUGE_PAGE_SIZE;
-            spec.type = PAGE_TYPE_HUGE;
-        }
-
-        spec.virtual_base = spec.physical_base;
-        spec.count = (DIRECT_MAP_MIN_SIZE - spec.physical_base) >> HUGE_PAGE_SHIFT;
+        map_lower_huge_page(&spec, null_guard);
         map_pages(&spec);
     } else {
         // steal the direct mapping from higher half, we're gonna unmap it later
@@ -775,16 +801,19 @@ static u64 build_page_table(struct elf_binary_info *bi,
      * otherwise simply direct map fist 2 gigabytes of physical.
      */
     if (!bi->kernel_range_is_direct_map) {
-        spec.count = PAGE_ROUND_UP(bi->physical_ceiling - bi->physical_base);
-        spec.count >>= PAGE_SHIFT;
         spec.physical_base = bi->physical_base;
         spec.virtual_base = bi->virtual_base;
+
+        spec.count = PAGE_ROUND_UP(bi->physical_ceiling - bi->physical_base);
+        spec.count >>= PAGE_SHIFT;
+
         spec.type = PAGE_TYPE_NORMAL;
         map_pages(&spec);
     } else {
-        spec.physical_base = 0x0000000000000000;
         spec.virtual_base = HIGHER_HALF_BASE;
-        spec.count = (2ull * GB) / HUGE_PAGE_SIZE;
+        spec.count = (2ull * GB) >> HUGE_PAGE_SHIFT;
+
+        map_lower_huge_page(&spec, false);
         map_pages(&spec);
     }
 
