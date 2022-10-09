@@ -16,6 +16,8 @@ static inline size_t pt_depth(enum pt_type pt)
 
 struct page_table {
     void *root;
+    void (*write_slot)(void*, u64);
+    u64 (*read_slot)(void*);
     u8 table_width_shift;
     u8 levels;
     u8 entry_width;
