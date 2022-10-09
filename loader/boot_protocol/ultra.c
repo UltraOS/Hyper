@@ -677,13 +677,14 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
 #define DIRECT_MAP_MIN_SIZE (4ull * GB)
 
 struct page_mapper_ctx {
-    struct page_table *pt;
+    struct page_mapping_spec *spec;
     bool map_lower;
 };
 
 static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
 {
     struct page_mapper_ctx *ctx = opaque;
+    struct page_mapping_spec *spec = ctx->spec;
     u64 aligned_begin, aligned_end;
     size_t page_count;
 
@@ -699,19 +700,15 @@ static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
     print_info("mapping high memory: 0x%016llX -> 0x%016llX (%zu pages)\n",
                aligned_begin, aligned_end, page_count);
 
-    if (ctx->map_lower) {
-        map_critical_huge_pages(
-            ctx->pt,
-            aligned_begin, aligned_begin,
-            page_count
-        );
-    }
+    spec->virtual_base = aligned_begin;
+    spec->physical_base = aligned_begin;
+    spec->count = page_count;
 
-    map_critical_huge_pages(
-        ctx->pt,
-        aligned_begin + DIRECT_MAP_BASE, aligned_begin,
-        page_count
-    );
+    if (ctx->map_lower)
+        map_pages(spec);
+
+    spec->virtual_base += DIRECT_MAP_BASE;
+    map_pages(spec);
 
     return true;
 }
@@ -721,8 +718,13 @@ static u64 build_page_table(struct elf_binary_info *bi,
                             bool null_guard)
 {
     struct page_table pt;
-    struct page_mapper_ctx ctx = {
+    struct page_mapping_spec spec = {
         .pt = &pt,
+        .type = PAGE_TYPE_HUGE,
+        .critical = true
+    };
+    struct page_mapper_ctx ctx = {
+        .spec = &spec,
         .map_lower = !higher_half_exclusive
     };
 
@@ -733,27 +735,34 @@ static u64 build_page_table(struct elf_binary_info *bi,
     pt.levels = 4;
     memzero(pt.root, PAGE_SIZE);
 
+    spec.virtual_base = DIRECT_MAP_BASE;
+    spec.count = DIRECT_MAP_MIN_SIZE >> HUGE_PAGE_SHIFT;
+
     // direct map higher half
-    map_critical_huge_pages(&pt, DIRECT_MAP_BASE , 0x0000000000000000,
-                            DIRECT_MAP_MIN_SIZE >> HUGE_PAGE_SHIFT);
+    map_pages(&spec);
 
     if (ctx.map_lower) {
-        u64 base = 0x0000000000000000;
-        size_t pages_to_map;
+        spec.physical_base = 0x0000000000000000;
 
         /*
          * Don't use huge pages for the first 2M in case there's a null guard,
          * we only want to unmap the first 4K page.
          */
         if (null_guard) {
-            base += PAGE_SIZE;
-            pages_to_map = ((2 * MB) / PAGE_SIZE) - 1;
-            map_critical_pages(&pt, base, base, pages_to_map);
-            base = 2 * MB;
+            spec.physical_base += PAGE_SIZE;
+            spec.virtual_base = spec.physical_base;
+            spec.type = PAGE_TYPE_NORMAL;
+
+            spec.count = (HUGE_PAGE_SIZE / PAGE_SIZE) - 1;
+            map_pages(&spec);
+
+            spec.physical_base = HUGE_PAGE_SIZE;
+            spec.type = PAGE_TYPE_HUGE;
         }
 
-        pages_to_map = (DIRECT_MAP_MIN_SIZE - base) >> HUGE_PAGE_SHIFT;
-        map_critical_huge_pages(&pt, base, base, pages_to_map);
+        spec.virtual_base = spec.physical_base;
+        spec.count = (DIRECT_MAP_MIN_SIZE - spec.physical_base) >> HUGE_PAGE_SHIFT;
+        map_pages(&spec);
     } else {
         // steal the direct mapping from higher half, we're gonna unmap it later
         pt.root[0] = pt.root[256];
@@ -766,12 +775,17 @@ static u64 build_page_table(struct elf_binary_info *bi,
      * otherwise simply direct map fist 2 gigabytes of physical.
      */
     if (!bi->kernel_range_is_direct_map) {
-        size_t pages = bi->physical_ceiling - bi->physical_base;
-        pages = CEILING_DIVIDE(pages, PAGE_SIZE);
-        map_critical_pages(&pt, bi->virtual_base, bi->physical_base, pages);
+        spec.count = PAGE_ROUND_UP(bi->physical_ceiling - bi->physical_base);
+        spec.count >>= PAGE_SHIFT;
+        spec.physical_base = bi->physical_base;
+        spec.virtual_base = bi->virtual_base;
+        spec.type = PAGE_TYPE_NORMAL;
+        map_pages(&spec);
     } else {
-        map_critical_huge_pages(&pt, HIGHER_HALF_BASE, 0x0000000000000000,
-                                (2ull * GB) / HUGE_PAGE_SIZE);
+        spec.physical_base = 0x0000000000000000;
+        spec.virtual_base = HIGHER_HALF_BASE;
+        spec.count = (2ull * GB) / HUGE_PAGE_SIZE;
+        map_pages(&spec);
     }
 
     return (ptr_t)pt.root;

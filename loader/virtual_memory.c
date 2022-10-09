@@ -44,10 +44,6 @@ static bool do_map_page(struct page_table *pt, u64 virtual_base, u64 physical_ba
     size_t lvl2_index = (virtual_base >> 21) & (ENTRIES_PER_TABLE - 1);
     size_t lvl1_index = (virtual_base >> 12) & (ENTRIES_PER_TABLE - 1);
 
-    // verify alignment
-    BUG_ON(!IS_ALIGNED(virtual_base, huge ? HUGE_PAGE_SIZE : PAGE_SIZE));
-    BUG_ON(!IS_ALIGNED(physical_base, huge ? HUGE_PAGE_SIZE : PAGE_SIZE));
-
     if (pt->levels == 5) {
         lvl4 = table_at(pt->root, lvl5_index);
         if (!lvl4)
@@ -78,73 +74,49 @@ static bool do_map_page(struct page_table *pt, u64 virtual_base, u64 physical_ba
     return true;
 }
 
-bool map_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
+bool map_pages(const struct page_mapping_spec* spec)
 {
-    return do_map_page(pt, virtual_base, physical_base, false);
-}
-
-bool map_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
-{
+    u32 increment;
+    u64 current_virt, current_phys;
     size_t i;
+    bool huge = false;
 
-    for (i = 0; i < pages; ++i) {
-        if (!do_map_page(pt, virtual_base, physical_base, false))
-            return false;
+    switch (spec->type) {
+    case PAGE_TYPE_NORMAL:
+        increment = PAGE_SIZE;
+        break;
+    case PAGE_TYPE_HUGE:
+        increment = HUGE_PAGE_SIZE;
+        huge = true;
+        break;
+    default:
+        BUG();
+    }
 
-        virtual_base  += PAGE_SIZE;
-        physical_base += PAGE_SIZE;
+    // verify alignment
+    BUG_ON(!IS_ALIGNED(spec->virtual_base, increment));
+    BUG_ON(!IS_ALIGNED(spec->physical_base, increment));
+
+    current_virt = spec->virtual_base;
+    current_phys = spec->physical_base;
+
+    for (i = 0; i < spec->count; ++i) {
+        bool ok;
+
+        ok = do_map_page(spec->pt, current_virt, current_phys, huge);
+        if (!ok)
+            goto error_out;
+
+        current_virt += increment;
+        current_phys += increment;
     }
 
     return true;
-}
 
-bool map_huge_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
-{
-    return do_map_page(pt, virtual_base, physical_base, true);
-}
+error_out:
+    if (!spec->critical)
+        return false;
 
-bool map_huge_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
-{
-    size_t i;
-
-    for (i = 0; i < pages; ++i) {
-        if (!do_map_page(pt, virtual_base, physical_base, true))
-            return false;
-
-        virtual_base  += HUGE_PAGE_SIZE;
-        physical_base += HUGE_PAGE_SIZE;
-    }
-
-    return true;
-}
-
-NORETURN
-static void on_critical_mapping_failed(u64 virtual_base, u64 physical_base, size_t pages, bool huge)
-{
-    panic("Out of memory while attempting to map %zu critical pages at 0x%llX (physical 0x%llX) huge: %d\n",
-          pages, virtual_base, physical_base, huge);
-}
-
-void map_critical_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
-{
-    if (!map_page(pt, virtual_base, physical_base))
-        on_critical_mapping_failed(virtual_base, physical_base, 1, false);
-}
-
-void map_critical_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
-{
-    if (!map_pages(pt, virtual_base, physical_base, pages))
-        on_critical_mapping_failed(virtual_base, physical_base, pages, false);
-}
-
-void map_critical_huge_page(struct page_table *pt, u64 virtual_base, u64 physical_base)
-{
-    if (!map_huge_page(pt, virtual_base, physical_base))
-        on_critical_mapping_failed(virtual_base, physical_base, 1, true);
-}
-
-void map_critical_huge_pages(struct page_table *pt, u64 virtual_base, u64 physical_base, size_t pages)
-{
-    if (!map_huge_pages(pt, virtual_base, physical_base, pages))
-        on_critical_mapping_failed(virtual_base, physical_base, pages, true);
+    panic("Out of memory while mapping %zu pages at 0x%016llX to phys x%016llX (huge: %d)\n",
+          spec->count, spec->virtual_base, spec->physical_base, huge);
 }
