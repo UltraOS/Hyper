@@ -5,6 +5,22 @@
 #include "common/constants.h"
 #include "common/align.h"
 #include "common/string.h"
+#include "common/minmax.h"
+
+static void write_u32(void *ptr, u64 data)
+{
+    u32 *dword = ptr;
+    *dword = data;
+}
+
+static void write_u64(void *ptr, u64 data)
+{
+    u64 *qword = ptr;
+    *qword = data;
+}
+
+static u64 read_u32(void *ptr) { return *(u32*)ptr; }
+static u64 read_u64(void *ptr) { return *(u64*)ptr; }
 
 #define PAGE_PRESENT   (1 << 0)
 #define PAGE_READWRITE (1 << 1)
@@ -34,6 +50,24 @@ void page_table_init(struct page_table *pt, enum pt_type type, void *root_page)
     default:
         BUG();
     }
+
+    if (pt->entry_width == 8) {
+        pt->write_slot = write_u64;
+        pt->read_slot = read_u64;
+    } else {
+        pt->write_slot = write_u32;
+        pt->read_slot = read_u32;
+    }
+}
+
+static size_t huge_page_size(struct page_table *pt)
+{
+    return 1ul << (pt->base_shift + pt->table_width_shift);
+}
+
+static size_t page_size(struct page_table *pt)
+{
+    return 1ul << pt->base_shift;
 }
 
 static size_t get_level_bit_offset(struct page_table *pt, size_t idx)
@@ -50,13 +84,18 @@ static size_t get_level_index(struct page_table *pt, u64 virtual_address,
     return table_selector & table_width_mask;
 }
 
+static void *get_table_slot(struct page_table *pt, void *table, size_t idx)
+{
+    return table + pt->entry_width * idx;
+}
+
 static void *table_at(struct page_table *pt, void *table, size_t idx)
 {
-    u64 entry = 0;
+    u64 entry;
     void *page;
-    table += idx * pt->entry_width;
 
-    memcpy(&entry, table, pt->entry_width);
+    table = get_table_slot(pt, table, idx);
+    entry = pt->read_slot(table);
 
     if (entry & PAGE_PRESENT) {
         BUG_ON(entry & PAGE_HUGE);
@@ -74,7 +113,7 @@ static void *table_at(struct page_table *pt, void *table, size_t idx)
     entry = (ptr_t)page;
     entry |= PAGE_READWRITE | PAGE_PRESENT;
 
-    memcpy(table, &entry, pt->entry_width);
+    pt->write_slot(table, entry);
     return page;
 }
 
@@ -116,66 +155,69 @@ out:
     return true;
 }
 
-static void *get_table_slot(struct page_table *pt, void *table,
-                            u64 virtual_address, size_t level)
-{
-    return table + pt->entry_width * get_level_index(pt, virtual_address, level);
-}
+struct bulk_map_ctx {
+    struct page_table *pt;
+    u64 physical_base, virtual_base;
+    size_t page_count;
+    bool huge;
+};
 
-static bool do_map_page(struct page_table *pt, u64 virtual_base,
-                        u64 physical_base, bool huge)
+static bool bulk_map_pages(struct bulk_map_ctx *ctx)
 {
     void *slot;
-    u8 this_level = 1 + huge;
+    struct page_table *pt = ctx->pt;
+    size_t slot_idx, pages_to_map, bytes_per_page;
+    u64 bytes_mapped, pte_entry = ctx->physical_base;
+    u8 this_level = 1 + ctx->huge;
 
-    if (!get_pte(pt, virtual_base, this_level, &slot))
+    bytes_per_page = ctx->huge ? huge_page_size(pt) : page_size(pt);
+
+    BUG_ON(!IS_ALIGNED(ctx->virtual_base, bytes_per_page));
+    BUG_ON(!IS_ALIGNED(ctx->physical_base, bytes_per_page));
+
+    if (!get_pte(pt, ctx->virtual_base, this_level, &slot))
         return false;
 
-    slot = get_table_slot(pt, slot, virtual_base, this_level - 1);
+    slot_idx = get_level_index(pt, ctx->virtual_base, this_level - 1);
+    slot = get_table_slot(pt, slot, slot_idx);
 
-    physical_base |= PAGE_PRESENT | PAGE_READWRITE;
-    if (huge)
-        physical_base |= PAGE_HUGE;
+    pages_to_map = MIN(ctx->page_count, (1 << pt->table_width_shift) - slot_idx);
+    ctx->page_count -= pages_to_map;
 
-    memcpy(slot, &physical_base, pt->entry_width);
+    bytes_mapped = pages_to_map;
+    bytes_mapped *= bytes_per_page;
+    ctx->virtual_base += bytes_mapped;
+    ctx->physical_base += bytes_mapped;
+
+    pte_entry |= PAGE_PRESENT | PAGE_READWRITE;
+    if (ctx->huge)
+        pte_entry |= PAGE_HUGE;
+
+    while (pages_to_map--) {
+        pt->write_slot(slot, pte_entry);
+        slot += pt->entry_width;
+        pte_entry += bytes_per_page;
+    }
+
     return true;
 }
 
 bool map_pages(const struct page_mapping_spec* spec)
 {
-    u32 increment;
-    u64 current_virt, current_phys;
-    size_t i;
-    bool huge = false;
+    struct bulk_map_ctx ctx = {
+        .pt = spec->pt,
+        .physical_base = spec->physical_base,
+        .virtual_base = spec->virtual_base,
+        .page_count = spec->count,
+        .huge = spec->type == PAGE_TYPE_HUGE,
+    };
 
-    switch (spec->type) {
-    case PAGE_TYPE_NORMAL:
-        increment = PAGE_SIZE;
-        break;
-    case PAGE_TYPE_HUGE:
-        increment = HUGE_PAGE_SIZE;
-        huge = true;
-        break;
-    default:
-        BUG();
-    }
-
-    // verify alignment
-    BUG_ON(!IS_ALIGNED(spec->virtual_base, increment));
-    BUG_ON(!IS_ALIGNED(spec->physical_base, increment));
-
-    current_virt = spec->virtual_base;
-    current_phys = spec->physical_base;
-
-    for (i = 0; i < spec->count; ++i) {
+    while (ctx.page_count) {
         bool ok;
 
-        ok = do_map_page(spec->pt, current_virt, current_phys, huge);
+        ok = bulk_map_pages(&ctx);
         if (!ok)
             goto error_out;
-
-        current_virt += increment;
-        current_phys += increment;
     }
 
     return true;
@@ -185,7 +227,7 @@ error_out:
         return false;
 
     panic("Out of memory while mapping %zu pages at 0x%016llX to phys x%016llX (huge: %d)\n",
-          spec->count, spec->virtual_base, spec->physical_base, huge);
+          spec->count, spec->virtual_base, spec->physical_base, ctx.huge);
 }
 
 void map_copy_root_entry(struct page_table* pt, u64 src_virtual_address,
