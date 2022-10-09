@@ -772,9 +772,7 @@ static u64 build_page_table(struct elf_binary_info *bi,
     if (bi->arch != ELF_ARCH_AMD64)
         return 0;
 
-    pt.root = (u64*)allocate_critical_pages(1);
-    pt.levels = 4;
-    memzero(pt.root, PAGE_SIZE);
+    page_table_init(&pt, PT_TYPE_AMD64_4LVL, allocate_critical_pages(1));
 
     // Direct map higher half
     spec.virtual_base = DIRECT_MAP_BASE;
@@ -790,8 +788,8 @@ static u64 build_page_table(struct elf_binary_info *bi,
         map_lower_huge_page(&spec, null_guard);
         map_pages(&spec);
     } else {
-        // steal the direct mapping from higher half, we're gonna unmap it later
-        pt.root[0] = pt.root[256];
+        // Steal the direct mapping from higher half, we're gonna unmap it later
+        map_copy_root_entry(&pt, DIRECT_MAP_BASE, 0x0000000000000000);
     }
 
     mm_foreach_entry(do_map_high_memory, &ctx);
