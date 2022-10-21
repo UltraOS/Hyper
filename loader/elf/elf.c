@@ -185,7 +185,6 @@ static bool elf_do_load(struct elf_load_ctx *ctx)
     cur_off = ph_info->off;
     bi->virtual_base = -1ull;
     bi->physical_base = -1ull;
-    bi->kernel_range_is_direct_map = !ctx->alloc_anywhere;
 
     for (i = 0; i < ph_info->count; ++i, cur_off += ph_info->entsize) {
         struct elf_load_ph hdr;
@@ -198,7 +197,7 @@ static bool elf_do_load(struct elf_load_ctx *ctx)
         if (skip)
             continue;
 
-        if (hdr.virt_addr < HIGHER_HALF_BASE && ctx->alloc_anywhere)
+        if (hdr.virt_addr < spec->higher_half_base && ctx->alloc_anywhere)
             ELF_ERROR_1(err, "invalid load address", hdr.virt_addr);
 
         if (hdr.virt_addr < bi->virtual_base)
@@ -217,11 +216,11 @@ static bool elf_do_load(struct elf_load_ctx *ctx)
             bi->entrypoint_address += hdr.phys_addr;
         }
 
-        if (hdr.phys_addr >= HIGHER_HALF_BASE) {
+        if (hdr.phys_addr >= spec->higher_half_base) {
             if (!ctx->use_va)
                 ELF_ERROR_1(err, "invalid load address", hdr.phys_addr);
 
-            hdr.phys_addr -= HIGHER_HALF_BASE;
+            hdr.phys_addr -= spec->higher_half_base;
 
             if ((hdr.phys_addr < (1 * MB)) && !ctx->alloc_anywhere)
                 ELF_ERROR_1(err, "invalid load address", hdr.phys_addr);
@@ -290,8 +289,8 @@ static bool elf_do_load(struct elf_load_ctx *ctx)
                         hdr.filesz, hdr.memsz);
         }
 
-        if (addr >= HIGHER_HALF_BASE)
-            addr -= HIGHER_HALF_BASE;
+        if (addr >= spec->higher_half_base)
+            addr -= spec->higher_half_base;
 
         if (!ctx->alloc_anywhere) {
             load_base = addr;
