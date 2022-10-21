@@ -113,12 +113,15 @@ static bool is_valid_file_size(u32 size)
     return size > sizeof(struct Elf64_Ehdr);
 }
 
-static u64 data_alloc(u64 address, size_t pages, u32 type, bool alloc_anywhere)
+static u64 data_alloc(u64 address, size_t pages,
+                      const struct elf_load_spec *spec,
+                      bool alloc_anywhere)
 {
     struct allocation_spec as = {
+        .ceiling = spec->binary_ceiling,
         .pages = pages,
         .flags = ALLOCATE_CRITICAL,
-        .type = type
+        .type = spec->memory_type,
     };
 
     if (!alloc_anywhere) {
@@ -204,12 +207,18 @@ static bool elf_do_load(struct elf_load_ctx *ctx)
     bi->physical_ceiling = PAGE_ROUND_UP(bi->physical_ceiling);
 
     pages = (bi->virtual_ceiling - bi->virtual_base) / PAGE_SIZE;
-    bi->physical_base = data_alloc(bi->physical_base, pages, spec->memory_type,
-                                   ctx->alloc_anywhere);
     if (ctx->alloc_anywhere) {
         bi->physical_ceiling = bi->physical_base;
         bi->physical_ceiling += pages * PAGE_SIZE;
     }
+
+    if (spec->binary_ceiling && bi->physical_ceiling > spec->binary_ceiling) {
+        ELF_ERROR_2(err, "load address is above max", bi->physical_ceiling,
+                                                      spec->binary_ceiling);
+    }
+
+    bi->physical_base = data_alloc(bi->physical_base, pages, spec,
+                                   ctx->alloc_anywhere);
 
     ph_addr = data + ph_info->off;
     for (i = 0; i < ph_info->count; ++i, ph_addr += ph_info->entsize) {

@@ -9,8 +9,10 @@ struct elf_load_spec {
     void *data;
     size_t size;
 
-    u32 memory_type;
     u32 flags;
+
+    u32 memory_type;
+    u64 binary_ceiling;
 };
 
 enum elf_arch {
