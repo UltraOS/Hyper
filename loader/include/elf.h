@@ -20,6 +20,7 @@ struct elf_load_spec {
 
     u32 memory_type;
     u64 binary_ceiling;
+    u64 higher_half_base;
 };
 
 enum elf_arch {
@@ -38,7 +39,6 @@ struct elf_binary_info {
     u64 physical_ceiling;
 
     enum elf_arch arch;
-    bool kernel_range_is_direct_map;
 };
 
 struct elf_error {
