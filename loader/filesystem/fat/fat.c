@@ -344,7 +344,12 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
     u8 cs;
     u32 current_file_offset = 1;
     u32 max_clusters, current_cluster = file->first_cluster;
-    struct fat_filesystem *fs = container_of(file->f.fs, struct fat_filesystem, f);
+    struct fat_filesystem *fs;
+
+    if (file->range_count)
+        return true;
+
+    fs = container_of(file->f.fs, struct fat_filesystem, f);
 
     /*
      * Allow the chain to be longer than the file size by an arbitrary
