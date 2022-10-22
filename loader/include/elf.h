@@ -1,13 +1,20 @@
 #pragma once
 
 #include "common/types.h"
+#include "filesystem/block_cache.h"
+
+struct file;
 
 #define ELF_ALLOCATE_ANYWHERE     (1 << 0)
 #define ELF_USE_VIRTUAL_ADDRESSES (1 << 1)
 
+struct elf_io {
+    struct file *binary;
+    struct block_cache hdr_cache;
+};
+
 struct elf_load_spec {
-    void *data;
-    size_t size;
+    struct elf_io io;
 
     u32 flags;
 
@@ -40,11 +47,14 @@ struct elf_error {
     u8 arg_count;
 };
 
-bool elf_load(const struct elf_load_spec *spec,
+// Called automatically by elf_load if needed
+bool elf_init_io_cache(struct elf_io *io, struct elf_error *err);
+
+bool elf_load(struct elf_load_spec *spec,
               struct elf_binary_info *out_info,
               struct elf_error *out_error);
 
-bool elf_get_arch(void *hdr_data, size_t size,
-                  enum elf_arch *arch, struct elf_error *err);
+bool elf_get_arch(struct elf_io *io, enum elf_arch *arch,
+                  struct elf_error *err);
 
 void elf_pretty_print_error(const struct elf_error *err, const char *prefix);
