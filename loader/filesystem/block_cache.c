@@ -37,7 +37,8 @@ struct cached_span {
     void *data;
 };
 
-static bool cached_span_from_block(struct block_cache *bc, u64 base_block, struct cached_span *out_span)
+static bool cached_span_from_block(struct block_cache *bc, u64 base_block,
+                                   struct cached_span *out_span)
 {
     size_t cache_off;
 
@@ -56,7 +57,8 @@ static bool cached_span_from_block(struct block_cache *bc, u64 base_block, struc
     return true;
 }
 
-static bool cached_range_get_ptr(struct block_cache *bc, void **buf, u64 base_block, size_t count)
+static bool cached_range_get_ptr(struct block_cache *bc, void **buf,
+                                 u64 base_block, size_t count)
 {
     struct cached_span cs;
 
@@ -78,7 +80,9 @@ bool block_cache_refill(struct block_cache *bc, u64 base_block)
     // Some dangling references still alive
     BUG_ON(bc->nocopy_refs != 0);
 
-    if (!bc->refill_blocks_cb(bc->user_ptr, bc->cache_buf, base_block, bc->cache_block_cap)) {
+    if (!bc->refill_blocks_cb(bc->user_ptr, bc->cache_buf, base_block,
+                              bc->cache_block_cap))
+    {
         bc->flags |= BC_EMPTY;
         return false;
     }
@@ -101,7 +105,8 @@ static void block_coords_offset_by(struct block_coords *bc, u64 blocks)
     bc->byte_off = 0;
 }
 
-static void byte_offsets_to_block_coords(struct block_cache *bc, u64 byte_off, size_t byte_cnt,
+static void byte_offsets_to_block_coords(struct block_cache *bc, u64 byte_off,
+                                         size_t byte_cnt,
                                          struct block_coords *out)
 {
     BUG_ON(byte_cnt == 0);
@@ -125,7 +130,8 @@ enum completion_result {
     CR_FULL
 };
 
-static enum completion_result block_cache_try_complete_req(struct block_cache *bc, struct block_req *br)
+static enum completion_result
+block_cache_try_complete_req(struct block_cache *bc, struct block_req *br)
 {
     size_t bytes_to_copy;
     struct cached_span cs;
@@ -157,7 +163,8 @@ static bool req_exec(struct block_cache *bc, struct block_req *br)
     }
 }
 
-bool block_cache_read(struct block_cache *bc, void *buf, u64 byte_off, size_t count)
+bool block_cache_read(struct block_cache *bc, void *buf, u64 byte_off,
+                      size_t count)
 {
     struct block_req br = {
         .buf = buf,
@@ -168,7 +175,8 @@ bool block_cache_read(struct block_cache *bc, void *buf, u64 byte_off, size_t co
     return req_exec(bc, &br);
 }
 
-bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block, size_t count)
+bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block,
+                             size_t count)
 {
     struct block_req br;
 
@@ -195,7 +203,8 @@ bool block_cache_read_blocks(struct block_cache *bc, void *buf, u64 block, size_
     return req_exec(bc, &br);
 }
 
-bool block_cache_take_ref(struct block_cache *bc, void **buf, u64 byte_off, size_t count)
+bool block_cache_take_ref(struct block_cache *bc, void **buf, u64 byte_off,
+                          size_t count)
 {
     struct block_coords c;
     byte_offsets_to_block_coords(bc, byte_off, count, &c);
