@@ -63,3 +63,8 @@ static inline void block_cache_enable_direct_io(struct block_cache *bc)
 {
     bc->flags |= BC_DIRECT_IO;
 }
+
+static inline void *block_cache_get_buf(struct block_cache *bc)
+{
+    return bc->cache_buf;
+}
