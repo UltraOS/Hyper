@@ -6,11 +6,12 @@
 #include "allocator.h"
 #include "filesystem/block_cache.h"
 
-void block_cache_init(struct block_cache *bc, bool (*refill_blocks_cb)(void*, void*, u64, size_t),
-                      void *user_ptr, u8 block_shift, void *cache_buf, size_t buf_block_cap)
+void block_cache_init(struct block_cache *bc, block_cache_refill_cb_t cb,
+                      void *user_ptr, u8 block_shift, void *cache_buf,
+                      size_t buf_block_cap)
 {
     *bc = (struct block_cache) {
-        .refill_blocks_cb = refill_blocks_cb,
+        .refill_blocks_cb = cb,
         .user_ptr = user_ptr,
         .cache_buf = cache_buf,
         .cache_block_cap = buf_block_cap,
