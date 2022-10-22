@@ -231,14 +231,13 @@ static void module_load(struct config *cfg, struct value *module_value,
 struct kernel_info {
     struct binary_options bin_opts;
     struct elf_binary_info bin_info;
-    void *elf_blob;
-    size_t blob_size;
+    struct file *binary;
 };
 
-static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct kernel_info *info)
+static void load_kernel(struct config *cfg, struct loadable_entry *entry,
+                        struct kernel_info *info)
 {
     const struct fs_entry *fse;
-    struct file *f;
     struct binary_options *bo = &info->bin_opts;
 
     enum elf_arch arch;
@@ -250,23 +249,15 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct
     get_binary_options(cfg, entry, bo);
     fse = fst_fs_by_full_path(&bo->path);
 
-    f = path_open(fse->fs, bo->path.path_within_partition);
-    if (!f)
+    info->binary = path_open(fse->fs, bo->path.path_within_partition);
+    if (!info->binary)
         oops("failed to open %pSV\n", &bo->path.path_within_partition);
 
-    info->blob_size = f->size;
+    spec.io.binary = info->binary;
 
-    /*
-     * We can use module_data_alloc here because the binary either ends up
-     * getting freed later on or handed over to the kernel as a module
-     * (in case 'kernel-as-module' is enabled).
-     */
-    info->elf_blob = module_data_alloc(0, info->blob_size, info->blob_size, false);
-
-    if (!f->fs->read_file(f, info->elf_blob, 0, info->blob_size))
-        oops("failed to read file\n");
-
-    if (!elf_get_arch(info->elf_blob, info->blob_size, &arch, &err))
+    if (!elf_init_io_cache(&spec.io, &err))
+        goto elf_error;
+    if (!elf_get_arch(&spec.io, &arch, &err))
         goto elf_error;
 
     if (bo->allocate_anywhere && arch != ELF_ARCH_AMD64)
@@ -274,8 +265,6 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct
     if (arch == ELF_ARCH_AMD64 && !cpu_supports_long_mode())
         oops("attempted to load a 64 bit kernel on a CPU without long mode support\n");
 
-    spec.data = info->elf_blob;
-    spec.size = info->blob_size;
 
     if (arch == ELF_ARCH_AMD64)
         spec.flags |= ELF_USE_VIRTUAL_ADDRESSES;
@@ -285,7 +274,6 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry, struct
     if (!elf_load(&spec, &info->bin_info, &err))
         goto elf_error;
 
-    fse->fs->close_file(f);
     return;
 
 elf_error:
@@ -882,26 +870,38 @@ static struct ultra_module_info_attribute *module_alloc(struct dynamic_buffer *b
     return attr;
 }
 
-static bool load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
+static void load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
                                   struct attribute_array_spec *spec)
 {
     bool kernel_as_module = false;
     struct ultra_module_info_attribute *mi;
+    struct kernel_info *ki = &spec->kern_info;
+    struct file *binary = ki->binary;
+    void *data;
+    size_t size;
 
     cfg_get_bool(cfg, le, SV("kernel-as-module"), &kernel_as_module);
     if (!kernel_as_module)
-        return false;
+        goto out;
+
+    size = binary->size;
+    data = module_data_alloc(0, size, size, false);
+
+    if (!binary->fs->read_file(binary, data, 0, size))
+        oops("failed to read kernel binary");
 
     mi = module_alloc(&spec->module_buf);
     mi->type = ULTRA_MODULE_TYPE_FILE;
-    mi->address = (ptr_t)spec->kern_info.elf_blob;
-    mi->size = spec->kern_info.blob_size;
+    mi->address = (ptr_t)data;
+    mi->size = size;
     sv_terminated_copy(mi->name, SV("__KERNEL__"));
 
     if (spec->higher_half_pointers)
         mi->address += DIRECT_MAP_BASE;
 
-    return true;
+out:
+    ki->binary = NULL;
+    binary->fs->close_file(binary);
 }
 
 static void load_all_modules(struct config *cfg, struct loadable_entry *le,
@@ -965,12 +965,7 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     spec.higher_half_pointers = is_higher_half_exclusive;
     spec.cmdline_present = get_cmdline(cfg, le, cmdline_buf, &spec.cmdline);
 
-    if (!load_kernel_as_module(cfg, le, &spec)) {
-        free_bytes(spec.kern_info.elf_blob, spec.kern_info.blob_size);
-        spec.kern_info.elf_blob = NULL;
-        spec.kern_info.blob_size = 0;
-    }
-
+    load_kernel_as_module(cfg, le, &spec);
     load_all_modules(cfg, le, &spec);
     pt = build_page_table(&spec.kern_info.bin_info, is_higher_half_exclusive,
                           null_guard);
