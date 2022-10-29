@@ -1068,7 +1068,7 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
     struct kernel_info *ki = &spec->kern_info;
     struct handover_info *hi = &ki->hi;
     bool is_higher_half_exclusive = false, null_guard = false;
-    u64 pt_levels = 4, min_levels;
+    u64 pt_levels = 4;
     struct string_view constraint_str = SV("maximum");
     enum pt_constraint constraint = PT_CONSTRAINT_MAX;
     enum pt_type type;
@@ -1106,7 +1106,6 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
     if (hi->flags & HO_X86_LME) {
         hi->flags |= HO_X86_PAE;
         type = PT_TYPE_AMD64_4LVL;
-        min_levels = pt_depth(type);
 
         if ((pt_levels == 5 || constraint == PT_CONSTRAINT_AT_LEAST) &&
             handover_is_flag_supported(HO_X86_LA57))
@@ -1120,7 +1119,6 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
             goto out_failed_constraint;
     } else {
         type = PT_TYPE_I386_NO_PAE;
-        min_levels = pt_depth(type);
 
         if ((pt_levels == 3 || constraint == PT_CONSTRAINT_AT_LEAST) &&
             handover_is_flag_supported(HO_X86_PAE))
@@ -1134,15 +1132,10 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
             goto out_failed_constraint;
     }
 
-    if (pt_levels < min_levels && constraint != PT_CONSTRAINT_AT_LEAST)
-        goto out_invalid_levels;
-
-    if ((constraint == PT_CONSTRAINT_EXACTLY || constraint == PT_CONSTRAINT_MAX)
-        && pt_levels < min_levels)
-    {
-        oops("invalid page-table levels %llu\n", pt_levels);
+    if (pt_levels < pt_depth(type) && constraint != PT_CONSTRAINT_AT_LEAST) {
+        oops("invalid page-table levels value %llu, expected minimum %zu\n",
+             pt_levels, pt_depth(type));
     }
-
 
     hi->direct_map_base = direct_map_base(hi->flags);
     hi->pt_root = do_build_page_table(ki, type, is_higher_half_exclusive,
@@ -1153,10 +1146,6 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
 out_failed_constraint:
     oops("failed to satisfy page-table constraint '%pSV', %llu levels not supported\n",
          &constraint_str, pt_levels);
-
-out_invalid_levels:
-    oops("invalid page-table levels value %llu, expected minimum %llu\n",
-         pt_levels, min_levels);
 }
 
 NORETURN
