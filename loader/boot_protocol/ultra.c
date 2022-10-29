@@ -26,6 +26,59 @@ struct binary_options {
     bool allocate_anywhere;
 };
 
+#define AMD64_HIGHER_HALF_BASE     0xFFFFFFFF80000000
+#define I686_HIGHER_HALF_BASE      0xC0000000
+
+#define AMD64_DIRECT_MAP_BASE      0xFFFF800000000000
+#define AMD64_LA57_DIRECT_MAP_BASE 0xFF00000000000000
+#define I686_DIRECT_MAP_BASE       I686_HIGHER_HALF_BASE
+
+static inline u64 higher_half_base(u32 flags)
+{
+    if (flags & HO_X86_LME)
+        return AMD64_HIGHER_HALF_BASE;
+
+    return I686_HIGHER_HALF_BASE;
+}
+
+static inline u64 higher_half_size(u32 flags)
+{
+    u64 hh = higher_half_base(flags);
+    u64 max_addr = 4ull * GB;
+
+    if (flags & HO_X86_LME)
+        max_addr = 0xFFFFFFFFFFFFFFFF;
+
+    return (max_addr - hh) + 1;
+}
+
+static inline u64 direct_map_base(u32 flags)
+{
+    if (flags & HO_X86_LME) {
+        if (flags & HO_X86_LA57)
+            return AMD64_LA57_DIRECT_MAP_BASE;
+
+        return AMD64_DIRECT_MAP_BASE;
+    }
+
+    return I686_DIRECT_MAP_BASE;
+}
+
+static inline u64 max_binary_address(u32 flags)
+{
+    if (flags & HO_X86_LME) {
+        #ifdef __i386__
+            return (4ull * GB);
+        #else
+            // No known limitations
+            return 0xFFFFFFFFFFFFFFFF;
+        #endif
+    }
+
+    // Must be accessible from the higher half
+    return (4ull * GB) - I686_DIRECT_MAP_BASE;
+}
+
 static void get_binary_options(struct config *cfg, struct loadable_entry *le, struct binary_options *opts)
 {
     struct value binary_val;
@@ -105,7 +158,8 @@ static u64 module_get_load_address(struct config *cfg, struct value *module_valu
     return load_at_value.as_unsigned;
 }
 
-static void *module_data_alloc(u64 addr, size_t size, size_t zero_after_offset,
+static void *module_data_alloc(u64 addr, u64 ceiling, size_t size,
+                               size_t zero_after_offset,
                                bool has_load_address)
 {
     size_t zeroed_bytes;
@@ -128,10 +182,17 @@ static void *module_data_alloc(u64 addr, size_t size, size_t zero_after_offset,
                  addr, size);
         }
 
+        if ((addr + size) > ceiling) {
+            oops("module is too high in memory 0x%016llX (ceiling: 0x%016llX)\n",
+                 addr, ceiling);
+        }
+
         if (range_outside_of_address_space(addr, size)) {
             oops("inaccessible module at 0x%016llX (%zu bytes)\n",
                  addr, size);
         }
+    } else {
+        as.ceiling = ceiling;
     }
 
     addr = allocate_pages_ex(&as);
@@ -142,7 +203,7 @@ static void *module_data_alloc(u64 addr, size_t size, size_t zero_after_offset,
 }
 
 static void module_load(struct config *cfg, struct value *module_value,
-                        struct ultra_module_info_attribute *attrs)
+                        struct ultra_module_info_attribute *attrs, u64 ceiling)
 {
     bool has_path, has_load_address = false;
     struct string_view str_path, module_name = { 0 };
@@ -206,7 +267,7 @@ static void module_load(struct config *cfg, struct value *module_value,
             bytes_to_read = module_size;
         }
 
-        module_data = module_data_alloc(load_address, module_size,
+        module_data = module_data_alloc(load_address, ceiling, module_size,
                                         bytes_to_read, has_load_address);
 
         if (!module_file->fs->read_file(module_file, module_data, 0,
@@ -219,7 +280,7 @@ static void module_load(struct config *cfg, struct value *module_value,
         if (!module_size)
             oops("module size cannot be \"auto\" for type \"memory\"\n");
 
-        module_data = module_data_alloc(load_address, module_size, 0,
+        module_data = module_data_alloc(load_address, ceiling, module_size, 0,
                                         has_load_address);
     }
 
@@ -232,6 +293,9 @@ struct kernel_info {
     struct binary_options bin_opts;
     struct elf_binary_info bin_info;
     struct file *binary;
+
+    bool is_higher_half;
+    struct handover_info hi;
 };
 
 static void load_kernel(struct config *cfg, struct loadable_entry *entry,
@@ -239,6 +303,8 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry,
 {
     const struct fs_entry *fse;
     struct binary_options *bo = &info->bin_opts;
+    struct handover_info *hi = &info->hi;
+    struct elf_binary_info *bi = &info->bin_info;
 
     enum elf_arch arch;
     struct elf_error err = { 0 };
@@ -260,20 +326,27 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry,
     if (!elf_get_arch(&spec.io, &arch, &err))
         goto elf_error;
 
-    if (bo->allocate_anywhere && arch != ELF_ARCH_AMD64)
-        oops("allocate-anywhere is only allowed for 64 bit kernels\n");
-    if (arch == ELF_ARCH_AMD64 && !cpu_supports_long_mode())
-        oops("attempted to load a 64 bit kernel on a CPU without long mode support\n");
-
-
-    if (arch == ELF_ARCH_AMD64)
-        spec.flags |= ELF_USE_VIRTUAL_ADDRESSES;
+    spec.flags |= ELF_USE_VIRTUAL_ADDRESSES;
     if (bo->allocate_anywhere)
         spec.flags |= ELF_ALLOCATE_ANYWHERE;
+
+    if (arch == ELF_ARCH_I386) {
+        if (bo->allocate_anywhere)
+            oops("allocate-anywhere is only allowed for 64 bit kernels\n");
+    } else {
+        hi->flags |= HO_X86_LME;
+    }
+
+    handover_ensure_supported_flags(hi->flags);
+
+    spec.binary_ceiling = max_binary_address(hi->flags);
+    spec.higher_half_base = higher_half_base(hi->flags);
 
     if (!elf_load(&spec, &info->bin_info, &err))
         goto elf_error;
 
+    hi->entrypoint = bi->entrypoint_address;
+    info->is_higher_half = hi->entrypoint >= spec.higher_half_base;
     return;
 
 elf_error:
@@ -439,7 +512,6 @@ struct attribute_array_spec {
 
     struct dynamic_buffer module_buf;
 
-    u64 stack_address;
     ptr_t acpi_rsdp_address;
 };
 
@@ -534,10 +606,6 @@ static void *write_framebuffer(struct ultra_framebuffer_attribute *fb_attr,
     fb_attr->header.type = ULTRA_ATTRIBUTE_FRAMEBUFFER_INFO;
     fb_attr->header.size = sizeof(struct ultra_framebuffer_attribute);
     fb_attr->fb = spec->fb;
-
-    if (spec->higher_half_pointers)
-        fb_attr->fb.address += DIRECT_MAP_BASE;
-
     return ++fb_attr;
 }
 
@@ -572,7 +640,8 @@ static void *write_command_line_attribute(void *attr_ptr,
     return attr_ptr + aligned_len;
 }
 
-static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
+static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
+                                   u64 array_ceiling)
 {
     u32 cmdline_aligned_length = 0;
     size_t mm_entry_count, pages_needed, bytes_needed = 0;
@@ -606,12 +675,19 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
     pages_needed >>= PAGE_SHIFT;
 
     /*
-     * Attempt to allocate the storage for attribute array while having enough space for the memory map
-     * (which is changed every time we allocate/free more memory)
+     * Attempt to allocate the storage for attribute array while having enough
+     * space for the memory map. (which is changed every time we allocate/free
+     * more memory)
      */
     for (;;) {
         size_t mm_entry_count_new;
-        ret = (ptr_t)allocate_critical_pages(pages_needed);
+        struct allocation_spec as = {
+            .ceiling = array_ceiling,
+            .pages = pages_needed,
+            .flags = ALLOCATE_CRITICAL
+        };
+
+        ret = allocate_pages_ex(&as);
 
         // Check if memory map had to grow to store the previous allocation
         mm_entry_count_new = services_release_resources(NULL, 0, 0, NULL);
@@ -662,10 +738,10 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec)
     return ret;
 }
 
-#define DIRECT_MAP_MIN_SIZE (4ull * GB)
-
 struct page_mapper_ctx {
     struct page_mapping_spec *spec;
+    u64 direct_map_min_size;
+    u64 direct_map_base;
     bool map_lower;
 };
 
@@ -676,14 +752,15 @@ static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
     u64 aligned_begin, aligned_end;
     size_t page_count;
 
-    aligned_end = HUGE_PAGE_ROUND_UP(me->physical_address + me->size_in_bytes);
+    aligned_end = me->physical_address + me->size_in_bytes;
+    aligned_end = HUGE_PAGE_ROUND_UP(spec->pt, aligned_end);
 
-    if (aligned_end <= DIRECT_MAP_MIN_SIZE)
+    if (aligned_end <= ctx->direct_map_min_size)
         return true;
 
-    aligned_begin = HUGE_PAGE_ROUND_DOWN(me->physical_address);
-    aligned_begin = MAX(DIRECT_MAP_MIN_SIZE, aligned_begin);
-    page_count = (aligned_end - aligned_begin) >> HUGE_PAGE_SHIFT;
+    aligned_begin = HUGE_PAGE_ROUND_DOWN(spec->pt, me->physical_address);
+    aligned_begin = MAX(ctx->direct_map_min_size, aligned_begin);
+    page_count = (aligned_end - aligned_begin) >> huge_page_shift(spec->pt);
 
     print_info("mapping high memory: 0x%016llX -> 0x%016llX (%zu pages)\n",
                aligned_begin, aligned_end, page_count);
@@ -695,14 +772,14 @@ static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
     if (ctx->map_lower)
         map_pages(spec);
 
-    spec->virtual_base += DIRECT_MAP_BASE;
+    spec->virtual_base += ctx->direct_map_base;
     map_pages(spec);
 
     return true;
 }
 
 /*
- * Always map the first 2MiB of physical memory with small pages.
+ * Always map the first 2/4MiB of physical memory with small pages.
  * We do this to avoid accidentally crossing any MTRR boundaries
  * with different cache types in the lower MiB.
  *
@@ -722,7 +799,7 @@ static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
 static void map_lower_huge_page(struct page_mapping_spec *spec, bool null_guard)
 {
     size_t old_count = spec->count;
-    size_t size_to_map = HUGE_PAGE_SIZE;
+    size_t size_to_map = huge_page_size(spec->pt);
 
     spec->type = PAGE_TYPE_NORMAL;
     spec->physical_base = 0x0000000000000000;
@@ -742,51 +819,82 @@ static void map_lower_huge_page(struct page_mapping_spec *spec, bool null_guard)
     spec->count = old_count - 1;
 }
 
-static u64 build_page_table(struct elf_binary_info *bi,
-                            bool higher_half_exclusive,
-                            bool null_guard)
+static u64 do_build_page_table(struct kernel_info *ki, enum pt_type type,
+                               bool higher_half_exclusive,
+                               bool null_guard)
 {
+    struct handover_info *hi = &ki->hi;
+    struct elf_binary_info *bi = &ki->bin_info;
+    enum elf_arch arch = bi->arch;
+    u64 hh_base;
+
     struct page_table pt;
     struct page_mapping_spec spec = {
         .pt = &pt,
         .type = PAGE_TYPE_HUGE,
-        .critical = true
+        .critical = true,
     };
     struct page_mapper_ctx ctx = {
         .spec = &spec,
-        .map_lower = !higher_half_exclusive
+        .direct_map_base = direct_map_base(hi->flags),
+        .map_lower = !higher_half_exclusive,
     };
+    u8 hp_shift;
 
-    if (bi->arch != ELF_ARCH_AMD64)
-        return 0;
+    hh_base = higher_half_base(hi->flags);
+    page_table_init(
+        &pt, type,
+        handover_get_max_pt_address(ctx.direct_map_base, hi->flags)
+    );
+    hp_shift = huge_page_shift(&pt);
+    ctx.direct_map_min_size =
+            handover_get_minimum_map_length(ctx.direct_map_base, hi->flags);
 
-    page_table_init(&pt, PT_TYPE_AMD64_4LVL, allocate_critical_pages(1));
+    if (arch == ELF_ARCH_AMD64) {
+        ctx.direct_map_min_size = MAX(ctx.direct_map_min_size, 4ull * GB);
+    } else {
+        u64 direct_map_size = (4ull * GB) - I686_DIRECT_MAP_BASE;
+
+        BUG_ON(ctx.direct_map_min_size > direct_map_size);
+        ctx.direct_map_min_size = direct_map_size;
+    }
 
     // Direct map higher half
-    spec.virtual_base = DIRECT_MAP_BASE;
-    spec.count = DIRECT_MAP_MIN_SIZE >> HUGE_PAGE_SHIFT;
+    spec.virtual_base = ctx.direct_map_base;
+    spec.count = ctx.direct_map_min_size >> hp_shift;
 
     map_lower_huge_page(&spec, false);
     map_pages(&spec);
 
     if (ctx.map_lower) {
         spec.virtual_base = 0x0000000000000000;
-        spec.count = DIRECT_MAP_MIN_SIZE >> HUGE_PAGE_SHIFT;
+
+        if (arch == ELF_ARCH_AMD64)
+            spec.count = ctx.direct_map_min_size >> hp_shift;
+        else
+            spec.count = I686_DIRECT_MAP_BASE >> hp_shift;
 
         map_lower_huge_page(&spec, null_guard);
         map_pages(&spec);
     } else {
+        u64 root_cov, off;
+        root_cov = pt_level_entry_virtual_coverage(&pt, pt.levels - 1);
+
         // Steal the direct mapping from higher half, we're gonna unmap it later
-        map_copy_root_entry(&pt, DIRECT_MAP_BASE, 0x0000000000000000);
+        for (off = 0; off < ctx.direct_map_min_size; off += root_cov) {
+            map_copy_root_entry(&pt, ctx.direct_map_base + off,
+                                     0x0000000000000000  + off);
+        }
     }
 
-    mm_foreach_entry(do_map_high_memory, &ctx);
+    if (arch == ELF_ARCH_AMD64)
+        mm_foreach_entry(do_map_high_memory, &ctx);
 
     /*
      * If kernel had allocate-anywhere set to on, map virtual base to physical base,
-     * otherwise simply direct map fist 2 gigabytes of physical.
+     * otherwise simply direct map fist N gigabytes of physical.
      */
-    if (!bi->kernel_range_is_direct_map) {
+    if (ki->bin_opts.allocate_anywhere) {
         spec.physical_base = bi->physical_base;
         spec.virtual_base = bi->virtual_base;
 
@@ -795,9 +903,9 @@ static u64 build_page_table(struct elf_binary_info *bi,
 
         spec.type = PAGE_TYPE_NORMAL;
         map_pages(&spec);
-    } else {
-        spec.virtual_base = HIGHER_HALF_BASE;
-        spec.count = (2ull * GB) >> HUGE_PAGE_SHIFT;
+    } else if (hh_base != ctx.direct_map_base) {
+        spec.virtual_base = hh_base;
+        spec.count = higher_half_size(hi->flags) >> huge_page_shift(&pt);
 
         map_lower_huge_page(&spec, false);
         map_pages(&spec);
@@ -806,12 +914,14 @@ static u64 build_page_table(struct elf_binary_info *bi,
     return (ptr_t)pt.root;
 }
 
-static u64 pick_stack(struct config *cfg, struct loadable_entry *le)
+static void allocate_stack(struct config *cfg, struct loadable_entry *le,
+                           struct handover_info *hi)
 {
     struct value val;
     size_t size = 16 * KB;
     bool has_val;
     struct allocation_spec as = {
+        .ceiling = max_binary_address(hi->flags),
         .flags = ALLOCATE_CRITICAL | ALLOCATE_STACK,
         .type = ULTRA_MEMORY_TYPE_KERNEL_STACK,
     };
@@ -839,19 +949,18 @@ static u64 pick_stack(struct config *cfg, struct loadable_entry *le)
         } else if (has_size) { // unsigned
             size = PAGE_ROUND_UP(size_val.as_unsigned);
         }
+
+        if (unlikely(!size || ((as.addr + size) < as.addr))) {
+            oops("invalid stack address (0x%016llX) + size (%zu) combination\n",
+                 as.addr, size);
+        }
     } else if (has_val) { // string
         if (!sv_equals(val.as_string, SV("auto")))
             oops("invalid value for \"stack\": %pSV\n", &val.as_string);
     }
 
-
-    if (unlikely(!size || ((as.addr + size) < as.addr))) {
-        oops("invalid stack address (0x%016llX) + size (%zu) combination\n",
-             as.addr, size);
-    }
-
     as.pages = size >> PAGE_SHIFT;
-    return allocate_pages_ex(&as);
+    hi->stack = allocate_pages_ex(&as);
 }
 
 static struct ultra_module_info_attribute *module_alloc(struct dynamic_buffer *buf)
@@ -876,6 +985,7 @@ static void load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
     bool kernel_as_module = false;
     struct ultra_module_info_attribute *mi;
     struct kernel_info *ki = &spec->kern_info;
+    struct handover_info *hi = &ki->hi;
     struct file *binary = ki->binary;
     void *data;
     size_t size;
@@ -885,7 +995,8 @@ static void load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
         goto out;
 
     size = binary->size;
-    data = module_data_alloc(0, size, size, false);
+    data = module_data_alloc(0, max_binary_address(hi->flags),
+                             size, size, false);
 
     if (!binary->fs->read_file(binary, data, 0, size))
         oops("failed to read kernel binary");
@@ -897,7 +1008,7 @@ static void load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
     sv_terminated_copy(mi->name, SV("__KERNEL__"));
 
     if (spec->higher_half_pointers)
-        mi->address += DIRECT_MAP_BASE;
+        mi->address += hi->direct_map_base;
 
 out:
     ki->binary = NULL;
@@ -907,6 +1018,7 @@ out:
 static void load_all_modules(struct config *cfg, struct loadable_entry *le,
                              struct attribute_array_spec *spec)
 {
+    struct handover_info *hi = &spec->kern_info.hi;
     struct value module_value;
 
     if (!cfg_get_first_one_of(cfg, le, SV("module"), VALUE_STRING | VALUE_OBJECT, &module_value))
@@ -914,10 +1026,10 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le,
 
     do {
         struct ultra_module_info_attribute *mi = module_alloc(&spec->module_buf);
-        module_load(cfg, &module_value, mi);
+        module_load(cfg, &module_value, mi, max_binary_address(hi->flags));
 
         if (spec->higher_half_pointers)
-            mi->address += DIRECT_MAP_BASE;
+            mi->address += hi->direct_map_base;
     } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
 }
 
@@ -944,32 +1056,129 @@ static bool get_cmdline(struct config *cfg, struct loadable_entry *le,
     return true;
 }
 
+enum pt_constraint {
+    PT_CONSTRAINT_AT_LEAST,
+    PT_CONSTRAINT_EXACTLY,
+    PT_CONSTRAINT_MAX,
+};
+
+static void build_page_table(struct config *cfg, struct loadable_entry *le,
+                             struct attribute_array_spec *spec)
+{
+    struct kernel_info *ki = &spec->kern_info;
+    struct handover_info *hi = &ki->hi;
+    bool is_higher_half_exclusive = false, null_guard = false;
+    u64 pt_levels = 4, min_levels;
+    struct string_view constraint_str = SV("maximum");
+    enum pt_constraint constraint = PT_CONSTRAINT_MAX;
+    enum pt_type type;
+    struct value pt_val;
+
+    cfg_get_bool(cfg, le, SV("higher-half-exclusive"),
+                 &is_higher_half_exclusive);
+
+    if (!ki->is_higher_half && is_higher_half_exclusive)
+        oops("higher half exclusive mode is only allowed for higher half kernels\n");
+
+    if (is_higher_half_exclusive) {
+        spec->higher_half_pointers = true;
+        hi->flags |= HO_HIGHER_HALF_ONLY;
+    }
+
+    if (handover_is_flag_supported(HO_X86_PSE))
+        hi->flags |= HO_X86_PSE;
+
+    if (cfg_get_object(cfg, le, SV("page-table"), &pt_val)) {
+        cfg_get_unsigned(cfg, &pt_val, SV("levels"), &pt_levels);
+        cfg_get_bool(cfg, &pt_val, SV("null-guard"), &null_guard);
+        cfg_get_string(cfg, &pt_val, SV("constraint"), &constraint_str);
+
+        if (sv_equals_caseless(constraint_str, SV("maximum")))
+            constraint = PT_CONSTRAINT_MAX;
+        else if (sv_equals_caseless(constraint_str, SV("exactly")))
+            constraint = PT_CONSTRAINT_EXACTLY;
+        else if (sv_equals_caseless(constraint_str, SV("at-least")))
+            constraint = PT_CONSTRAINT_AT_LEAST;
+        else
+            oops("invalid page-table constraint '%pSV'\n", &constraint_str);
+    }
+
+    if (hi->flags & HO_X86_LME) {
+        hi->flags |= HO_X86_PAE;
+        type = PT_TYPE_AMD64_4LVL;
+        min_levels = pt_depth(type);
+
+        if ((pt_levels == 5 || constraint == PT_CONSTRAINT_AT_LEAST) &&
+            handover_is_flag_supported(HO_X86_LA57))
+        {
+            hi->flags |= HO_X86_LA57;
+            type = PT_TYPE_AMD64_5LVL;
+        }
+
+        if (pt_levels == 5 && type != PT_TYPE_AMD64_5LVL &&
+            constraint != PT_CONSTRAINT_MAX)
+            goto out_failed_constraint;
+    } else {
+        type = PT_TYPE_I386_NO_PAE;
+        min_levels = pt_depth(type);
+
+        if ((pt_levels == 3 || constraint == PT_CONSTRAINT_AT_LEAST) &&
+            handover_is_flag_supported(HO_X86_PAE))
+        {
+            hi->flags |= HO_X86_PAE;
+            type = PT_TYPE_I386_PAE;
+        }
+
+        if (pt_levels == 3 && type != PT_TYPE_I386_PAE &&
+            constraint != PT_CONSTRAINT_MAX)
+            goto out_failed_constraint;
+    }
+
+    if (pt_levels < min_levels && constraint != PT_CONSTRAINT_AT_LEAST)
+        goto out_invalid_levels;
+
+    if ((constraint == PT_CONSTRAINT_EXACTLY || constraint == PT_CONSTRAINT_MAX)
+        && pt_levels < min_levels)
+    {
+        oops("invalid page-table levels %llu\n", pt_levels);
+    }
+
+
+    hi->direct_map_base = direct_map_base(hi->flags);
+    hi->pt_root = do_build_page_table(ki, type, is_higher_half_exclusive,
+                                      null_guard);
+
+    return;
+
+out_failed_constraint:
+    oops("failed to satisfy page-table constraint '%pSV', %llu levels not supported\n",
+         &constraint_str, pt_levels);
+
+out_invalid_levels:
+    oops("invalid page-table levels value %llu, expected minimum %llu\n",
+         pt_levels, min_levels);
+}
+
 NORETURN
 static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
 {
     char cmdline_buf[MAX_CMDLINE_LEN];
     struct attribute_array_spec spec = { 0 };
-    u64 pt, attr_arr_addr;
-    bool is_higher_half_kernel, is_higher_half_exclusive = false, null_guard = false;
+    struct kernel_info *ki = &spec.kern_info;
+    struct handover_info *hi = &ki->hi;
+    u64 attr_arr_addr;
 
-    dynamic_buffer_init(&spec.module_buf, sizeof(struct ultra_module_info_attribute), true);
+    dynamic_buffer_init(&spec.module_buf,
+                        sizeof(struct ultra_module_info_attribute), true);
 
-    load_kernel(cfg, le, &spec.kern_info);
-    is_higher_half_kernel = spec.kern_info.bin_info.entrypoint_address >= HIGHER_HALF_BASE;
-    cfg_get_bool(cfg, le, SV("higher-half-exclusive"), &is_higher_half_exclusive);
-    cfg_get_bool(cfg, le, SV("null-guard"), &null_guard);
+    load_kernel(cfg, le, ki);
+    build_page_table(cfg, le, &spec);
 
-    if (!is_higher_half_kernel && is_higher_half_exclusive)
-        oops("Higher half exclusive mode is only allowed for higher half kernels\n");
-
-    spec.higher_half_pointers = is_higher_half_exclusive;
     spec.cmdline_present = get_cmdline(cfg, le, cmdline_buf, &spec.cmdline);
 
     load_kernel_as_module(cfg, le, &spec);
     load_all_modules(cfg, le, &spec);
-    pt = build_page_table(&spec.kern_info.bin_info, is_higher_half_exclusive,
-                          null_guard);
-    spec.stack_address = pick_stack(cfg, le);
+    allocate_stack(cfg, le, hi);
     spec.acpi_rsdp_address = services_find_rsdp();
 
    /*
@@ -982,27 +1191,27 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     cfg_release(cfg);
     services_cleanup();
 
+    handover_prepare_for(hi);
+
     /*
      * This also acquires the memory map, so we can no longer use
      * any services after this call.
      */
-    attr_arr_addr = build_attribute_array(&spec);
+    attr_arr_addr = build_attribute_array(&spec, max_binary_address(hi->flags));
 
-    if (is_higher_half_kernel) {
-        spec.stack_address += DIRECT_MAP_BASE;
-        attr_arr_addr += DIRECT_MAP_BASE;
+    if (ki->is_higher_half) {
+        hi->stack += hi->direct_map_base;
+        attr_arr_addr += hi->direct_map_base;
     }
 
-    print_info("jumping to kernel: entry 0x%016llX, stack at 0x%016llX, boot context at 0x%016llX\n",
-               spec.kern_info.bin_info.entrypoint_address, spec.stack_address,
+    hi->arg0 = attr_arr_addr;
+    hi->arg1 = ULTRA_MAGIC;
+
+    print_info("jumping to kernel: entry 0x%016llX, stack at 0x%016llX, boot "
+               "context at 0x%016llX\n", hi->entrypoint, hi->stack,
                attr_arr_addr);
 
-    if (spec.kern_info.bin_info.arch == ELF_ARCH_I386)
-        kernel_handover32(spec.kern_info.bin_info.entrypoint_address, spec.stack_address,
-                          (u32)attr_arr_addr, ULTRA_MAGIC);
-
-    kernel_handover64(spec.kern_info.bin_info.entrypoint_address, spec.stack_address, pt,
-                      attr_arr_addr, ULTRA_MAGIC, is_higher_half_exclusive);
+    kernel_handover(hi);
 }
 
 static u64 ultra_known_mm_types[] = {

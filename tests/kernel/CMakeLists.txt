@@ -129,6 +129,7 @@ macro(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
     )
 endmacro()
 
-add_kernel(kernel_i686 i686 link_1mb_generic.ld)
+add_kernel(kernel_i686_lower_half i686 link_1mb_generic.ld)
+add_kernel(kernel_i686_higher_half i686 link_i686_higher_half.ld)
 add_kernel(kernel_amd64_lower_half amd64 link_1mb_generic.ld)
 add_kernel(kernel_amd64_higher_half amd64 link_amd64_higher_half.ld -mcmodel=kernel)

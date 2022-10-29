@@ -13,14 +13,60 @@ normal_boot_cfgs = \
 """
 default-entry = {default_entry}
 
-[i386]
+[i686_lower_half]
 protocol=ultra
 
 cmdline    = {cmdline}
-binary     = "/boot/kernel_i686"
+binary     = "/boot/kernel_i686_lower_half"
 
 video-mode:
     format = xrgb8888
+
+{extra_cfg_entries}
+
+[i686_lower_half_pae]
+protocol=ultra
+
+cmdline    = {cmdline}
+binary     = "/boot/kernel_i686_lower_half"
+
+page-table:
+    levels     = 3 
+    constraint = exactly
+
+video-mode:
+    format = xrgb8888
+
+{extra_cfg_entries}
+
+[i686_higher_half]
+protocol=ultra
+
+cmdline    = {cmdline}
+binary:
+    path = "/boot/kernel_i686_higher_half"
+
+video-mode:
+    format = xrgb8888
+    
+higher-half-exclusive = true
+
+{extra_cfg_entries}
+
+[i686_higher_half_pae]
+protocol=ultra
+
+cmdline    = {cmdline}
+binary     = "/boot/kernel_i686_higher_half"
+
+page-table:
+    levels     = 3 
+    constraint = exactly
+
+video-mode:
+    format = xrgb8888
+
+higher-half-exclusive = true
 
 {extra_cfg_entries}
 
@@ -35,6 +81,21 @@ video-mode:
 
 {extra_cfg_entries}
 
+[amd64_lower_half_5lvl]
+protocol=ultra
+
+cmdline    = {cmdline}
+binary     = "/boot/kernel_amd64_lower_half"
+
+page-table:
+    levels     = 5 
+    constraint = exactly
+
+video-mode:
+    format = xrgb8888
+
+{extra_cfg_entries}
+
 [amd64_higher_half]
 protocol=ultra
 
@@ -42,6 +103,25 @@ cmdline = {cmdline}
 binary:
     path = "/boot/kernel_amd64_higher_half"
     allocate-anywhere = true
+
+video-mode:
+    format = xrgb8888
+
+higher-half-exclusive = true
+
+{extra_cfg_entries}
+
+[amd64_higher_half_5lvl]
+protocol=ultra
+
+cmdline = {cmdline}
+binary:
+    path = "/boot/kernel_amd64_higher_half"
+    allocate-anywhere = true
+
+page-table:
+    levels     = 5 
+    constraint = exactly
 
 video-mode:
     format = xrgb8888
@@ -335,7 +415,8 @@ def prepare_test_fs_root(opt_getter) -> str:
     root_dir = os.path.join(test_dir, FS_IMAGE_RELPATH)
     uefi_dir = os.path.join(test_dir, "EFI/BOOT")
 
-    i386_krnl = os.path.join(kernel_dir, "kernel_i686")
+    i686_lh_krnl = os.path.join(kernel_dir, "kernel_i686_lower_half")
+    i686_hh_krnl = os.path.join(kernel_dir, "kernel_i686_higher_half")
     amd64_lh_krnl = os.path.join(kernel_dir, "kernel_amd64_lower_half")
     amd64_hh_krnl = os.path.join(kernel_dir, "kernel_amd64_higher_half")
 
@@ -349,7 +430,8 @@ def prepare_test_fs_root(opt_getter) -> str:
     if iso_br_path:
         shutil.copy(iso_br_path, os.path.join(root_dir, HYPER_ISO_BOOT_RECORD))
 
-    shutil.copy(i386_krnl, root_dir)
+    shutil.copy(i686_lh_krnl, root_dir)
+    shutil.copy(i686_hh_krnl, root_dir)
     shutil.copy(amd64_lh_krnl, root_dir)
     shutil.copy(amd64_hh_krnl, root_dir)
 

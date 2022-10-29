@@ -72,7 +72,7 @@ def run_qemu(disk_image: DiskImage, is_uefi: bool, config):
     qemu_args = ["qemu-system-x86_64",
                  "-cdrom" if disk_image.is_cd() else "-hda",
                  disk_image.path, "-debugcon", "stdio",
-                 "-serial", "mon:null"]
+                 "-serial", "mon:null", "-cpu", "qemu64,la57=on"]
 
     with_gui = config.getoption(options.QEMU_GUI_OPT)
     if not with_gui:
@@ -129,10 +129,14 @@ def check_qemu_run(stdout):
 @pytest.mark.parametrize(
     'disk_image',
     (
-        ("MBR", "FAT12", "i386"),
+        ("MBR", "FAT12", "i686_lower_half"),
+        ("MBR", "FAT12", "i686_lower_half_pae"),
         ("MBR", "FAT32", "amd64_higher_half"),
-        ("GPT", "FAT16", "amd64_lower_half"),
-        ("GPT", "FAT32", "i386"),
+        ("MBR", "FAT32", "amd64_higher_half_5lvl"),
+        ("MBR", "FAT16", "amd64_lower_half"),
+        ("MBR", "FAT16", "amd64_lower_half_5lvl"),
+        ("MBR", "FAT32", "i686_higher_half"),
+        ("MBR", "FAT32", "i686_higher_half_pae"),
     ),
     indirect=True,
     ids=disk_image_pretty_name
@@ -141,10 +145,6 @@ def check_qemu_run(stdout):
 @pytest.mark.fat
 @pytest.mark.hdd
 def test_normal_bios_boot_fat(disk_image: DiskImage, pytestconfig):
-    # TODO
-    if disk_image.br_type == "GPT":
-        pytest.skip("BIOS boot from GPT is unsupported")
-
     res = run_qemu(disk_image, False, pytestconfig)
     check_qemu_run(res)
 
@@ -152,8 +152,10 @@ def test_normal_bios_boot_fat(disk_image: DiskImage, pytestconfig):
 @pytest.mark.parametrize(
     'disk_image',
     (
-        ("CD",  "ISO9660", "i386"),
-        ("CD",  "ISO9660", "amd64_higher_half"),
+        ("CD",  "ISO9660", "i686_lower_half"),
+        ("CD",  "ISO9660", "i686_higher_half_pae"),
+        ("CD",  "ISO9660", "amd64_lower_half"),
+        ("CD",  "ISO9660", "amd64_higher_half_5lvl"),
     ),
     indirect=True,
     ids=disk_image_pretty_name
@@ -169,7 +171,7 @@ def test_normal_bios_boot_iso_cd(disk_image: DiskImage, pytestconfig):
     'disk_image',
     (
         ("HDD", "ISO9660", "amd64_higher_half"),
-        ("HDD", "ISO9660", "amd64_lower_half"),
+        ("HDD", "ISO9660", "amd64_lower_half_5lvl"),
     ),
     indirect=True,
     ids=disk_image_pretty_name
@@ -185,10 +187,14 @@ def test_normal_bios_boot_iso_hdd(disk_image: DiskImage, pytestconfig):
 @pytest.mark.parametrize(
     'disk_image',
     (
-        ("MBR", "FAT12",   "i386"),
-        ("MBR", "FAT32",   "amd64_higher_half"),
-        ("GPT", "FAT16",   "amd64_lower_half"),
-        ("GPT", "FAT32",   "i386"),
+        ("MBR", "FAT12", "i686_lower_half"),
+        ("MBR", "FAT12", "i686_lower_half_pae"),
+        ("MBR", "FAT32", "amd64_higher_half"),
+        ("MBR", "FAT32", "amd64_higher_half_5lvl"),
+        ("GPT", "FAT16", "amd64_lower_half"),
+        ("GPT", "FAT16", "amd64_lower_half_5lvl"),
+        ("GPT", "FAT32", "i686_higher_half"),
+        ("GPT", "FAT32", "i686_higher_half_pae"),
     ),
     indirect=True,
     ids=disk_image_pretty_name
@@ -204,9 +210,9 @@ def test_normal_uefi_boot_fat(disk_image: DiskImage, pytestconfig):
 @pytest.mark.parametrize(
     'disk_image',
     (
-        ("CD",  "ISO9660", "i386"),
+        ("CD",  "ISO9660", "i686_higher_half_pae"),
         ("HDD", "ISO9660", "amd64_higher_half"),
-        ("HDD", "ISO9660", "amd64_lower_half")
+        ("HDD", "ISO9660", "amd64_lower_half_5lvl")
     ),
     indirect=True,
     ids=disk_image_pretty_name

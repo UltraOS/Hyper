@@ -38,3 +38,5 @@ typedef void (*cleanup_handler)(void);
 #define DECLARE_CLEANUP_HANDLER(handler)         \
     static cleanup_handler CONCAT(handler, hook) \
            CTOR_SECTION(cleanup_handlers) USED = &handler
+
+u32 handover_flags_to_cr4(u32 flags);

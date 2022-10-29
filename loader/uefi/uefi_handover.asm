@@ -7,29 +7,40 @@ EFER_NUMBER:         equ 0xC0000080
 LONG_MODE_BIT:       equ (1 << 8)
 PAGING_BIT:          equ (1 << 31)
 DIRECT_MAP_BASE:     equ 0xFFFF800000000000
+CR4_PAE_BIT:         equ (1 << 5)
+
+struc x86_handover_info
+    .arg0:             resq 1
+    .arg1:             resq 1
+
+    .entrypoint:       resq 1
+    .stack:            resq 1
+    .direct_map_base:  resq 1
+    .compat_code_addr: resd 1
+    .cr3:              resd 1
+    .cr4:              resd 1
+    .is_long_mode:     resb 1
+    .unmap_lower_half: resb 1
+endstruc
 
 ; NORETURN
-; void kernel_handover64(u64 entrypoint, u64 rsp, u64 cr3, u64 arg0,
-;                        u64 arg1, bool unmap_lower_half)
-; RSP + 48 [unmap_lower_half]
-; RSP + 40 [arg1]
-; R9       [arg0]
-; R8       [cr3]
-; RDX      [rsp]
-; RCX      [entrypoint]
-global kernel_handover64
-kernel_handover64:
-    cli
+; void kernel_handover_x86(struct x86_handover_info *info)
+global kernel_handover_x86
+kernel_handover_x86:
+     cli
+     mov rax, gdt_ptr
+     lgdt [rax]
 
-    mov rax, gdt_ptr
-    lgdt [rax]
+     push qword gdt_struct.code32
+     mov eax, [rcx + x86_handover_info.compat_code_addr]
+     push qword rax
 
-    push qword gdt_struct.code64
-    mov  rax, .loader_gdt
-    push rax
-    retfq
+     retfq
 
-.loader_gdt:
+ BITS 32
+ ; This is always below 4 or 1 Gib depending on the handover arch
+ global kernel_handover_x86_compat_code_begin
+ kernel_handover_x86_compat_code_begin:
     mov ax, gdt_struct.data32
     mov ds, ax
     mov es, ax
@@ -37,35 +48,61 @@ kernel_handover64:
     mov gs, ax
     mov ss, ax
 
-    ; arg0 & arg1
-    mov rdi, r9
-    mov rsi, [rsp + 40]
+    mov eax, cr0
+    and eax, ~PAGING_BIT
+    mov cr0, eax
 
-    mov r10b, [rsp + 48]
+    mov eax, [ecx + x86_handover_info.cr4]
+    mov cr4, eax
 
-    mov cr3, r8
-    mov rsp, rdx
+    mov eax, [ecx + x86_handover_info.cr3]
+    mov cr3, eax
 
-    mov rax, DIRECT_MAP_BASE
-    mov rbx, .higher_half
-    add rax, rbx
+    mov al, [ecx + x86_handover_info.is_long_mode]
+    test al, al
+    jz handover_i386_begin
+
+; ============================ amd64 handover code ============================
+handover_amd64_begin:
+    mov eax, cr0
+    or eax, PAGING_BIT
+    mov cr0, eax
+
+    mov eax, [ecx + x86_handover_info.compat_code_addr]
+    add eax, .long_mode_continue - kernel_handover_x86_compat_code_begin
+    mov [eax - (.long_mode_continue - .long_mode_jump_fixup)], eax
+
+    db 0xEA
+.long_mode_jump_fixup:
+    dd 0xCCCCCCCC
+    dw gdt_struct.code64
+
+BITS 64
+.long_mode_continue:
+    add rax, .higher_half - .long_mode_continue
+    add rax, [rcx + x86_handover_info.direct_map_base]
     jmp rax
 
 .higher_half:
-    test r10b, r10b
+    mov rsp, [rcx + x86_handover_info.stack]
+
+    push qword 0x0000000000000000 ; fake ret address
+    push qword [rcx + x86_handover_info.entrypoint]
+
+    mov rdi, [rcx + x86_handover_info.arg0]
+    mov rsi, [rcx + x86_handover_info.arg1]
+
+    mov al, [rcx + x86_handover_info.unmap_lower_half]
+    test al, al
     jz .unmap_done
 
     mov rax, cr3
-    mov qword [rax], 0x0000000000000000
+    mov rbx, [rcx + x86_handover_info.direct_map_base]
+    add rbx, rax
+    mov qword [rbx], 0x0000000000000000
     mov cr3, rax
 
 .unmap_done:
-    push qword 0x0000000000000000 | EFLAGS_RESERVED_BIT
-    popfq
-
-    push qword 0x0000000000000000 ; fake ret address
-    push rcx                      ; kernel entry
-
     xor rax, rax
     xor rcx, rcx
     xor rdx, rdx
@@ -80,48 +117,80 @@ kernel_handover64:
     xor r14, r14
     xor r15, r15
 
+    push qword 0x0000000000000000 | EFLAGS_RESERVED_BIT
+    popfq
+
     ret
 
-; NORETURN void do_kernel_handover32(u32 esp)
-; RCX [esp]
-global do_kernel_handover32
-do_kernel_handover32:
-    cli
-    mov rax, gdt_ptr
-    lgdt [rax]
-
-    push qword gdt_struct.code32
-    mov  rax, .loader_gdt
-    push rax
-    retfq
-
+; ============================ i386 handover code ============================
 BITS 32
-.loader_gdt:
-    mov ax, gdt_struct.data32
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
+handover_i386_begin:
+    mov ebx, ecx
 
-    mov eax, cr0
-    and eax, ~PAGING_BIT
-    mov cr0, eax
-
-    mov esp, ecx
-
+    ; Disable long mode
     mov ecx, EFER_NUMBER
     rdmsr
     and eax, ~LONG_MODE_BIT
     wrmsr
 
-    mov eax, cr4
-    and eax, ~PAE_BIT
-    mov cr4, eax
+    mov ecx, ebx
 
-    push dword 0x00000000 | EFLAGS_RESERVED_BIT
-    popfd
+    ; And finally enable paging again
+    mov eax, cr0
+    or eax, PAGING_BIT
+    mov cr0, eax
 
+    mov eax, [ecx + x86_handover_info.compat_code_addr]
+    add eax, .higher_half - kernel_handover_x86_compat_code_begin
+    add eax, [ecx + x86_handover_info.direct_map_base]
+    jmp eax
+
+.higher_half:
+    mov esp, [ecx + x86_handover_info.stack]
+
+    push dword 0x00000000
+    push dword 0x00000000
+    push dword [ecx + x86_handover_info.arg1]
+    push dword [ecx + x86_handover_info.arg0]
+    push dword 0x00000000
+    push dword [ecx + x86_handover_info.entrypoint]
+
+    mov al, [ecx + x86_handover_info.unmap_lower_half]
+    test al, al
+    jz .unmap_done
+
+    mov edx, [ecx + x86_handover_info.direct_map_base]
+
+    ; Transform bytes into 4MiB pages
+    shr edx, 22
+
+    mov al, [ecx + x86_handover_info.cr4]
+    test al, CR4_PAE_BIT
+    jz .not_pae
+
+    ; Transform 4MiB pages into 512MiB pages
+    ; (actually 1GiB, but the loop below unmaps in 4 byte strides)
+    ; NOTE: this expects direct_map_base to be GiB-aligned
+    shr edx, 7
+
+.not_pae:
+    mov eax, cr3
+    add eax, [ecx + x86_handover_info.direct_map_base]
+
+    mov ecx, edx
+
+.unmap_one:
+    mov dword [eax], 0x00000000
+    add eax, 4
+
+    dec ecx
+    jnz .unmap_one
+
+.reload_cr3:
+    mov eax, cr3
+    mov cr3, eax
+
+.unmap_done:
     xor eax, eax
     xor ecx, ecx
     xor edx, edx
@@ -130,7 +199,13 @@ BITS 32
     xor esi, esi
     xor edi, edi
 
+    push dword 0x00000000 | EFLAGS_RESERVED_BIT
+    popfd
+
     ret
+global kernel_handover_x86_compat_code_end
+kernel_handover_x86_compat_code_end:
+BITS 64
 
 ; our own GDT
 align 16
@@ -153,7 +228,8 @@ MODE_64BIT:       equ (1 << 5)
 PAGE_GRANULARITY: equ (1 << 7)
 
 align 16
-global gdt_struct
+global gdt_struct_begin
+gdt_struct_begin:
 gdt_struct:
     .null: equ $ - gdt_struct
     dq 0x0000000000000000
@@ -184,4 +260,5 @@ gdt_struct:
     db READWRITE | EXECUTABLE | CODE_OR_DATA | PRESENT
     db MODE_64BIT | PAGE_GRANULARITY | 0x0F ; 4 bits of flags + 4 bits of limit
     db 0x00   ; base
+global gdt_struct_end
 gdt_struct_end:

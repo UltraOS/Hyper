@@ -436,7 +436,7 @@ static bool elf_init_ctx(struct elf_load_ctx *ctx)
 
     switch (info->arch) {
     case ELF_ARCH_I386:
-        ret = !(ctx->alloc_anywhere || ctx->use_va);
+        ret = !ctx->alloc_anywhere;
         break;
     case ELF_ARCH_AMD64:
         ret = !(ctx->alloc_anywhere && !ctx->use_va);
