@@ -7,6 +7,13 @@
 #include "common/string.h"
 #include "common/minmax.h"
 
+struct bulk_map_ctx {
+    struct page_table *pt;
+    u64 physical_base, virtual_base;
+    size_t page_count;
+    bool huge;
+};
+
 static void write_u32(void *ptr, u64 data)
 {
     u32 *dword = ptr;
@@ -26,11 +33,28 @@ static u64 read_u64(void *ptr) { return *(u64*)ptr; }
 #define PAGE_READWRITE (1 << 1)
 #define PAGE_HUGE      (1 << 7)
 
-void page_table_init(struct page_table *pt, enum pt_type type, void *root_page)
+static void *get_table_page(u64 max_address)
 {
-    pt->root = root_page;
+    struct allocation_spec spec = {
+        .ceiling = max_address,
+        .pages = 1,
+    };
+
+    if (!spec.ceiling || spec.ceiling > (4ull * GB))
+        spec.ceiling = 4ull * GB;
+
+    return ADDR_TO_PTR(allocate_pages_ex(&spec));
+}
+
+void page_table_init(struct page_table *pt, enum pt_type type,
+                     u64 max_table_address)
+{
+    pt->root = get_table_page(max_table_address);
+    OOPS_ON(!pt->root);
+
     pt->levels = pt_depth(type);
     pt->base_shift = PAGE_SHIFT;
+    pt->max_table_address = max_table_address;
 
     memzero(pt->root, PAGE_SIZE);
 
@@ -58,16 +82,6 @@ void page_table_init(struct page_table *pt, enum pt_type type, void *root_page)
         pt->write_slot = write_u32;
         pt->read_slot = read_u32;
     }
-}
-
-static size_t huge_page_size(struct page_table *pt)
-{
-    return 1ul << (pt->base_shift + pt->table_width_shift);
-}
-
-static size_t page_size(struct page_table *pt)
-{
-    return 1ul << pt->base_shift;
 }
 
 static size_t get_level_bit_offset(struct page_table *pt, size_t idx)
@@ -104,7 +118,7 @@ static void *table_at(struct page_table *pt, void *table, size_t idx)
         return (void*)((ptr_t)entry);
     }
 
-    page = allocate_pages(1);
+    page = get_table_page(pt->max_table_address);
     if (!page)
         return NULL;
 
@@ -154,13 +168,6 @@ out:
     *out_entry = cur_root;
     return true;
 }
-
-struct bulk_map_ctx {
-    struct page_table *pt;
-    u64 physical_base, virtual_base;
-    size_t page_count;
-    bool huge;
-};
 
 static bool bulk_map_pages(struct bulk_map_ctx *ctx)
 {
@@ -226,7 +233,7 @@ error_out:
     if (!spec->critical)
         return false;
 
-    panic("Out of memory while mapping %zu pages at 0x%016llX to phys x%016llX (huge: %d)\n",
+    panic("Out of memory while mapping %zu pages at 0x%016llX to phys 0x%016llX (huge: %d)\n",
           spec->count, spec->virtual_base, spec->physical_base, ctx.huge);
 }
 
@@ -241,4 +248,9 @@ void map_copy_root_entry(struct page_table* pt, u64 src_virtual_address,
     memcpy(pt->root + dst_idx * pt->entry_width,
            pt->root + src_idx * pt->entry_width,
            pt->entry_width);
+}
+
+u64 pt_level_entry_virtual_coverage(struct page_table *pt, size_t lvl_idx)
+{
+    return 1ull << get_level_bit_offset(pt, lvl_idx);
 }

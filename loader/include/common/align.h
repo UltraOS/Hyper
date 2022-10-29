@@ -13,6 +13,3 @@
 
 #define PAGE_ROUND_UP(size)   ALIGN_UP(size, PAGE_SIZE)
 #define PAGE_ROUND_DOWN(size) ALIGN_DOWN(size, PAGE_SIZE)
-
-#define HUGE_PAGE_ROUND_UP(size)   ALIGN_UP(size, HUGE_PAGE_SIZE)
-#define HUGE_PAGE_ROUND_DOWN(size) ALIGN_DOWN(size, HUGE_PAGE_SIZE)

@@ -7,6 +7,7 @@
 #include "test_ctl.h"
 #include "fb_tty.h"
 #include "ultra_protocol.h"
+#include "ultra_helpers.h"
 
 static const char *me_type_to_str(u64 type)
 {
@@ -253,10 +254,12 @@ static void validate_modules(struct ultra_module_info_attribute *mi,
 
         r->begin = mi->address;
 
-        if (sizeof(void*) == 8 && r->begin >= 0xFFFF800000000000)
-            r->begin -= 0xFFFF800000000000;
-        if (sizeof(void*) == 4 && r->begin >= 0xC0000000)
-            r->begin -= 0xC0000000;
+        if (sizeof(void*) == 8 && r->begin >= AMD64_DIRECT_MAP_BASE)
+            r->begin -= AMD64_DIRECT_MAP_BASE;
+        else if (sizeof(void*) == 8 && r->begin >= AMD64_LA57_DIRECT_MAP_BASE)
+            r->begin -= AMD64_LA57_DIRECT_MAP_BASE;
+        else if (sizeof(void*) == 4 && r->begin >= I686_DIRECT_MAP_BASE)
+            r->begin -= I686_DIRECT_MAP_BASE;
 
         if (!r->begin)
             test_fail("module %zu address is NULL\n", i);

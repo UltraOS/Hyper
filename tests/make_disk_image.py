@@ -21,9 +21,20 @@ if __name__ == "__main__":
     parser.add_argument("out_path", type=str, help="Path to the output image")
     parser.add_argument("--br-type", default="MBR", choices=["MBR", "GPT"],
                         help="Type of boot record to use for the image")
+
+    kernel_types = [
+        "i686_lower_half",
+        "i686_higher_half",
+        "i686_lower_half_pae",
+        "i686_higher_half_pae",
+        "amd64_lower_half",
+        "amd64_higher_half",
+        "amd64_lower_half_5lvl",
+        "amd64_higher_half_5lvl",
+    ]
     parser.add_argument("--kernel-type", default="amd64_higher_half",
                         help="Type of kernel to set as default in config",
-                        choices=["i386", "amd64_lower_half", "amd64_higher_half"])
+                        choices=kernel_types)
     args = parser.parse_args()
 
     getopt = argparse_optgetter(args)

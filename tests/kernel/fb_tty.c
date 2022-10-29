@@ -61,13 +61,21 @@ void fb_tty_init(struct ultra_boot_context *bctx)
 
     if (fb->format != ULTRA_FB_FORMAT_XRGB8888)
         return;
-    if (sizeof(void*) == 4 && fb->address > 0xFFFFFFFF)
+    if (sizeof(void*) == 4)
         return;
 
     fb_pitch = fb->pitch;
     fb_width = fb->width;
     fb_height = fb->height;
-    fb_ptr = (void*)fb->address;
+    fb_ptr = (void*)fb->physical_address;
+
+    // Relocate the framebuffer physical address if we're higher half exclusive
+    if ((ptr_t)bctx >= AMD64_LA57_DIRECT_MAP_BASE) {
+        if ((ptr_t)bctx < AMD64_DIRECT_MAP_BASE)
+            fb_ptr += AMD64_LA57_DIRECT_MAP_BASE;
+        else
+            fb_ptr += AMD64_DIRECT_MAP_BASE;
+    }
 
     rows = fb_height / FONT_HEIGHT;
     columns = fb_width / FONT_WIDTH;

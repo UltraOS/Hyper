@@ -35,7 +35,8 @@ def guess_path_to_kernel_binaries():
     guess = os.path.join(abs_path_to_current_dir(), "kernel/build")
 
     kernels = [
-        "kernel_i686",
+        "kernel_i686_lower_half",
+        "kernel_i686_higher_half",
         "kernel_amd64_higher_half",
         "kernel_amd64_lower_half"
     ]
