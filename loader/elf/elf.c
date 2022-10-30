@@ -165,6 +165,7 @@ static bool elf_get_ph_if_load(struct elf_load_ctx *ctx, size_t offset,
         goto out;
 
     elf_get_load_ph(ph_data, arch, out_ph);
+    *skip = !out_ph->memsz;
 
 out:
     elf_io_unref(io);
