@@ -4,20 +4,26 @@ project(Loader ASM_NASM C)
 
 set(LOADER_EXECUTABLE "hyper_${HYPER_PLATFORM}")
 
-macro(add_loader_lang_flag LANG FLAG)
+function(add_loader_lang_flags LANG)
+    list(
+         TRANSFORM ARGN
+         REPLACE ".+" "$<$<COMPILE_LANGUAGE:${LANG}>:\\0>"
+         OUTPUT_VARIABLE TRANSFORMED_FLAGS
+    )
+
     target_compile_options(
         ${LOADER_EXECUTABLE}
         PRIVATE
-        $<$<COMPILE_LANGUAGE:${LANG}>:${FLAG}>
+        ${TRANSFORMED_FLAGS}
     )
+endfunction()
+
+macro(add_loader_c_flags)
+    add_loader_lang_flags(C ${ARGN})
 endmacro()
 
-macro(add_loader_c_flag FLAG)
-    add_loader_lang_flag(C ${FLAG})
-endmacro()
-
-macro(add_loader_nasm_flag FLAG)
-    add_loader_lang_flag(ASM_NASM ${FLAG})
+macro(add_loader_nasm_flags)
+    add_loader_lang_flags(ASM_NASM ${ARGN})
 endmacro()
 
 macro(add_loader_definition VALUE)
@@ -100,13 +106,13 @@ else ()
     )
 endif ()
 
-add_loader_c_flag(-std=gnu17)
-add_loader_c_flag(-ffreestanding)
-add_loader_c_flag(-O2)
-add_loader_c_flag(-Wall)
-add_loader_c_flag(-Wextra)
-add_loader_c_flag(-Werror)
-add_loader_c_flag(-nostdlib)
+add_loader_c_flags(
+    -std=gnu17
+    -ffreestanding
+    -O2
+    -Wall -Wextra -Werror
+    -nostdlib
+)
 
 add_subdirectory(boot_protocol)
 add_subdirectory(common)
