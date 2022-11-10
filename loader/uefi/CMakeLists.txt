@@ -19,9 +19,11 @@ else ()
     )
 endif ()
 
-add_loader_nasm_flag(-fwin64)
-add_loader_c_flag(-fno-stack-protector)
-add_loader_c_flag(-mno-stack-arg-probe)
+add_loader_nasm_flags(-fwin64)
+add_loader_c_flags(
+    -fno-stack-protector
+    -mno-stack-arg-probe
+)
 
 target_sources(
     ${LOADER_EXECUTABLE}

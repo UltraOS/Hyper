@@ -7,13 +7,15 @@ target_link_options(
     --orphan-handling=error
 )
 
-add_loader_nasm_flag(-felf32)
+add_loader_nasm_flags(-felf32)
 
-add_loader_c_flag(-mno-80387)
-add_loader_c_flag(-mno-mmx)
-add_loader_c_flag(-mno-3dnow)
-add_loader_c_flag(-mno-sse)
-add_loader_c_flag(-mno-sse2)
+add_loader_c_flags(
+    -mno-80387
+    -mno-mmx
+    -mno-3dnow
+    -mno-sse
+    -mno-sse2
+)
 
 target_sources(
     ${LOADER_EXECUTABLE}
