@@ -23,6 +23,11 @@ add_loader_nasm_flags(-fwin64)
 add_loader_c_flags(
     -fno-stack-protector
     -mno-stack-arg-probe
+    -mno-80387
+    -mno-mmx
+    -mno-3dnow
+    -mno-sse
+    -mno-sse2
 )
 
 target_sources(
