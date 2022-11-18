@@ -16,7 +16,7 @@ static void fst_fini(void)
     struct fs_entry *fse = entry_buf.buf;
 
     for (i = 0; i < entry_buf.size; ++i) {
-        struct filesystem *fs = fse->fs;
+        struct filesystem *fs = fse[i].fs;
 
         if (fs->release)
             fs->release(fs);
