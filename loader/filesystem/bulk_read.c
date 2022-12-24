@@ -106,7 +106,7 @@ bool bulk_read_file(struct file* f, void *buffer, u64 offset, u32 bytes,
     // Calculate unaligned head bytes
     parts[0] = offset & block_mask;
     if (parts[0])
-        parts[0] = block_size - parts[0];
+        parts[0] = MIN(block_size - parts[0], bytes);
 
     bytes -= parts[0];
 
