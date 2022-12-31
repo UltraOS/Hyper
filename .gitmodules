@@ -1,0 +1,6 @@
+[submodule "loader/boot_protocol/ultra_protocol"]
+	path = loader/boot_protocol/ultra_protocol
+	url = https://github.com/UltraOS/UltraProtocol
+[submodule "build_utils"]
+	path = build_utils
+	url = https://github.com/UltraOS/BuildUtils

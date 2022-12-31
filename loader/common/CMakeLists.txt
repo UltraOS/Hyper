@@ -1,0 +1,12 @@
+target_sources(
+    ${LOADER_EXECUTABLE}
+    PRIVATE
+    conversions.c
+    cpuid.c
+    dynamic_buffer.c
+    format.c
+    log.c
+    panic.c
+    string.c
+    string_view.c
+)

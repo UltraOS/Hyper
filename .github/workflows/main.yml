@@ -1,0 +1,48 @@
+name: CI
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.head_ref || format('{0}-{1}', github.ref, github.run_number) }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        platform: [bios, uefi]
+        toolchain: [gcc, clang]
+        exclude:
+          # FIXME: the GCC build somehow ends up being corrupted with
+          #        libexec/cc1 containing garbage data.
+          - os: macos-latest
+            toolchain: gcc
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - if: ${{ matrix.toolchain == 'gcc' }}
+        uses: actions/cache@v3.0.2
+        with:
+          path: "${{ github.workspace }}/toolchain/tools_${{ matrix.platform }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc"
+
+      - name: Build platform toolchain & Hyper
+        run: "${{ github.workspace }}/build.py ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native --e9-debug-log=on"
+
+      - name: Build test kernel
+        run: ${{ github.workspace }}/tests/kernel/build.sh
+
+      - name: Run tests
+        run: python3 -m pytest ${{ github.workspace }}/tests/test_loader.py -rs -s -v --junitxml result.xml
+
+      - name: Publish test results
+        uses: mikepenz/action-junit-report@v3
+        if: always()
+        with:
+          report_paths: result.xml
