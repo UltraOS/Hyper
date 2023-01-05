@@ -60,6 +60,18 @@ add_loader_option(
 )
 
 add_loader_option(
+    HYPER_SERIAL_LOG
+    "Enables serial debug logging"
+    OFF
+)
+
+add_loader_option(
+    HYPER_SERIAL_BAUD_RATE
+    "Sets the baud rate for serial debug logging"
+    9600
+)
+
+add_loader_option(
     HYPER_ALLOCATION_AUDIT
     "Enables the dynamic memory allocation audit logging"
     OFF

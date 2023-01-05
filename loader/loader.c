@@ -18,6 +18,8 @@ void loader_entry(void)
     struct config cfg = { 0 };
     struct loadable_entry le;
 
+    logger_init();
+
     fst_init();
 
     init_all_disks();

@@ -17,6 +17,8 @@ enum log_level {
 
 enum log_level logger_set_level(enum log_level level);
 
+void logger_init(void);
+
 void vprintlvl(enum log_level, const char *msg, va_list vlist);
 void vprint(const char *msg, va_list vlist);
 

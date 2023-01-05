@@ -109,6 +109,12 @@ def build_hyper(args):
     if args.e9_debug_log:
         opt = make_hyper_option_arg("E9_LOG", args.e9_debug_log)
         extra_cmake_args.append(opt)
+    if args.serial_debug_log:
+        opt = make_hyper_option_arg("SERIAL_LOG", args.serial_debug_log)
+        extra_cmake_args.append(opt)
+    if args.serial_debug_baud_rate:
+        opt = make_hyper_option_arg("SERIAL_BAUD_RATE", args.serial_debug_baud_rate)
+        extra_cmake_args.append(opt)
     if args.allocation_audit:
         opt = make_hyper_option_arg("ALLOCATION_AUDIT", args.allocation_audit)
         extra_cmake_args.append(opt)
@@ -149,6 +155,10 @@ def main():
                         help="Reconfigure cmake before building")
     parser.add_argument("--e9-debug-log", choices=["on", "off"],
                         help="Enable/disable 0xE9 logging")
+    parser.add_argument("--serial-debug-log", choices=["on", "off"],
+                        help="Enable/disable serial logging")
+    parser.add_argument("--serial-debug-baud-rate", type=int,
+                        help="Sets the baud rate for serial debug logging")
     parser.add_argument("--allocation-audit", choices=["on", "off"],
                         help="Enable/disable dynamic allocation audit logging")
     parser.add_argument("--strip-info-log", choices=["on", "off"],
