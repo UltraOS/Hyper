@@ -95,6 +95,11 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le, st
 
     if (!path_parse(string_path, &opts->path))
         oops("invalid binary path %pSV\n", &string_path);
+
+    struct string_view* fs_path = &opts->path.path_within_partition;
+    if(fs_path.size > 255)
+        oops("binary path %pSV of length %zu exceeds maximum length %zu\n",
+            fs_path, fs_path.size, 255);
 }
 
 static uint32_t module_get_size(struct config *cfg, struct value *module_value)
