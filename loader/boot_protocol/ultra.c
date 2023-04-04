@@ -79,16 +79,19 @@ static inline u64 max_binary_address(u32 flags)
     return (4ull * GB) - I686_DIRECT_MAP_BASE;
 }
 
-static void get_binary_options(struct config *cfg, struct loadable_entry *le, struct binary_options *opts)
+static void get_binary_options(struct config *cfg, struct loadable_entry *le,
+                               struct binary_options *opts)
 {
     struct value binary_val;
     struct string_view string_path;
 
-    CFG_MANDATORY_GET_ONE_OF(VALUE_STRING | VALUE_OBJECT, cfg, le, SV("binary"), &binary_val);
+    CFG_MANDATORY_GET_ONE_OF(VALUE_STRING | VALUE_OBJECT, cfg, le,
+                             SV("binary"), &binary_val);
 
     if (value_is_object(&binary_val)) {
         CFG_MANDATORY_GET(string, cfg, &binary_val, SV("path"), &string_path);
-        cfg_get_bool(cfg, &binary_val, SV("allocate-anywhere"), &opts->allocate_anywhere);
+        cfg_get_bool(cfg, &binary_val, SV("allocate-anywhere"),
+                     &opts->allocate_anywhere);
     } else {
         string_path = binary_val.as_string;
     }
@@ -126,8 +129,9 @@ static uint32_t module_get_type(struct config *cfg, struct value *module_value)
     const uint32_t type_mask = VALUE_STRING | VALUE_NONE;
     struct value type_value;
 
-    if (!cfg_get_one_of(cfg, module_value, SV("type"), type_mask, &type_value) ||
-        value_is_null(&type_value) || sv_equals(type_value.as_string, SV("file")))
+    if (!cfg_get_one_of(cfg, module_value, SV("type"), type_mask, &type_value)
+        || value_is_null(&type_value)
+        || sv_equals(type_value.as_string, SV("file")))
         return ULTRA_MODULE_TYPE_FILE;
 
     if (sv_equals(type_value.as_string, SV("memory")))
@@ -136,14 +140,15 @@ static uint32_t module_get_type(struct config *cfg, struct value *module_value)
     cfg_oops_invalid_key_value(SV("module/type"), type_value.as_string);
 }
 
-static u64 module_get_load_address(struct config *cfg, struct value *module_value,
+static u64 module_get_load_address(struct config *cfg,
+                                   struct value *module_value,
                                    bool *has_load_address)
 {
     const uint32_t type_mask = VALUE_STRING | VALUE_UNSIGNED | VALUE_NONE;
     struct value load_at_value;
 
-    if (!cfg_get_one_of(cfg, module_value, SV("load-at"), type_mask, &load_at_value) ||
-        value_is_null(&load_at_value))
+    if (!cfg_get_one_of(cfg, module_value, SV("load-at"), type_mask,
+                        &load_at_value) || value_is_null(&load_at_value))
     {
         *has_load_address = false;
         return 0;
@@ -188,7 +193,8 @@ static void *module_data_alloc(u64 addr, u64 ceiling, size_t size,
         }
 
         if ((addr + size) > ceiling) {
-            oops("module is too high in memory 0x%016llX (ceiling: 0x%016llX)\n",
+            oops("module is too high in memory 0x%016llX "
+                 "(ceiling: 0x%016llX)\n",
                  addr, ceiling);
         }
 
@@ -225,14 +231,16 @@ static void module_load(struct config *cfg, struct value *module_value,
         has_path = cfg_get_string(cfg, module_value, SV("path"), &str_path);
         module_size = module_get_size(cfg, module_value);
         module_type = module_get_type(cfg, module_value);
-        load_address = module_get_load_address(cfg, module_value, &has_load_address);
+        load_address = module_get_load_address(cfg, module_value,
+                                               &has_load_address);
     } else {
         str_path = module_value->as_string;
         has_path = true;
     }
 
     if (sv_empty(module_name)) {
-        snprintf(attrs->name, sizeof(attrs->name), "unnamed_module%d", module_idx);
+        snprintf(attrs->name, sizeof(attrs->name),
+                 "unnamed_module%d", module_idx);
     } else {
         if (module_name.size >= sizeof(attrs->name))
             oops("module name \"%pSV\" is too long (%zu vs max %zu)\n",
@@ -370,9 +378,17 @@ struct requested_video_mode {
     enum video_mode_constraint constraint;
     bool none;
 };
-#define VM_EQUALS(l, r) ((l).width == (r).width && (l).height == (r).height && (l).bpp == (r).bpp)
-#define VM_GREATER_OR_EQUAL(l, r) ((l).width >= (r).width && (l).height >= (r).height && (l).bpp >= (r).bpp)
-#define VM_LESS_OR_EQUAL(l, r) ((l).width <= (r).width && (l).height <= (r).height)
+
+#define VM_EQUALS(l, r) ((l).width == (r).width && \
+                         (l).height == (r).height && \
+                         (l).bpp == (r).bpp)
+
+#define VM_GREATER_OR_EQUAL(l, r) ((l).width >= (r).width && \
+                                   (l).height >= (r).height && \
+                                   (l).bpp >= (r).bpp)
+
+#define VM_LESS_OR_EQUAL(l, r) ((l).width <= (r).width && \
+                                (l).height <= (r).height)
 
 #define VIDEO_MODE_KEY SV("video-mode")
 
@@ -473,7 +489,8 @@ static bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
         if (rm.format != FB_FORMAT_INVALID && m.format != rm.format)
             continue;
 
-        if (rm.constraint == VIDEO_MODE_CONSTRAINT_EXACTLY && VM_EQUALS(m, rm)) {
+        if (rm.constraint == VIDEO_MODE_CONSTRAINT_EXACTLY &&
+            VM_EQUALS(m, rm)) {
             picked_vm = m;
             did_pick = true;
             break;
@@ -493,11 +510,12 @@ static bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
     }
 
     if (!did_pick) {
-        oops("failed to pick a video mode according to constraints (%ux%u %u bpp)\n",
-             rm.width, rm.height, rm.bpp);
+        oops("failed to pick a video mode according to constraints "
+             "(%ux%u %u bpp)\n", rm.width, rm.height, rm.bpp);
     }
 
-    print_info("picked video mode %ux%u @ %u bpp\n", picked_vm.width, picked_vm.height, picked_vm.bpp);
+    print_info("picked video mode %ux%u @ %u bpp\n",
+               picked_vm.width, picked_vm.height, picked_vm.bpp);
 
     if (!vs_set_mode(picked_vm.id, &fb))
         oops("failed to set picked video mode\n");
@@ -523,7 +541,8 @@ struct attribute_array_spec {
     ptr_t acpi_rsdp_address;
 };
 
-static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void *buf)
+static void ultra_memory_map_entry_convert(struct memory_map_entry *entry,
+                                           void *buf)
 {
     struct ultra_memory_map_entry *ue = buf;
 
@@ -531,7 +550,8 @@ static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void 
     ue->size = entry->size_in_bytes;
 
     // Direct mapping
-    if (entry->type <= MEMORY_TYPE_NVS || entry->type >= ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE) {
+    if (entry->type <= MEMORY_TYPE_NVS ||
+        entry->type >= ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE) {
         ue->type = entry->type;
     } else if (entry->type == MEMORY_TYPE_LOADER_RECLAIMABLE) {
         ue->type = ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE;
@@ -543,7 +563,8 @@ static void ultra_memory_map_entry_convert(struct memory_map_entry *entry, void 
 #define ULTRA_MAJOR 1
 #define ULTRA_MINOR 0
 
-static void *write_context_header(struct ultra_boot_context *ctx, uint32_t** attr_count)
+static void *write_context_header(struct ultra_boot_context *ctx,
+                                  uint32_t **attr_count)
 {
     ctx->protocol_major = ULTRA_MAJOR;
     ctx->protocol_minor = ULTRA_MINOR;
@@ -552,11 +573,13 @@ static void *write_context_header(struct ultra_boot_context *ctx, uint32_t** att
     return ++ctx;
 }
 
-static void *write_platform_info(struct ultra_platform_info_attribute *pi, u64 rsdp_address)
+static void *write_platform_info(struct ultra_platform_info_attribute *pi,
+                                 u64 rsdp_address)
 {
     pi->header.type = ULTRA_ATTRIBUTE_PLATFORM_INFO;
     pi->header.size = sizeof(struct ultra_platform_info_attribute);
-    pi->platform_type = services_get_provider() == SERVICE_PROVIDER_BIOS ? ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI;
+    pi->platform_type = services_get_provider() == SERVICE_PROVIDER_BIOS ?
+                            ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI;
     pi->loader_major = HYPER_MAJOR;
     pi->loader_minor = HYPER_MINOR;
     pi->acpi_rsdp_address = rsdp_address;
@@ -565,8 +588,9 @@ static void *write_platform_info(struct ultra_platform_info_attribute *pi, u64 r
     return ++pi;
 }
 
-static void *write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
-                                         const struct kernel_info *ki)
+static void*
+write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
+                            const struct kernel_info *ki)
 {
     struct string_view path_str = ki->bin_opts.path.path_within_partition;
     u32 partition_type = ki->bin_opts.path.partition_id_type;
@@ -597,9 +621,12 @@ static void *write_kernel_info_attribute(struct ultra_kernel_info_attribute *att
     attr->partition_type = partition_type;
     attr->partition_index = ki->bin_opts.path.partition_index;
 
-    BUILD_BUG_ON(sizeof(attr->disk_guid) != sizeof(ki->bin_opts.path.disk_guid));
-    memcpy(&attr->disk_guid, &ki->bin_opts.path.disk_guid, sizeof(attr->disk_guid));
-    memcpy(&attr->partition_guid, &ki->bin_opts.path.partition_guid, sizeof(attr->partition_guid));
+    BUILD_BUG_ON(sizeof(attr->disk_guid) !=
+                 sizeof(ki->bin_opts.path.disk_guid));
+    memcpy(&attr->disk_guid, &ki->bin_opts.path.disk_guid,
+           sizeof(attr->disk_guid));
+    memcpy(&attr->partition_guid, &ki->bin_opts.path.partition_guid,
+           sizeof(attr->partition_guid));
 
     BUG_ON(path_str.size > (sizeof(attr->fs_path) - 1));
     memcpy(attr->fs_path, path_str.text, path_str.size);
@@ -623,9 +650,11 @@ static void *write_memory_map(void *attr_ptr, size_t entry_count)
     void *entry_ptr = attr_ptr + sizeof(*mm);
     size_t entries_bytes;
 
-    entry_count = services_release_resources(entry_ptr, entry_count,
-                                             sizeof(struct ultra_memory_map_entry),
-                                             ultra_memory_map_entry_convert);
+    entry_count = services_release_resources(
+        entry_ptr, entry_count,
+        sizeof(struct ultra_memory_map_entry),
+        ultra_memory_map_entry_convert
+    );
 
     entries_bytes = entry_count * sizeof(struct ultra_memory_map_entry);
     mm->header.type = ULTRA_ATTRIBUTE_MEMORY_MAP;
@@ -666,9 +695,11 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
     bytes_needed += sizeof(struct ultra_boot_context);
     bytes_needed += sizeof(struct ultra_platform_info_attribute);
     bytes_needed += sizeof(struct ultra_kernel_info_attribute);
-    bytes_needed += spec->module_buf.size * sizeof(struct ultra_module_info_attribute);
+    bytes_needed += spec->module_buf.size *
+                        sizeof(struct ultra_module_info_attribute);
     bytes_needed += cmdline_aligned_length;
-    bytes_needed += spec->fb_present * sizeof(struct ultra_framebuffer_attribute);
+    bytes_needed += spec->fb_present *
+                        sizeof(struct ultra_framebuffer_attribute);
     bytes_needed += sizeof(struct ultra_memory_map_attribute);
 
     // Add 2 to give some leeway for memory map growth after the next allocation
@@ -679,7 +710,8 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
     pages_needed = PAGE_ROUND_UP(bytes_needed);
 
     // Calculate the real mme capacity after we round up to page size
-    mm_entry_count += (pages_needed - bytes_needed) / sizeof(struct ultra_memory_map_entry);
+    mm_entry_count += (pages_needed - bytes_needed) /
+                        sizeof(struct ultra_memory_map_entry);
     pages_needed >>= PAGE_SHIFT;
 
     /*
@@ -724,7 +756,8 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
     *attr_count += 1;
 
     if (spec->module_buf.size) {
-        size_t bytes_for_modules = spec->module_buf.size * sizeof(struct ultra_module_info_attribute);
+        size_t bytes_for_modules = spec->module_buf.size *
+                        sizeof(struct ultra_module_info_attribute);
         memcpy(attr_ptr, spec->module_buf.buf, bytes_for_modules);
         attr_ptr += bytes_for_modules;
         *attr_count += spec->module_buf.size;
@@ -899,8 +932,8 @@ static u64 do_build_page_table(struct kernel_info *ki, enum pt_type type,
         mm_foreach_entry(do_map_high_memory, &ctx);
 
     /*
-     * If kernel had allocate-anywhere set to on, map virtual base to physical base,
-     * otherwise simply direct map fist N gigabytes of physical.
+     * If kernel had allocate-anywhere set to on, map virtual base to physical
+     * base, otherwise simply direct map fist N gigabytes of physical.
      */
     if (ki->bin_opts.allocate_anywhere) {
         spec.physical_base = bi->physical_base;
@@ -937,7 +970,8 @@ static void allocate_stack(struct config *cfg, struct loadable_entry *le,
         .type = ULTRA_MEMORY_TYPE_KERNEL_STACK,
     };
 
-    has_val = cfg_get_one_of(cfg, le, SV("stack"), VALUE_STRING | VALUE_OBJECT, &val);
+    has_val = cfg_get_one_of(cfg, le, STACK_KEY,
+                             VALUE_STRING | VALUE_OBJECT, &val);
 
     if (has_val && value_is_object(&val)) {
         struct value alloc_at_val, size_val;
@@ -980,7 +1014,8 @@ static void allocate_stack(struct config *cfg, struct loadable_entry *le,
     hi->stack = allocate_pages_ex(&as);
 }
 
-static struct ultra_module_info_attribute *module_alloc(struct dynamic_buffer *buf)
+static struct ultra_module_info_attribute*
+module_alloc(struct dynamic_buffer *buf)
 {
     struct ultra_module_info_attribute *attr;
 
@@ -1038,16 +1073,20 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le,
     struct handover_info *hi = &spec->kern_info.hi;
     struct value module_value;
 
-    if (!cfg_get_first_one_of(cfg, le, SV("module"), VALUE_STRING | VALUE_OBJECT, &module_value))
+    if (!cfg_get_first_one_of(cfg, le, SV("module"),
+                              VALUE_STRING | VALUE_OBJECT, &module_value))
         return;
 
     do {
-        struct ultra_module_info_attribute *mi = module_alloc(&spec->module_buf);
+        struct ultra_module_info_attribute *mi;
+
+        mi = module_alloc(&spec->module_buf);
         module_load(cfg, &module_value, mi, max_binary_address(hi->flags));
 
         if (spec->higher_half_pointers)
             mi->address += hi->direct_map_base;
-    } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT, &module_value, true));
+    } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT,
+                                 &module_value, true));
 }
 
 #define MAX_CMDLINE_LEN 256
@@ -1095,7 +1134,8 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
                  &is_higher_half_exclusive);
 
     if (!ki->is_higher_half && is_higher_half_exclusive)
-        oops("higher half exclusive mode is only allowed for higher half kernels\n");
+        oops("higher half exclusive mode is only allowed for "
+             "higher half kernels\n");
 
     if (is_higher_half_exclusive) {
         spec->higher_half_pointers = true;
@@ -1161,8 +1201,8 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
     return;
 
 out_failed_constraint:
-    oops("failed to satisfy page-table constraint '%pSV', %llu levels not supported\n",
-         &constraint_str, pt_levels);
+    oops("failed to satisfy page-table constraint '%pSV', "
+         "%llu levels not supported\n", &constraint_str, pt_levels);
 }
 
 NORETURN
