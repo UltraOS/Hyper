@@ -94,26 +94,29 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le, st
     }
 
     if (!path_parse(string_path, &opts->path))
-        oops("invalid binary path %pSV\n", &string_path);
+        cfg_oops_invalid_key_value(SV("binary/path"), string_path);
 }
+
+#define SIZE_KEY SV("size")
 
 static uint32_t module_get_size(struct config *cfg, struct value *module_value)
 {
     const uint32_t type_mask = VALUE_STRING | VALUE_UNSIGNED | VALUE_NONE;
     struct value size_value;
 
-    if (!cfg_get_one_of(cfg, module_value, SV("size"), type_mask, &size_value) ||
+    if (!cfg_get_one_of(cfg, module_value, SIZE_KEY, type_mask, &size_value) ||
         value_is_null(&size_value))
         return 0;
 
     if (value_is_string(&size_value)) {
         if (!sv_equals(size_value.as_string, SV("auto")))
-            oops("invalid value for module/size \"%pSV\"\n", &size_value.as_string);
+            cfg_oops_invalid_key_value(SV("module/size"),
+                                       size_value.as_string);
         return 0;
     }
 
     if (size_value.as_unsigned == 0)
-        oops("invalid value for module/size '0'\n");
+        cfg_oops_invalid_key_value(SV("module/size"), SV("0"));
 
     return size_value.as_unsigned;
 }
@@ -130,7 +133,7 @@ static uint32_t module_get_type(struct config *cfg, struct value *module_value)
     if (sv_equals(type_value.as_string, SV("memory")))
         return ULTRA_MODULE_TYPE_MEMORY;
 
-    oops("invalid value for module/type \"%pSV\"\n", &type_value.as_string);
+    cfg_oops_invalid_key_value(SV("module/type"), type_value.as_string);
 }
 
 static u64 module_get_load_address(struct config *cfg, struct value *module_value,
@@ -147,8 +150,10 @@ static u64 module_get_load_address(struct config *cfg, struct value *module_valu
     }
 
     if (value_is_string(&load_at_value)) {
-        if (!sv_equals(load_at_value.as_string, SV("auto")))
-            oops("invalid value for module/load-at \"%pSV\"\n", &load_at_value.as_string);
+        if (!sv_equals(load_at_value.as_string, SV("auto"))) {
+            cfg_oops_invalid_key_value(SV("module/load-at"),
+                                       load_at_value.as_string);
+        }
 
         *has_load_address = false;
         return 0;
@@ -369,6 +374,8 @@ struct requested_video_mode {
 #define VM_GREATER_OR_EQUAL(l, r) ((l).width >= (r).width && (l).height >= (r).height && (l).bpp >= (r).bpp)
 #define VM_LESS_OR_EQUAL(l, r) ((l).width <= (r).width && (l).height <= (r).height)
 
+#define VIDEO_MODE_KEY SV("video-mode")
+
 static void video_mode_from_value(struct config *cfg, struct value *val,
                                   struct requested_video_mode *mode)
 {
@@ -388,7 +395,7 @@ static void video_mode_from_value(struct config *cfg, struct value *val,
         }
 
         if (!sv_equals(val->as_string, SV("auto")))
-            oops("invalid value for \"video-mode\": %pSV\n", &val->as_string);
+            cfg_oops_invalid_key_value(VIDEO_MODE_KEY, val->as_string);
 
         return;
     }
@@ -447,7 +454,8 @@ static bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
     };
     struct framebuffer fb;
 
-    if (cfg_get_one_of(cfg, entry, SV("video-mode"), VALUE_OBJECT | VALUE_STRING | VALUE_NONE,
+    if (cfg_get_one_of(cfg, entry, VIDEO_MODE_KEY,
+                       VALUE_OBJECT | VALUE_STRING | VALUE_NONE,
                        &video_mode_val)) {
         video_mode_from_value(cfg, &video_mode_val, &rm);
     }
@@ -914,6 +922,9 @@ static u64 do_build_page_table(struct kernel_info *ki, enum pt_type type,
     return (ptr_t)pt.root;
 }
 
+#define ALLOCATE_AT_KEY SV("allocate-at")
+#define STACK_KEY SV("stack")
+
 static void allocate_stack(struct config *cfg, struct loadable_entry *le,
                            struct handover_info *hi)
 {
@@ -932,12 +943,18 @@ static void allocate_stack(struct config *cfg, struct loadable_entry *le,
         struct value alloc_at_val, size_val;
         bool has_alloc_at, has_size;
 
-        has_alloc_at = cfg_get_one_of(cfg, &val, SV("allocate-at"), VALUE_STRING | VALUE_UNSIGNED, &alloc_at_val);
-        has_size = cfg_get_one_of(cfg, &val, SV("size"), VALUE_STRING | VALUE_UNSIGNED, &size_val);
+        has_alloc_at = cfg_get_one_of(cfg, &val, ALLOCATE_AT_KEY,
+                                      VALUE_STRING | VALUE_UNSIGNED,
+                                      &alloc_at_val);
+        has_size = cfg_get_one_of(cfg, &val, SIZE_KEY,
+                                  VALUE_STRING | VALUE_UNSIGNED,
+                                  &size_val);
 
         if (has_alloc_at && value_is_string(&alloc_at_val)) {
-            if (!sv_equals(alloc_at_val.as_string, SV("anywhere")))
-                oops("invalid value for \"allocate-at\": %pSV\n", &alloc_at_val.as_string);
+            if (!sv_equals(alloc_at_val.as_string, SV("anywhere"))) {
+                cfg_oops_invalid_key_value(ALLOCATE_AT_KEY,
+                                           alloc_at_val.as_string);
+            }
         } else if (has_alloc_at) { // unsigned
             as.addr = alloc_at_val.as_unsigned;
             as.flags |= ALLOCATE_PRECISE;
@@ -945,7 +962,7 @@ static void allocate_stack(struct config *cfg, struct loadable_entry *le,
 
         if (has_size && value_is_string(&size_val)) {
             if (!sv_equals(size_val.as_string, SV("auto")))
-                oops("invalid value for \"size\": %pSV\n", &size_val.as_string);
+                cfg_oops_invalid_key_value(SIZE_KEY, size_val.as_string);
         } else if (has_size) { // unsigned
             size = PAGE_ROUND_UP(size_val.as_unsigned);
         }
@@ -956,7 +973,7 @@ static void allocate_stack(struct config *cfg, struct loadable_entry *le,
         }
     } else if (has_val) { // string
         if (!sv_equals(val.as_string, SV("auto")))
-            oops("invalid value for \"stack\": %pSV\n", &val.as_string);
+            cfg_oops_invalid_key_value(STACK_KEY, val.as_string);
     }
 
     as.pages = size >> PAGE_SHIFT;
