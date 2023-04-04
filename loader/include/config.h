@@ -169,6 +169,13 @@ static inline void cfg_oops_no_mandatory_key(struct string_view key)
     oops("couldn't find mandatory key \"%pSV\" in the config file!\n", &key);
 }
 
+NORETURN
+static inline void cfg_oops_invalid_key_value(struct string_view key,
+                                              struct string_view value)
+{
+    oops("invalid value for \"%pSV\": \"%pSV\"", &key, &value);
+}
+
 #define CFG_MANDATORY_GET(type, cfg, obj, key, out_ptr)                              \
     do {                                                                             \
         if (!_cfg_get_##type(cfg, (obj)->cfg_off, true, (key), out_ptr))             \
