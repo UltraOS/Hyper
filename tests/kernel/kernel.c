@@ -225,7 +225,7 @@ static ssize_t find_containing_range(struct range *ranges, size_t count,
     for (i = 0; i < count; ++i) {
         struct range *r = &ranges[i];
 
-        if (r->begin <= address && r->end < address)
+        if (r->begin <= address && address < r->end)
             return i;
     }
 
