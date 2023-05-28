@@ -234,7 +234,8 @@ static ssize_t find_containing_range(struct range *ranges, size_t count,
 
 static void validate_modules(struct ultra_module_info_attribute *mi,
                              size_t module_count,
-                             struct ultra_memory_map_attribute *mm)
+                             struct ultra_memory_map_attribute *mm,
+                             struct ultra_platform_info_attribute *pi)
 {
     static struct range seen_ranges[MAX_MODULES];
     size_t i;
@@ -253,14 +254,8 @@ static void validate_modules(struct ultra_module_info_attribute *mi,
         struct range *r = &seen_ranges[i];
 
         r->begin = mi->address;
-
-        if (sizeof(void*) == 8 && r->begin >= AMD64_DIRECT_MAP_BASE)
-            r->begin -= AMD64_DIRECT_MAP_BASE;
-        else if (sizeof(void*) == 8 && r->begin >= AMD64_LA57_DIRECT_MAP_BASE)
-            r->begin -= AMD64_LA57_DIRECT_MAP_BASE;
-        else if (sizeof(void*) == 4 && r->begin >= I686_DIRECT_MAP_BASE)
-            r->begin -= I686_DIRECT_MAP_BASE;
-
+        if (r->begin >= pi->higher_half_base)
+            r->begin -= pi->higher_half_base;
         if (!r->begin)
             test_fail("module %zu address is NULL\n", i);
         if (!mi->size)
@@ -309,6 +304,48 @@ static void validate_modules(struct ultra_module_info_attribute *mi,
     }
 
     print("modules OK\n");
+}
+
+static void validate_platform_info(struct ultra_platform_info_attribute *pi,
+                                   struct ultra_kernel_info_attribute *ki)
+{
+    switch (pi->higher_half_base) {
+    case AMD64_DIRECT_MAP_BASE:
+        if (pi->page_table_depth != 4)
+            goto invalid_pt_depth;
+        if (sizeof(void*) != 8)
+            goto invalid_hh_base;
+        break;
+    case AMD64_LA57_DIRECT_MAP_BASE:
+        if (pi->page_table_depth != 5)
+            goto invalid_pt_depth;
+        if (sizeof(void*) != 8)
+            goto invalid_hh_base;
+        break;
+    case I686_DIRECT_MAP_BASE:
+        if (pi->page_table_depth != 2 &&
+            pi->page_table_depth != 3)
+            goto invalid_pt_depth;
+        if (sizeof(void*) != 4)
+            goto invalid_hh_base;
+        break;
+    default:
+        goto invalid_hh_base;
+    }
+
+    if (ki->virtual_base < pi->higher_half_base &&
+        ki->virtual_base != ki->physical_base) {
+        test_fail("kernel virtual base 0x%016llX is below hh base 0x%016llX\n",
+                  ki->virtual_base, pi->higher_half_base);
+    }
+    return;
+
+invalid_pt_depth:
+    test_fail("page_table_depth %d is invalid for higher_half_base 0x%016llX\n",
+              pi->page_table_depth, pi->higher_half_base);
+invalid_hh_base:
+    test_fail("higher_half_base 0x%016llX is invalid\n",
+              pi->higher_half_base);
 }
 
 static void attribute_array_verify(struct ultra_boot_context *bctx)
@@ -406,7 +443,8 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
 
     print("attribute array OK\n");
 
-    validate_modules(modules_begin, module_count, mm);
+    validate_platform_info(pi, ki);
+    validate_modules(modules_begin, module_count, mm, pi);
 
     print("\nLoader info: %s (version %d.%d) on %s\n",
           pi->loader_name, pi->loader_major, pi->loader_minor,
