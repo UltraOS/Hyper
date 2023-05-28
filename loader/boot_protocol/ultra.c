@@ -877,7 +877,7 @@ static u64 do_build_page_table(struct kernel_info *ki, enum pt_type type,
     };
     struct page_mapper_ctx ctx = {
         .spec = &spec,
-        .direct_map_base = direct_map_base(hi->flags),
+        .direct_map_base = hi->direct_map_base,
         .map_lower = !higher_half_exclusive,
     };
     u8 hp_shift;
