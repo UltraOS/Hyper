@@ -530,6 +530,7 @@ struct attribute_array_spec {
     bool higher_half_pointers;
     bool fb_present;
     bool cmdline_present;
+    uint8_t page_table_depth;
 
     struct ultra_framebuffer fb;
 
@@ -574,7 +575,7 @@ static void *write_context_header(struct ultra_boot_context *ctx,
 }
 
 static void *write_platform_info(struct ultra_platform_info_attribute *pi,
-                                 u64 rsdp_address)
+                                 const struct attribute_array_spec *spec)
 {
     pi->header.type = ULTRA_ATTRIBUTE_PLATFORM_INFO;
     pi->header.size = sizeof(struct ultra_platform_info_attribute);
@@ -582,7 +583,9 @@ static void *write_platform_info(struct ultra_platform_info_attribute *pi,
                             ULTRA_PLATFORM_BIOS : ULTRA_PLATFORM_UEFI;
     pi->loader_major = HYPER_MAJOR;
     pi->loader_minor = HYPER_MINOR;
-    pi->acpi_rsdp_address = rsdp_address;
+    pi->acpi_rsdp_address = spec->acpi_rsdp_address;
+    pi->higher_half_base = spec->kern_info.hi.direct_map_base;
+    pi->page_table_depth = spec->page_table_depth;
     sv_terminated_copy(pi->loader_name, HYPER_BRAND_STRING);
 
     return ++pi;
@@ -749,7 +752,7 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
     attr_ptr = (void*)ret;
     attr_ptr = write_context_header(attr_ptr, &attr_count);
 
-    attr_ptr = write_platform_info(attr_ptr, spec->acpi_rsdp_address);
+    attr_ptr = write_platform_info(attr_ptr, spec);
     *attr_count += 1;
 
     attr_ptr = write_kernel_info_attribute(attr_ptr, &spec->kern_info);
@@ -1189,9 +1192,11 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
             goto out_failed_constraint;
     }
 
-    if (pt_levels < pt_depth(type) && constraint != PT_CONSTRAINT_AT_LEAST) {
-        oops("invalid page-table levels value %llu, expected minimum %zu\n",
-             pt_levels, pt_depth(type));
+    spec->page_table_depth = pt_depth(type);
+    if (pt_levels < spec->page_table_depth &&
+        constraint != PT_CONSTRAINT_AT_LEAST) {
+        oops("invalid page-table levels value %llu, expected minimum %d\n",
+             pt_levels, spec->page_table_depth);
     }
 
     hi->direct_map_base = direct_map_base(hi->flags);
