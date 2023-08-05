@@ -12,12 +12,15 @@ import build_utils.toolchain_args as ta
 BASE_DEPS = {
     "apt": [
         "nasm",
+        "cmake",
     ],
     "pacman": [
         "nasm",
+        "cmake",
     ],
     "brew": [
         "nasm",
+        "cmake",
     ],
 }
 
