@@ -61,24 +61,28 @@ def get_toolchain_dir():
     return os.path.join(get_project_root(), "toolchain")
 
 
-def get_build_dir(platform, toolchain):
-    return os.path.join(get_project_root(), f"build-{toolchain}-{platform}")
+def get_build_dir(arch, platform, toolchain):
+    return os.path.join(get_project_root(),
+                        f"build-{toolchain}-{arch}-{platform}")
 
 
 def build_toolchain(args):
+    toolchain_arch = args.arch
 
     if args.platform == "bios":
         toolchain_platform = "elf"
-        toolchain_arch = "i686"
     elif args.platform == "uefi":
         toolchain_platform = "w64-mingw32"
-        toolchain_arch = "x86_64"
+
+        if toolchain_arch == "amd64":
+            toolchain_arch = "x86_64"
 
     if not tb.is_supported_system():
         exit(1)
 
     tc_root_path = get_toolchain_dir()
-    tc_platform_root_path = os.path.join(tc_root_path, f"tools_{args.platform}")
+    tools_dir = f"tools_{args.arch}_{args.platform}_{args.toolchain}"
+    tc_platform_root_path = os.path.join(tc_root_path, tools_dir)
 
     tp = ta.params_from_args(args, toolchain_platform, tc_platform_root_path,
                              tc_root_path, toolchain_arch)
@@ -101,7 +105,7 @@ def make_hyper_option_arg(arg, setting):
 
 
 def build_hyper(args):
-    build_dir = get_build_dir(args.platform, args.toolchain)
+    build_dir = get_build_dir(args.arch, args.platform, args.toolchain)
     has_build_dir = os.path.isdir(build_dir)
     extra_cmake_args = []
 
@@ -127,7 +131,8 @@ def build_hyper(args):
             build_toolchain(args)
 
         os.makedirs(build_dir, exist_ok=True)
-        cmake_args = [f"-DHYPER_PLATFORM={args.platform}",
+        cmake_args = [f"-DHYPER_ARCH={args.arch}",
+                      f"-DHYPER_PLATFORM={args.platform}",
                       f"-DHYPER_TOOLCHAIN={args.toolchain}"]
         cmake_args.extend(extra_cmake_args)
         subprocess.run(["cmake", "..", *cmake_args], check=True, cwd=build_dir)
@@ -139,14 +144,39 @@ def build_hyper(args):
                    cwd=build_dir, check=True)
 
 
+def pick_arch_and_platform(arch, platform):
+    if not arch and not platform:
+        return ("i686", "bios")
+
+    def invalid_arch_platform_combo():
+        print(f"Error: {arch} is invalid with {platform}")
+        exit(1)
+
+    if arch and platform:
+        if arch == "i686":
+            if platform != "bios":
+                invalid_arch_platform_combo()
+        elif platform != "uefi":
+            invalid_arch_platform_combo()
+
+        return (arch, platform)
+
+    if not arch:
+        return ("i686" if platform == "bios" else "amd64", platform)
+
+    return (arch, "bios" if arch == "i686" else "uefi")
+
+
 def main():
     ww.relaunch_in_wsl_if_windows()
 
     parser = argparse.ArgumentParser("Build Hyper & compiler toolchains")
     ta.add_base_args(parser)
 
+    parser.add_argument("--arch", help="architecture to build the tooolchain for",
+                        choices=["i686", "amd64"])
     parser.add_argument("--platform", help="platform to build the toolchain for",
-                        choices=["bios", "uefi"], type=str.lower, default="bios")
+                        choices=["bios", "uefi"], type=str.lower)
     parser.add_argument("--skip-base-dependencies", action="store_true",
                         help="skip base dependencies")
     parser.add_argument("--fetch-test-dependencies", action="store_true",
@@ -164,6 +194,8 @@ def main():
     parser.add_argument("--strip-info-log", choices=["on", "off"],
                         help="Enable/disable info-level log stripping")
     args = parser.parse_args()
+
+    args.arch, args.platform = pick_arch_and_platform(args.arch, args.platform)
 
     build_hyper(args)
 
