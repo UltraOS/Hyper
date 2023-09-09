@@ -58,8 +58,8 @@ def guess_path_to_installer():
 
 def guess_path_to_hyper_uefi():
     middle_parts = [
-        "build-clang-uefi",
-        "build-gcc-uefi",
+        "build-clang-amd64-uefi",
+        "build-gcc-amd64-uefi",
     ]
     postfix = os.path.join("loader", "hyper_uefi")
 
@@ -68,8 +68,8 @@ def guess_path_to_hyper_uefi():
 
 def guess_path_to_hyper_iso_br():
     middle_parts = [
-        "build-clang-bios",
-        "build-gcc-bios",
+        "build-clang-i686-bios",
+        "build-gcc-i686-bios",
     ]
     postfix = os.path.join("loader", "hyper_iso_boot")
 

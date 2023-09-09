@@ -15,11 +15,16 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         platform: [bios, uefi]
         toolchain: [gcc, clang]
+        arch: [i686, amd64]
         exclude:
           # FIXME: the GCC build somehow ends up being corrupted with
           #        libexec/cc1 containing garbage data.
           - os: macos-latest
             toolchain: gcc
+          - arch: i686
+            platform: uefi
+          - arch: amd64
+            platform: bios
 
     steps:
       - uses: actions/checkout@v3
@@ -29,11 +34,11 @@ jobs:
       - if: ${{ matrix.toolchain == 'gcc' }}
         uses: actions/cache@v3.0.2
         with:
-          path: "${{ github.workspace }}/toolchain/tools_${{ matrix.platform }}"
-          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-gcc"
+          path: "${{ github.workspace }}/toolchain/tools_${{ matrix.arch }}_${{ matrix.platform }}_gcc"
+          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ matrix.platform }}-gcc"
 
       - name: Build platform toolchain & Hyper
-        run: "${{ github.workspace }}/build.py --platform ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native --e9-debug-log=on"
+        run: "${{ github.workspace }}/build.py --arch ${{ matrix.arch }} --platform ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native --e9-debug-log=on"
 
       - name: Build test kernel
         run: ${{ github.workspace }}/tests/kernel/build.sh

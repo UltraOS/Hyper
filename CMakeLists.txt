@@ -4,8 +4,24 @@ if (HYPER_PLATFORM)
     string(TOLOWER ${HYPER_PLATFORM} HYPER_PLATFORM)
 endif ()
 
+if (HYPER_ARCH)
+    string(TOLOWER ${HYPER_ARCH} HYPER_ARCH)
+endif ()
+
+if (NOT HYPER_ARCH)
+    set(HYPER_ARCH "i686")
+elseif ((NOT HYPER_ARCH STREQUAL "i686") AND
+        (NOT HYPER_ARCH STREQUAL "amd64"))
+    message(FATAL_ERROR "Unknown architecture '${HYPER_ARCH}'")
+endif ()
+
 if (NOT HYPER_PLATFORM)
-    set(HYPER_PLATFORM "bios")
+    if (HYPER_ARCH AND NOT HYPER_ARCH STREQUAL "i686")
+        set(HYPER_PLATFORM "uefi")
+    else ()
+        set(HYPER_ARCH "i686")
+        set(HYPER_PLATFORM "bios")
+    endif ()
 elseif ((NOT HYPER_PLATFORM STREQUAL "bios") AND
         (NOT HYPER_PLATFORM STREQUAL "uefi"))
     message(FATAL_ERROR "Unknown platform '${HYPER_PLATFORM}'")
