@@ -66,23 +66,19 @@ def get_build_dir(platform, toolchain):
 
 
 def build_toolchain(args):
-    build_platform = args.platform.lower()
 
-    if build_platform == "bios":
+    if args.platform == "bios":
         toolchain_platform = "elf"
         toolchain_arch = "i686"
-    elif build_platform == "uefi":
+    elif args.platform == "uefi":
         toolchain_platform = "w64-mingw32"
         toolchain_arch = "x86_64"
-    else:
-        print(f"Unknown platform {build_platform}")
-        exit(1)
 
     if not tb.is_supported_system():
         exit(1)
 
     tc_root_path = get_toolchain_dir()
-    tc_platform_root_path = os.path.join(tc_root_path, f"tools_{build_platform}")
+    tc_platform_root_path = os.path.join(tc_root_path, f"tools_{args.platform}")
 
     tp = ta.params_from_args(args, toolchain_platform, tc_platform_root_path,
                              tc_root_path, toolchain_arch)
@@ -149,7 +145,8 @@ def main():
     parser = argparse.ArgumentParser("Build Hyper & compiler toolchains")
     ta.add_base_args(parser)
 
-    parser.add_argument("platform", help="platform to build the toolchain for (BIOS/UEFI)")
+    parser.add_argument("--platform", help="platform to build the toolchain for",
+                        choices=["bios", "uefi"], type=str.lower, default="bios")
     parser.add_argument("--skip-base-dependencies", action="store_true",
                         help="skip base dependencies")
     parser.add_argument("--fetch-test-dependencies", action="store_true",
