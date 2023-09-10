@@ -4,6 +4,7 @@
 #include "common/log.h"
 #include "common/string.h"
 #include "common/string_view.h"
+#include "arch/constants.h"
 #include "disk_services.h"
 #include "bios_call.h"
 #include "services_impl.h"

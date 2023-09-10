@@ -3,7 +3,7 @@
 #include "common/string.h"
 #include "common/log.h"
 #include "services.h"
-#include "uefi_globals.h"
+#include "uefi/globals.h"
 
 #define EFI_ACPI_20_TABLE_GUID \
     { 0x8868E871, 0xE4F1, 0x11D3, { 0xBC, 0x22, 0x00, 0x80, 0xC7, 0x3C, 0x88, 0x81 } }

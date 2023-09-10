@@ -2,11 +2,11 @@
 
 #include "common/align.h"
 #include "common/log.h"
-#include "uefi_globals.h"
-#include "uefi_helpers.h"
+#include "uefi/globals.h"
+#include "uefi/helpers.h"
 #include "memory_services.h"
 #include "services_impl.h"
-#include "uefi_structures.h"
+#include "uefi/structures.h"
 
 #define UEFI_MS_DEBUG 1
 

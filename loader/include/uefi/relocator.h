@@ -2,7 +2,7 @@
 
 #include <common/types.h>
 
-#include "uefi_structures.h"
+#include "structures.h"
 
 typedef void (*relocated_cb_t)(void *user, EFI_PHYSICAL_ADDRESS addr);
 

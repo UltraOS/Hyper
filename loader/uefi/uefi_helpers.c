@@ -1,7 +1,7 @@
 #define MSG_FMT(msg) "UEFI: " msg
 
-#include "uefi_helpers.h"
-#include "uefi_globals.h"
+#include "uefi/helpers.h"
+#include "uefi/globals.h"
 
 #include "common/log.h"
 

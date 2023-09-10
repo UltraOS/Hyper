@@ -19,21 +19,9 @@ else ()
     )
 endif ()
 
-add_loader_nasm_flags(-fwin64)
 add_loader_c_flags(
     -fno-stack-protector
     -mno-stack-arg-probe
-    -mno-80387
-    -mno-mmx
-    -mno-3dnow
-    -mno-sse
-    -mno-sse2
-)
-
-target_sources(
-    ${LOADER_EXECUTABLE}
-    PRIVATE
-    uefi_handover.asm
 )
 
 target_sources(
@@ -42,7 +30,6 @@ target_sources(
     uefi_disk_services.c
     uefi_entry.c
     uefi_find_rsdp.c
-    uefi_handover.c
     uefi_helpers.c
     uefi_memory_services.c
     uefi_video_services.c

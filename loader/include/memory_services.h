@@ -2,6 +2,7 @@
 
 #include "common/types.h"
 #include "common/constants.h"
+#include "arch/constants.h"
 
 // These are consistent with the ACPI specification
 #define MEMORY_TYPE_INVALID            0x00000000

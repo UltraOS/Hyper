@@ -1,5 +1,4 @@
 #include "common/log.h"
-#include "common/io.h"
 #include "common/format.h"
 #include "test_ctl.h"
 

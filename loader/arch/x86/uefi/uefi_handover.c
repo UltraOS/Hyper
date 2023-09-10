@@ -1,7 +1,7 @@
 #include "common/constants.h"
 #include "handover.h"
 #include "services_impl.h"
-#include "relocator.h"
+#include "uefi/relocator.h"
 
 extern char gdt_ptr[];
 

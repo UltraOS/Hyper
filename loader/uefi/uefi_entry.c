@@ -1,6 +1,6 @@
 #include "common/log.h"
 #include "services.h"
-#include "uefi_structures.h"
+#include "uefi/structures.h"
 #include "uefi_memory_services.h"
 #include "uefi_video_services.h"
 #include "uefi_disk_services.h"

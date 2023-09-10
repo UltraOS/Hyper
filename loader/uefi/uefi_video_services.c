@@ -1,9 +1,9 @@
 #define MSG_FMT(msg) "UEFI-GOP: " msg
 
 #include "common/log.h"
-#include "uefi_structures.h"
-#include "uefi_globals.h"
-#include "uefi_helpers.h"
+#include "uefi/structures.h"
+#include "uefi/globals.h"
+#include "uefi/helpers.h"
 #include "video_services.h"
 #include "services_impl.h"
 #include "edid.h"

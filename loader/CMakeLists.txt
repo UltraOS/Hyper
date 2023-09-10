@@ -1,14 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Loader ASM_NASM C)
-
 set(LOADER_EXECUTABLE "hyper_${HYPER_PLATFORM}")
 
 function(add_loader_lang_flags LANG)
     list(
-         TRANSFORM ARGN
-         REPLACE ".+" "$<$<COMPILE_LANGUAGE:${LANG}>:\\0>"
-         OUTPUT_VARIABLE TRANSFORMED_FLAGS
+        TRANSFORM ARGN
+        REPLACE ".+" "$<$<COMPILE_LANGUAGE:${LANG}>:\\0>"
+        OUTPUT_VARIABLE TRANSFORMED_FLAGS
     )
 
     target_compile_options(
@@ -20,10 +18,6 @@ endfunction()
 
 macro(add_loader_c_flags)
     add_loader_lang_flags(C ${ARGN})
-endmacro()
-
-macro(add_loader_nasm_flags)
-    add_loader_lang_flags(ASM_NASM ${ARGN})
 endmacro()
 
 macro(add_loader_definition VALUE)
@@ -47,11 +41,15 @@ add_executable(
     allocator.c
     config.c
     edid.c
+    elf.c
     loader.c
     memory_services.c
     services_impl.c
     virtual_memory.c
 )
+
+set(STAGE2_BINARY ${LOADER_EXECUTABLE})
+set(STAGE2_PATH ${CMAKE_CURRENT_BINARY_DIR})
 
 add_loader_option(
     HYPER_E9_LOG
@@ -126,11 +124,29 @@ add_loader_c_flags(
     -nostdlib
 )
 
+set(HYPER_ARCH_SUBDIR ${HYPER_ARCH})
+
+if (HYPER_ARCH STREQUAL "i686" OR HYPER_ARCH STREQUAL "amd64")
+    # Have to set this manually as cmake hardcodes '-f<native-binary-format>'
+    # NOTE: this is here as opposed to x86/CMakeLists.txt because of a CMake
+    #       bug where it complains about a required internal variable not
+    #       being set. That can be fixed by setting CMAKE_ASM_NASM_COMPILE_OBJECT
+    #       to PARENT_SCOPE, however, that seems to produce bogus nasm command
+    #       lines where include directories are not even preceded by -I.
+    set(
+        CMAKE_ASM_NASM_COMPILE_OBJECT
+        "<CMAKE_ASM_NASM_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT> <SOURCE>"
+    )
+    enable_language(ASM_NASM)
+
+    set(HYPER_ARCH_SUBDIR "x86")
+endif ()
+
+add_subdirectory(arch/${HYPER_ARCH_SUBDIR})
 add_subdirectory(boot_protocol)
 add_subdirectory(common)
-add_subdirectory(elf)
 add_subdirectory(filesystem)
-add_subdirectory(${HYPER_PLATFORM})
 
-set(STAGE2_BINARY ${LOADER_EXECUTABLE} PARENT_SCOPE)
-set(STAGE2_PATH ${PROJECT_BINARY_DIR} PARENT_SCOPE)
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${HYPER_PLATFORM}")
+    add_subdirectory(${HYPER_PLATFORM})
+endif ()

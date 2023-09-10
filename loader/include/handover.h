@@ -4,6 +4,7 @@
 #include "common/attributes.h"
 #include "common/constants.h"
 #include "common/bug.h"
+#include "arch/handover_flags.h"
 
 /*
  * Generic handover info structure:
@@ -35,23 +36,12 @@ struct handover_info {
  * If set, unmaps the first table or handover_get_minimum_map_length()
  * worth of pages from the page table root, whichever one is bigger.
  */
-#define HO_HIGHER_HALF_ONLY (1 << 0)
+#define HO_HIGHER_HALF_ONLY_BIT 0
+#define HO_HIGHER_HALF_ONLY (1 << HO_HIGHER_HALF_ONLY_BIT)
 
-// x86 long mode enable
-#define HO_X86_LME_BIT      28
-#define HO_X86_LME          (1 << HO_X86_LME_BIT)
-
-// x86 page size extension
-#define HO_X86_PSE_BIT      29
-#define HO_X86_PSE          (1 << HO_X86_PSE_BIT)
-
-// x86 physical address extension
-#define HO_X86_PAE_BIT      30
-#define HO_X86_PAE          (1 << HO_X86_PAE_BIT)
-
-// x86 57 bit linear address (5 level paging)
-#define HO_X86_LA57_BIT     31
-#define HO_X86_LA57         (1 << HO_X86_LA57_BIT)
+/*
+ * Arch-specific flags are described in <arch>/include/handover_flags.h
+ */
     u32 flags;
 };
 
