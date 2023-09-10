@@ -5,9 +5,12 @@
 #include "common/minmax.h"
 
 #include "filesystem/filesystem.h"
-#include "structures.h"
 #include "allocator.h"
 #include "elf.h"
+#include "elf/structures.h"
+#include "elf/context.h"
+#include "elf/machine.h"
+#include "arch/elf.h"
 
 #define ELF_ERROR_N(err, reason_str, arg_0, arg_1, arg_2, cnt) \
     do {                                                       \
@@ -30,43 +33,6 @@
 
 #define ELF_ERROR(err, reason_str) \
     ELF_ERROR_N(err, reason_str, 0, 0, 0, 0)
-
-#define ARCH_STRUCT_VIEW(arch, data, type, action) \
-    switch (arch) {                                \
-    case ELF_ARCH_I386: {                          \
-        const struct Elf32_##type *view = data;    \
-        action                                     \
-        break;                                     \
-    }                                              \
-    case ELF_ARCH_AMD64: {                         \
-        const struct Elf64_##type *view = data;    \
-        action                                     \
-        break;                                     \
-    }                                              \
-    default:                                       \
-        BUG();                                     \
-}
-
-struct elf_load_ph {
-    Elf64_Addr phys_addr, virt_addr;
-    Elf64_Xword memsz, filesz;
-    Elf64_Off fileoff;
-};
-
-struct elf_ph_info {
-    Elf64_Half count;
-    Elf64_Half entsize;
-    Elf64_Off off;
-};
-
-struct elf_load_ctx {
-    struct elf_load_spec *spec;
-    bool alloc_anywhere;
-    bool use_va;
-    struct elf_ph_info ph_info;
-    struct elf_binary_info *bi;
-    struct elf_error *err;
-};
 
 static void elf_get_header_info(const void *data, enum elf_arch arch,
                                 struct elf_ph_info *info, u64 *entrypoint)
@@ -360,18 +326,8 @@ static bool elf_do_get_arch(void *hdr, size_t file_size, enum elf_arch *arch,
         ELF_ERROR_1(err, "invalid EI_CLASS", ei_class);
     }
 
-    switch (ehdr->e_machine) {
-    case EM_386:
-        ptr_width_expected = 4;
-        *arch = ELF_ARCH_I386;
-        break;
-    case EM_AMD64:
-        ptr_width_expected = 8;
-        *arch = ELF_ARCH_AMD64;
-        break;
-    default:
+    if (!elf_machine_to_arch(ehdr->e_machine, arch, &ptr_width_expected))
         ELF_ERROR_1(err, "invalid machine type", ehdr->e_machine);
-    }
 
     if (ptr_width != ptr_width_expected) {
         ELF_ERROR_2(err, "invalid EI_CLASS for machine type", ei_class,
@@ -435,16 +391,7 @@ static bool elf_init_ctx(struct elf_load_ctx *ctx)
     if (!elf_do_get_arch(hdr, io->binary->size, &info->arch, ctx->err))
         goto out;
 
-    switch (info->arch) {
-    case ELF_ARCH_I386:
-        ret = !ctx->alloc_anywhere;
-        break;
-    case ELF_ARCH_AMD64:
-        ret = !(ctx->alloc_anywhere && !ctx->use_va);
-        break;
-    default:
-        BUG();
-    }
+    ret = elf_is_supported_load_ctx(ctx);
 
     elf_get_header_info(hdr, info->arch, &ctx->ph_info,
                         &info->entrypoint_address);

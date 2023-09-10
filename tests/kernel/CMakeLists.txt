@@ -44,11 +44,24 @@ function(LOADER_FILE)
     list(APPEND EXTERNAL_LOADER_FILES_LOCAL "${CMAKE_CURRENT_SOURCE_DIR}/${ARG_LOCAL_PATH}/${ARG_FILE}")
     set_property(GLOBAL PROPERTY EXTERNAL_LOADER_FILES ${EXTERNAL_LOADER_FILES_LOCAL})
 
+    set(FULL_LOCAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${ARG_LOCAL_PATH}")
+
+    if (NOT EXISTS "${FULL_LOCAL_PATH}")
+        add_custom_command(
+            OUTPUT "${FULL_LOCAL_PATH}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${FULL_LOCAL_PATH}
+        )
+
+        set(FILE_DEPENDENCIES "DEPENDS;${FULL_LOCAL_PATH}")
+    endif ()
+
     add_custom_command(
-        OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/${ARG_LOCAL_PATH}/${ARG_FILE}"
+        OUTPUT "${FULL_LOCAL_PATH}/${ARG_FILE}"
         COMMAND ${CMAKE_COMMAND} -E copy
                 ${LOADER_ROOT_DIR}/${ARG_PATH}/${ARG_FILE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_LOCAL_PATH})
+                ${FULL_LOCAL_PATH}
+        ${FILE_DEPENDENCIES}
+    )
 endfunction(LOADER_FILE)
 
 LOADER_FILE(PATH "include/common" FILE "types.h")
@@ -63,16 +76,15 @@ LOADER_FILE(PATH "include/common" FILE "panic.h")
 LOADER_FILE(PATH "include/common" FILE "constants.h")
 LOADER_FILE(PATH "include/common" FILE "string_view.h")
 LOADER_FILE(PATH "include/common" FILE "format.h")
-LOADER_FILE(PATH "include/common" FILE "cpuid.h")
 LOADER_FILE(PATH "include/common" FILE "align.h")
 LOADER_FILE(PATH "include/common" FILE "range.h")
-LOADER_FILE(PATH "include/common" FILE "io.h")
+LOADER_FILE(PATH "arch/x86/include/" FILE "pio.h" LOCAL_PATH "include")
 LOADER_FILE(PATH "common" FILE "string.c")
 LOADER_FILE(PATH "common" FILE "string_view.c")
 LOADER_FILE(PATH "common" FILE "format.c")
-LOADER_FILE(PATH "common" FILE "cpuid.c")
 LOADER_FILE(PATH "common" FILE "conversions.c")
 LOADER_FILE(PATH "."      FILE "gcc_builtins.c")
+LOADER_FILE(PATH "arch/x86/include/arch" FILE "constants.h" LOCAL_PATH "include/arch")
 LOADER_FILE(PATH "boot_protocol/ultra_protocol" FILE "ultra_protocol.h" LOCAL_PATH "include")
 
 get_property(EXTERNAL_LOADER_FILES_LOCAL GLOBAL PROPERTY EXTERNAL_LOADER_FILES)

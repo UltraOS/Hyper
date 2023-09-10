@@ -1,4 +1,4 @@
-#include "types.h"
+#include "common/types.h"
 
 static inline void out8(u16 port, u8 data)
 {

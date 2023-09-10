@@ -1,18 +1,8 @@
 #pragma once
 
 #include "common/types.h"
-
-enum pt_type {
-    PT_TYPE_I386_NO_PAE = 2,
-    PT_TYPE_I386_PAE    = 3,
-    PT_TYPE_AMD64_4LVL  = 4,
-    PT_TYPE_AMD64_5LVL  = 5,
-};
-
-static inline size_t pt_depth(enum pt_type pt)
-{
-    return (size_t)pt;
-}
+#include "common/align.h"
+#include "arch/virtual_memory.h"
 
 struct page_table {
     void *root;

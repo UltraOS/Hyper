@@ -4,10 +4,10 @@
 #include <common/align.h>
 #include <common/panic.h>
 
-#include "relocator.h"
+#include "uefi/relocator.h"
 
-#include "uefi_globals.h"
-#include "uefi_helpers.h"
+#include "uefi/globals.h"
+#include "uefi/helpers.h"
 
 static EFI_PHYSICAL_ADDRESS last_allocation;
 static EFI_PHYSICAL_ADDRESS last_ceiling;

@@ -1,6 +1,5 @@
 #include <stdarg.h>
-#include "common/io.h"
-#include "common/cpuid.h"
+#include "pio.h"
 #include "common/string_ex.h"
 #include "fb_tty.h"
 #include "test_ctl.h"
@@ -25,10 +24,12 @@ static bool should_shutdown = true;
 static bool is_in_hypervisor(void)
 {
     if (is_in_hypervisor_state == -1) {
-        struct cpuid_res res;
+        u32 a, b, c, d;
 
-        cpuid(1, &res);
-        is_in_hypervisor_state = res.c & HYPERVISOR_BIT;
+        asm volatile("cpuid"
+            : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+            : "a"(1), "c"(0));
+        is_in_hypervisor_state = c & HYPERVISOR_BIT;
     }
 
     return is_in_hypervisor_state;

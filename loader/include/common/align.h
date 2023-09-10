@@ -1,6 +1,6 @@
 #pragma once
 
-#include "constants.h"
+#include "arch/constants.h"
 
 #define ALIGN_UP_MASK(x, mask)   (((x) + (mask)) & ~(mask))
 #define ALIGN_UP(x, val)         ALIGN_UP_MASK(x, (typeof(x))(val) - 1)

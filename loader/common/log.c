@@ -1,7 +1,10 @@
 #include "common/log.h"
-#include "common/string.h"
 #include "common/format.h"
-#include "common/io.h"
+
+// TODO: remove this hack
+#if __i386__
+#include "pio.h"
+#endif
 
 #include "video_services.h"
 
