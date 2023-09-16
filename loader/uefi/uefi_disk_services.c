@@ -162,6 +162,12 @@ static void enumerate_disks(void)
             continue;
         }
 
+        if (unlikely(bio->Media->BlockSize > PAGE_SIZE)) {
+            print_warn("disk[%zu] block size is too large (%u), skipped\n",
+                       i, bio->Media->BlockSize);
+            continue;
+        }
+
         ret = g_st->BootServices->HandleProtocol(handles[i], &disk_io_guid, (void**)&dio);
         if (unlikely_efi_error(ret)) {
             struct string_view err_msg = uefi_status_to_string(ret);
