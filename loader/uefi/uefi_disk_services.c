@@ -148,7 +148,7 @@ static void enumerate_disks(void)
         ret = g_st->BootServices->HandleProtocol(handles[i], &block_io_guid, (void**)&bio);
         if (unlikely_efi_error(ret)) {
             struct string_view err_msg = uefi_status_to_string(ret);
-            print_warn("disk[%zu] HandleProtocol(block_io) error: %pSV\n", i, &err_msg);
+            print_warn("disk[%zu] HandleProtocol(BLOCK_IO) error: %pSV\n", i, &err_msg);
             continue;
         }
 
@@ -158,7 +158,8 @@ static void enumerate_disks(void)
             continue;
 
         if (unlikely(__builtin_popcount(bio->Media->BlockSize) != 1)) {
-            print_warn("Skipping a non-power-of-two block size (%u) disk\n", bio->Media->BlockSize);
+            print_warn("disk[%zu] block size is not a power of two (%u)"
+                       ", skipped\n", i, bio->Media->BlockSize);
             continue;
         }
 
