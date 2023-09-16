@@ -174,7 +174,7 @@ def main():
     ta.add_base_args(parser)
 
     parser.add_argument("--arch", help="architecture to build the tooolchain for",
-                        choices=["i686", "amd64"])
+                        choices=["i686", "amd64", "aarch64"])
     parser.add_argument("--platform", help="platform to build the toolchain for",
                         choices=["bios", "uefi"], type=str.lower)
     parser.add_argument("--skip-base-dependencies", action="store_true",

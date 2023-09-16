@@ -27,6 +27,7 @@ enum elf_arch {
     ELF_ARCH_INVALID = 0,
     ELF_ARCH_I386    = 1,
     ELF_ARCH_AMD64   = 2,
+    ELF_ARCH_AARCH64 = 3,
 };
 
 struct elf_binary_info {

@@ -140,6 +140,34 @@ if (HYPER_ARCH STREQUAL "i686" OR HYPER_ARCH STREQUAL "amd64")
     enable_language(ASM_NASM)
 
     set(HYPER_ARCH_SUBDIR "x86")
+elseif (HYPER_ARCH STREQUAL "aarch64")
+    # Make all aarch64 files compile with -x assembler-with-cpp
+    # This is easier than setting up a separate assembler toolchain in cmake
+    # and also allows us to use proper C preprocessor on those files.
+    # NOTE:
+    # Yes, this has to be done this way here. At least on CMake 3.22.1 where the
+    # properties are somehow not propagated to parent even with TARGET_DIRECTORY
+    # or DIRECTORY properties being set at the call site. Using absolute paths
+    # doesn't work either. For now just glob all aarch64 asm files recursively
+    # and change their properties right here.
+    file(
+        GLOB_RECURSE
+        AARCH64_ASM_FILES
+        arch/${HYPER_ARCH_SUBDIR}/*.asm
+    )
+
+    foreach(AARCH64_ASM_FILE IN LISTS AARCH64_ASM_FILES)
+        set_source_files_properties(
+            ${AARCH64_ASM_FILE}
+            PROPERTIES
+            LANGUAGE
+            C
+            COMPILE_OPTIONS
+            # We have to do armv8.1a because that includes FEAT_VHE, which in
+            # turn allows us to load TTBR1_EL2 in the assembly
+            "-xassembler-with-cpp;-march=armv8.1a"
+        )
+    endforeach ()
 endif ()
 
 add_subdirectory(arch/${HYPER_ARCH_SUBDIR})

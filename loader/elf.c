@@ -63,6 +63,7 @@ static bool elf_is_valid_ph_size(u32 size, enum elf_arch arch)
     case ELF_ARCH_I386:
         return sizeof(struct Elf32_Phdr) <= size;
     case ELF_ARCH_AMD64:
+    case ELF_ARCH_AARCH64:
         return sizeof(struct Elf64_Phdr) <= size;
     default:
         BUG();
