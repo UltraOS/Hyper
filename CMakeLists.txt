@@ -11,7 +11,8 @@ endif ()
 if (NOT HYPER_ARCH)
     set(HYPER_ARCH "i686")
 elseif ((NOT HYPER_ARCH STREQUAL "i686") AND
-        (NOT HYPER_ARCH STREQUAL "amd64"))
+        (NOT HYPER_ARCH STREQUAL "amd64") AND
+        (NOT HYPER_ARCH STREQUAL "aarch64"))
     message(FATAL_ERROR "Unknown architecture '${HYPER_ARCH}'")
 endif ()
 

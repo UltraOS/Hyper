@@ -27,6 +27,7 @@
 
 #define EM_386 3
 #define EM_AMD64 62
+#define EM_AARCH64 183
 
 #define ET_NONE   0
 #define ET_REL    1
