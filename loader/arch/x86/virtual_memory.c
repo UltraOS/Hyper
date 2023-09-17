@@ -29,6 +29,9 @@ void page_table_init(struct page_table *pt, enum pt_type type,
     pt->base_shift = PAGE_SHIFT;
     pt->max_table_address = max_table_address;
 
+    // 52 is the maximum supported number of physical bits
+    pt->entry_address_mask = ~(BIT_MASK(52, 64) | BIT_MASK(0, PAGE_SHIFT));
+
     memzero(pt->root, PAGE_SIZE);
 
     switch (type) {

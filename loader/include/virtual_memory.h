@@ -9,6 +9,7 @@ struct page_table {
     void (*write_slot)(void*, u64);
     u64 (*read_slot)(void*);
     u64 max_table_address;
+    u64 entry_address_mask;
     u8 table_width_shift;
     u8 levels;
     u8 entry_width;
