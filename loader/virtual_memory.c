@@ -69,7 +69,7 @@ static void *table_at(struct page_table *pt, void *table, size_t idx)
     memzero((void*)page, PAGE_SIZE);
 
     entry = (ptr_t)page;
-    entry |= PAGE_READWRITE | PAGE_PRESENT;
+    entry |= PAGE_READWRITE | PAGE_PRESENT | PAGE_NORMAL;
 
     pt->write_slot(table, entry);
     return page;

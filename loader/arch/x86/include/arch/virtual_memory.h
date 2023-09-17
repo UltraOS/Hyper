@@ -4,6 +4,7 @@
 
 #define PAGE_PRESENT   (1 << 0)
 #define PAGE_READWRITE (1 << 1)
+#define PAGE_NORMAL    (0 << 7)
 #define PAGE_HUGE      (1 << 7)
 
 enum pt_type {
