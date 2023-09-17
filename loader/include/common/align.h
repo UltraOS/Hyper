@@ -13,3 +13,6 @@
 
 #define PAGE_ROUND_UP(size)   ALIGN_UP(size, PAGE_SIZE)
 #define PAGE_ROUND_DOWN(size) ALIGN_DOWN(size, PAGE_SIZE)
+
+#define BIT_MASK(start_bit, end_bit) \
+    (((1ull << ((end_bit) - (start_bit))) - 1) << start_bit)
