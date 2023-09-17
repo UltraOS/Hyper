@@ -32,20 +32,20 @@ void page_table_init(struct page_table *pt, enum pt_type type,
     memzero(pt->root, PAGE_SIZE);
 
     switch (type) {
-        case PT_TYPE_I386_NO_PAE:
-            pt->entry_width = 4;
-            pt->table_width_shift = 10;
-            break;
+    case PT_TYPE_I386_NO_PAE:
+        pt->entry_width = 4;
+        pt->table_width_shift = 10;
+        break;
 
-        case PT_TYPE_I386_PAE:
-        case PT_TYPE_AMD64_4LVL:
-        case PT_TYPE_AMD64_5LVL:
-            pt->entry_width = 8;
-            pt->table_width_shift = 9;
-            break;
+    case PT_TYPE_I386_PAE:
+    case PT_TYPE_AMD64_4LVL:
+    case PT_TYPE_AMD64_5LVL:
+        pt->entry_width = 8;
+        pt->table_width_shift = 9;
+        break;
 
-        default:
-            BUG();
+    default:
+        BUG();
     }
 
     if (pt->entry_width == 8) {
