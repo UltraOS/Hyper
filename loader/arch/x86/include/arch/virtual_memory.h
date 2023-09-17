@@ -18,3 +18,8 @@ static inline size_t pt_depth(enum pt_type pt)
 {
     return (size_t)pt;
 }
+
+static inline bool pt_is_huge_page(u64 entry)
+{
+    return (entry & PAGE_HUGE) == PAGE_HUGE;
+}
