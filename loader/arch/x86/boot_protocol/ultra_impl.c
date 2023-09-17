@@ -61,6 +61,19 @@ u64 ultra_max_binary_address(u32 flags)
     return (4ull * GB) - I686_DIRECT_MAP_BASE;
 }
 
+u32 ultra_get_flags_for_binary_options(struct binary_options *bo,
+                                       enum elf_arch arch)
+{
+    if (arch == ELF_ARCH_I386) {
+        if (bo->allocate_anywhere)
+            oops("allocate-anywhere is only allowed for 64 bit kernels\n");
+
+        return 0;
+    }
+
+    return HO_X86_LME;
+}
+
 bool ultra_configure_pt_type(struct handover_info *hi, u8 pt_levels,
                              enum pt_constraint constraint,
                              enum pt_type *out_type)

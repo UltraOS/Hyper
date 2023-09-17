@@ -11,6 +11,9 @@ struct binary_options {
     bool allocate_anywhere;
 };
 
+u32 ultra_get_flags_for_binary_options(struct binary_options *bo,
+                                       enum elf_arch arch);
+
 struct kernel_info {
     struct binary_options bin_opts;
     struct elf_binary_info bin_info;

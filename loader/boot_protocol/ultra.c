@@ -275,13 +275,7 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry,
     if (bo->allocate_anywhere)
         spec.flags |= ELF_ALLOCATE_ANYWHERE;
 
-    if (arch == ELF_ARCH_I386) {
-        if (bo->allocate_anywhere)
-            oops("allocate-anywhere is only allowed for 64 bit kernels\n");
-    } else {
-        hi->flags |= HO_X86_LME;
-    }
-
+    hi->flags |= ultra_get_flags_for_binary_options(bo, arch);
     handover_ensure_supported_flags(hi->flags);
 
     spec.binary_ceiling = ultra_max_binary_address(hi->flags);
