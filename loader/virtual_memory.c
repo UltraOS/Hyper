@@ -57,7 +57,7 @@ static void *table_at(struct page_table *pt, void *table, size_t idx)
     entry = pt->read_slot(table);
 
     if (entry & PAGE_PRESENT) {
-        BUG_ON(entry & PAGE_HUGE);
+        BUG_ON(pt_is_huge_page(entry));
 
         entry &= ~((1 << pt->base_shift) - 1);
         return (void*)((ptr_t)entry);
