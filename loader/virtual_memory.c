@@ -59,7 +59,7 @@ static void *table_at(struct page_table *pt, void *table, size_t idx)
     if (entry & PAGE_PRESENT) {
         BUG_ON(pt_is_huge_page(entry));
 
-        entry &= ~((1 << pt->base_shift) - 1);
+        entry = entry & pt->entry_address_mask;
         return (void*)((ptr_t)entry);
     }
 
