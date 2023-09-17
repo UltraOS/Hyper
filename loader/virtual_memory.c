@@ -12,6 +12,7 @@ struct bulk_map_ctx {
     struct page_table *pt;
     u64 physical_base, virtual_base;
     size_t page_count;
+    u64 page_attributes;
     bool huge;
 };
 
@@ -140,9 +141,7 @@ static bool bulk_map_pages(struct bulk_map_ctx *ctx)
     ctx->virtual_base += bytes_mapped;
     ctx->physical_base += bytes_mapped;
 
-    pte_entry |= PAGE_PRESENT | PAGE_READWRITE;
-    if (ctx->huge)
-        pte_entry |= PAGE_HUGE;
+    pte_entry |= ctx->page_attributes;
 
     while (pages_to_map--) {
         pt->write_slot(slot, pte_entry);
@@ -153,15 +152,27 @@ static bool bulk_map_pages(struct bulk_map_ctx *ctx)
     return true;
 }
 
-bool map_pages(const struct page_mapping_spec* spec)
+bool map_pages(const struct page_mapping_spec *spec)
 {
     struct bulk_map_ctx ctx = {
         .pt = spec->pt,
         .physical_base = spec->physical_base,
         .virtual_base = spec->virtual_base,
         .page_count = spec->count,
-        .huge = spec->type == PAGE_TYPE_HUGE,
+        .page_attributes = PAGE_READWRITE | PAGE_PRESENT,
     };
+
+    switch (spec->type) {
+    case PAGE_TYPE_NORMAL:
+        ctx.page_attributes |= PAGE_NORMAL;
+        break;
+    case PAGE_TYPE_HUGE:
+        ctx.page_attributes |= PAGE_HUGE;
+        ctx.huge = true;
+        break;
+    default:
+        BUG();
+    }
 
     while (ctx.page_count) {
         bool ok;
