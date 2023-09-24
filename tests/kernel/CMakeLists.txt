@@ -95,7 +95,6 @@ set(COMMON_C_FLAGS
     -ffreestanding
     -O0
     -ggdb
-    -mno-80387 -mno-mmx -mno-3dnow -mno-sse -mno-sse2
     -Wall -Wextra -Werror
     -nostdlib
     -static
@@ -103,9 +102,22 @@ set(COMMON_C_FLAGS
     -Wno-unused-function
 )
 
-macro(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
+function(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
     add_executable(${KERNEL_NAME})
     add_dependencies(${KERNEL_NAME} external_files)
+    set(KERNEL_ADDITIONAL_FLAGS "${ARGN}")
+
+    if (TARGET_ARCH STREQUAL "i686" OR TARGET_ARCH STREQUAL "amd64")
+        set(ARCH_TEST_CTL_FILE test_ctl_x86.c)
+        set(KERNEL_ADDITIONAL_FLAGS
+           ${KERNEL_ADDITIONAL_FLAGS}
+           -mno-80387
+           -mno-mmx
+           -mno-3dnow
+           -mno-sse
+           -mno-sse2
+        )
+    endif ()
 
     target_sources(
         ${KERNEL_NAME}
@@ -114,9 +126,10 @@ macro(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
         fb_tty.c
         gcc_builtins.c
         kernel.c
-        test_ctl.c
         ultra_helpers.c
         common/log.c
+        test_ctl_generic.c
+        ${ARCH_TEST_CTL_FILE}
         ${EXTERNAL_LOADER_FILES_LOCAL}
     )
 
@@ -125,7 +138,7 @@ macro(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
         PRIVATE
         ${COMMON_C_FLAGS}
         --target=${TARGET_ARCH}-none-none
-        ${ARGN}
+        ${KERNEL_ADDITIONAL_FLAGS}
     )
 
     target_link_options(
@@ -140,9 +153,9 @@ macro(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
         PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
     )
-endmacro()
+endfunction()
 
 add_kernel(kernel_i686_lower_half i686 link_1mb_generic.ld)
 add_kernel(kernel_i686_higher_half i686 link_i686_higher_half.ld)
 add_kernel(kernel_amd64_lower_half amd64 link_1mb_generic.ld)
-add_kernel(kernel_amd64_higher_half amd64 link_amd64_higher_half.ld -mcmodel=kernel)
+add_kernel(kernel_amd64_higher_half amd64 link_generic_64bit_higher_half.ld -mcmodel=kernel)
