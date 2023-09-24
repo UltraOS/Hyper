@@ -1,4 +1,5 @@
 #include <stdarg.h>
+#include "common/types.h"
 #include "common/attributes.h"
 #include "common/log.h"
 
