@@ -210,8 +210,7 @@ bool block_cache_take_ref(struct block_cache *bc, void **buf, u64 byte_off,
     byte_offsets_to_block_coords(bc, byte_off, count, &c);
 
     // Request too large
-    BUG_ON(c.block_count > bc->cache_block_cap ||
-          (c.block_count == bc->cache_block_cap && c.byte_off));
+    BUG_ON(c.block_count > bc->cache_block_cap);
 
     // Fast path if this range is already entirely cached
     if (cached_range_get_ptr(bc, buf, c.base_block, c.block_count)) {
