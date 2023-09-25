@@ -13,17 +13,6 @@ static EFI_PHYSICAL_ADDRESS last_allocation;
 static EFI_PHYSICAL_ADDRESS last_ceiling;
 static size_t last_bytes_rem;
 
-void relocated_cb_write_u32(void *user, EFI_PHYSICAL_ADDRESS new_address)
-{
-    BUG_ON(new_address > 0xFFFFFFFF);
-    *(u32*)user = (u32)new_address;
-}
-
-void relocated_cb_write_u64(void *user, EFI_PHYSICAL_ADDRESS new_address)
-{
-    *(u64*)user = new_address;
-}
-
 void relocate_entries(struct relocation_entry *entries)
 {
     struct relocation_entry *entry;

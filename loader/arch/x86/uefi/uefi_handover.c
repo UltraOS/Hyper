@@ -1,4 +1,5 @@
 #include "common/constants.h"
+#include "common/rw_helpers.h"
 #include "handover.h"
 #include "services_impl.h"
 #include "uefi/relocator.h"
@@ -35,20 +36,20 @@ static struct relocation_entry relocations[] = {
         .end = gdt_struct_end,
         .max_address = UEFI_HANDOVER_MAX_PHYS_ADDR,
         .user = gdt_ptr + 2,
-        .cb = relocated_cb_write_u64
+        .cb = write_u64,
     },
     {
         .begin = kernel_handover_x86_compat_code_begin,
         .end = kernel_handover_x86_compat_code_end,
         .max_address = UEFI_HANDOVER_MAX_PHYS_ADDR,
         .user = &kernel_handover_x86_compat_code_relocated,
-        .cb = relocated_cb_write_u32
+        .cb = write_u32_u64,
     },
     {
         .size = sizeof(*xhi_relocated),
         .max_address = UEFI_HANDOVER_MAX_PHYS_ADDR,
         .user = &xhi_relocated,
-        .cb = relocated_cb_write_u64
+        .cb = write_u64,
     },
     {}
 };
