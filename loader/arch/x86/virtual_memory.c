@@ -1,23 +1,9 @@
 #include "common/bug.h"
 #include "common/string.h"
+#include "common/rw_helpers.h"
 
 #include "virtual_memory.h"
 #include "virtual_memory_impl.h"
-
-static void write_u32(void *ptr, u64 data)
-{
-    u32 *dword = ptr;
-    *dword = data;
-}
-
-static void write_u64(void *ptr, u64 data)
-{
-    u64 *qword = ptr;
-    *qword = data;
-}
-
-static u64 read_u32(void *ptr) { return *(u32*)ptr; }
-static u64 read_u64(void *ptr) { return *(u64*)ptr; }
 
 void page_table_init(struct page_table *pt, enum pt_type type,
                      u64 max_table_address)
@@ -55,7 +41,7 @@ void page_table_init(struct page_table *pt, enum pt_type type,
         pt->write_slot = write_u64;
         pt->read_slot = read_u64;
     } else {
-        pt->write_slot = write_u32;
-        pt->read_slot = read_u32;
+        pt->write_slot = write_u32_u64;
+        pt->read_slot = read_u32_zero_extend;
     }
 }
