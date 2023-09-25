@@ -4,10 +4,7 @@
 
 #include "structures.h"
 
-typedef void (*relocated_cb_t)(void *user, EFI_PHYSICAL_ADDRESS addr);
-
-void relocated_cb_write_u32(void *user, EFI_PHYSICAL_ADDRESS new_address);
-void relocated_cb_write_u64(void *user, EFI_PHYSICAL_ADDRESS new_address);
+typedef void (*relocated_cb_t)(void *user, u64 addr);
 
 struct relocation_entry {
     // The size field is used if 'end' is set to NULL
