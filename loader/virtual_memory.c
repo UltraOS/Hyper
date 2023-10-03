@@ -97,6 +97,8 @@ static bool get_pte(struct page_table *pt, u64 virtual_base,
         goto out;
 
     switch (pt->levels) {
+    case 6: PTE_HANDLE_LEVEL(5)
+            FALLTHROUGH;
     case 5: PTE_HANDLE_LEVEL(4)
             FALLTHROUGH;
     case 4: PTE_HANDLE_LEVEL(3)
