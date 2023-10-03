@@ -58,7 +58,7 @@ void kernel_handover(struct handover_info *hi)
     handover_info.entrypoint = hi->entrypoint;
     handover_info.stack = hi->stack;
     handover_info.direct_map_base = hi->direct_map_base;
-    handover_info.cr3 = hi->pt_root;
+    handover_info.cr3 = pt_get_root(&hi->pt);
     handover_info.unmap_lower_half = hi->flags & HO_HIGHER_HALF_ONLY;
     handover_info.is_pae = hi->flags & HO_X86_PAE;
 

@@ -5,16 +5,17 @@
 #include "common/constants.h"
 #include "common/bug.h"
 #include "arch/handover_flags.h"
+#include "virtual_memory.h"
 
 /*
  * Generic handover info structure:
  * entrypoint -> address of the kernel binary entry, possibly higher half
  * stack -> address of the top of the kernel stack, possibly higher half
- * pt_root -> physical address of the root page table page
  * arg0, arg1 -> arguments to pass to the kernel binary entrypoint
  * direct_map_base -> base address in the higher half that direct maps at least
  *                    'handover_get_minimum_map_length()' amount of
  *                    physical memory.
+ * pt -> page table that will be switched to before handing control to kernel
  * flags -> flags that describe the expected system state before 'entrypoint'
  *          is invoked, some are arch-specific.
  *
@@ -27,11 +28,10 @@
 struct handover_info {
     u64 entrypoint;
     u64 stack;
-    u64 pt_root;
     u64 arg0, arg1;
-
     u64 direct_map_base;
 
+    struct page_table pt;
 /*
  * If set, unmaps the first table or handover_get_minimum_map_length()
  * worth of pages from the page table root, whichever one is bigger.

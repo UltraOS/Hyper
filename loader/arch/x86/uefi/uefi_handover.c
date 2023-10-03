@@ -91,7 +91,7 @@ void kernel_handover(struct handover_info *hi)
         .stack = hi->stack,
         .direct_map_base = hi->direct_map_base,
         .compat_code_addr = kernel_handover_x86_compat_code_relocated,
-        .cr3 = hi->pt_root,
+        .cr3 = pt_get_root(&hi->pt),
         .cr4 = handover_flags_to_cr4(hi->flags),
         .is_long_mode = hi->flags & HO_X86_LME,
         .unmap_lower_half = hi->flags & HO_HIGHER_HALF_ONLY
