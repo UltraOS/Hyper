@@ -211,3 +211,14 @@ u64 pt_level_entry_virtual_coverage(struct page_table *pt, size_t lvl_idx)
 {
     return 1ull << get_level_bit_offset(pt, lvl_idx);
 }
+
+u64 pt_get_root_pte_at(struct page_table *pt, u64 virtual_address)
+{
+    size_t idx;
+    u64 ret = 0;
+
+    idx = get_level_index(pt, virtual_address, pt->levels - 1);
+    memcpy(&ret, pt->root + idx * pt->entry_width, pt->entry_width);
+
+    return (u64)ret;
+}
