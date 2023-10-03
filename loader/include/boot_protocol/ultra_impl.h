@@ -38,5 +38,5 @@ bool ultra_configure_pt_type(struct handover_info *hi, u8 pt_levels,
                              enum pt_constraint constraint,
                              enum pt_type *out_type);
 
-u64 ultra_build_arch_pt(struct kernel_info *ki, enum pt_type type,
-                        bool higher_half_exclusive, bool null_guard);
+void ultra_build_arch_pt(struct kernel_info *ki, enum pt_type type,
+                         bool higher_half_exclusive, bool null_guard);

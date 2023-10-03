@@ -197,17 +197,16 @@ static void map_lower_huge_page(struct page_mapping_spec *spec, bool null_guard)
     spec->count = old_count - 1;
 }
 
-u64 ultra_build_arch_pt(struct kernel_info *ki, enum pt_type type,
-                        bool higher_half_exclusive, bool null_guard)
+void ultra_build_arch_pt(struct kernel_info *ki, enum pt_type type,
+                         bool higher_half_exclusive, bool null_guard)
 {
     struct handover_info *hi = &ki->hi;
     struct elf_binary_info *bi = &ki->bin_info;
     enum elf_arch arch = bi->arch;
     u64 hh_base;
 
-    struct page_table pt;
     struct page_mapping_spec spec = {
-        .pt = &pt,
+        .pt = &hi->pt,
         .type = PAGE_TYPE_HUGE,
         .critical = true,
     };
@@ -220,10 +219,10 @@ u64 ultra_build_arch_pt(struct kernel_info *ki, enum pt_type type,
 
     hh_base = ultra_higher_half_base(hi->flags);
     page_table_init(
-        &pt, type,
+        spec.pt, type,
         handover_get_max_pt_address(ctx.direct_map_base, hi->flags)
     );
-    hp_shift = huge_page_shift(&pt);
+    hp_shift = huge_page_shift(spec.pt);
     ctx.direct_map_min_size =
             handover_get_minimum_map_length(ctx.direct_map_base, hi->flags);
 
@@ -255,12 +254,13 @@ u64 ultra_build_arch_pt(struct kernel_info *ki, enum pt_type type,
         map_pages(&spec);
     } else {
         u64 root_cov, off;
-        root_cov = pt_level_entry_virtual_coverage(&pt, pt.levels - 1);
+        root_cov = pt_level_entry_virtual_coverage(spec.pt,
+                                                   spec.pt->levels - 1);
 
         // Steal the direct mapping from higher half, we're gonna unmap it later
         for (off = 0; off < ctx.direct_map_min_size; off += root_cov) {
-            map_copy_root_entry(&pt, ctx.direct_map_base + off,
-                                     0x0000000000000000  + off);
+            map_copy_root_entry(spec.pt, ctx.direct_map_base + off,
+                                         0x0000000000000000  + off);
         }
     }
 
@@ -282,11 +282,10 @@ u64 ultra_build_arch_pt(struct kernel_info *ki, enum pt_type type,
         map_pages(&spec);
     } else if (hh_base != ctx.direct_map_base) {
         spec.virtual_base = hh_base;
-        spec.count = ultra_higher_half_size(hi->flags) >> huge_page_shift(&pt);
+        spec.count = ultra_higher_half_size(hi->flags);
+        spec.count >>= huge_page_shift(spec.pt);
 
         map_lower_huge_page(&spec, false);
         map_pages(&spec);
     }
-
-    return (ptr_t)pt.root;
 }

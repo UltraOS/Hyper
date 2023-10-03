@@ -915,8 +915,7 @@ static void build_page_table(struct config *cfg, struct loadable_entry *le,
     }
 
     hi->direct_map_base = ultra_direct_map_base(hi->flags);
-    hi->pt_root = ultra_build_arch_pt(ki, type, is_higher_half_exclusive,
-                                      null_guard);
+    ultra_build_arch_pt(ki, type, is_higher_half_exclusive, null_guard);
 
     return;
 
