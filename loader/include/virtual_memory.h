@@ -16,6 +16,11 @@ struct page_table {
     u8 base_shift;
 };
 
+static inline ptr_t pt_get_root(struct page_table *pt)
+{
+    return (ptr_t)pt->root;
+}
+
 static inline size_t page_shift(struct page_table *pt)
 {
     return pt->base_shift;
