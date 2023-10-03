@@ -77,3 +77,5 @@ bool map_pages(const struct page_mapping_spec*);
 // Copy a root table entry at src to dest table entry
 void map_copy_root_entry(struct page_table*, u64 src_virtual_address,
                          u64 dest_virtual_address);
+
+u64 pt_get_root_pte_at(struct page_table *pt, u64 virtual_address);
