@@ -3,6 +3,7 @@
 #include <common/helpers.h>
 
 #define PACKED __attribute__((packed))
+#define WEAK __attribute__((weak))
 
 #define NORETURN __attribute__((__noreturn__))
 
