@@ -56,3 +56,8 @@ ptr_t services_find_rsdp(void)
     return find_signature_in_range(ebda_address, ebda_address + EBDA_SEARCH_SIZE) ?:
            find_signature_in_range(BIOS_AREA_SEARCH_BASE, BIOS_AREA_SEARCH_END);
 }
+
+ptr_t services_find_dtb(void)
+{
+    return 0;
+}

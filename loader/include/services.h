@@ -17,6 +17,12 @@ enum service_provider services_get_provider(void);
 ptr_t services_find_rsdp(void);
 
 /*
+ * Attempts to retrieve the DTB structure location.
+ * Returns an 8-byte aligned address of the structure if successful, NULL otherwise.
+ */
+ptr_t services_find_dtb(void);
+
+/*
  * Aborts the loader execution in a platform-specific manner.
  * Must be used for unrecoverable errors.
  */
