@@ -34,3 +34,18 @@ out:
     print_info("table v%d @0x%016llX\n", table_version, table_addr);
     return table_addr;
 }
+
+#define EFI_DTB_TABLE_GUID \
+    { 0xB1B621D5, 0xF19C, 0x41A5, { 0x83, 0x0B, 0xD9, 0x15, 0x2C, 0x69, 0xAA, 0xE0 } }
+
+ptr_t services_find_dtb(void)
+{
+    EFI_GUID dtb_guid = EFI_DTB_TABLE_GUID;
+    ptr_t dtb_addr;
+
+    dtb_addr = (ptr_t)uefi_find_configuration(&dtb_guid);
+    if (dtb_addr)
+        print_info("device tree blob @0x%016llX\n", dtb_addr);
+
+    return dtb_addr;
+}
