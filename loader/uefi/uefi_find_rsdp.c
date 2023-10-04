@@ -1,9 +1,8 @@
 #define MSG_FMT(msg) "UEFI-RSDP: " msg
 
-#include "common/string.h"
 #include "common/log.h"
 #include "services.h"
-#include "uefi/globals.h"
+#include "uefi/helpers.h"
 
 #define EFI_ACPI_20_TABLE_GUID \
     { 0x8868E871, 0xE4F1, 0x11D3, { 0xBC, 0x22, 0x00, 0x80, 0xC7, 0x3C, 0x88, 0x81 } }
@@ -16,21 +15,22 @@ ptr_t services_find_rsdp(void)
     EFI_GUID table10_guid = EFI_ACPI_10_TABLE_GUID;
     EFI_GUID table20_guid = EFI_ACPI_20_TABLE_GUID;
 
-    VOID *table10_ptr = NULL, *table20_ptr = NULL;
-    UINTN i;
+    ptr_t table_addr;
+    int table_version = 2;
 
-    for (i = 0; i < g_st->NumberOfTableEntries; ++i) {
-        if (memcmp(&table10_guid, &g_st->ConfigurationTable[i].VendorGuid, sizeof(EFI_GUID)) == 0) {
-            table10_ptr = g_st->ConfigurationTable[i].VendorTable;
-            continue;
-        }
+    table_addr = (ptr_t)uefi_find_configuration(&table20_guid);
+    if (table_addr)
+        goto out;
 
-        if (memcmp(&table20_guid, &g_st->ConfigurationTable[i].VendorGuid, sizeof(EFI_GUID)) == 0) {
-            table20_ptr = g_st->ConfigurationTable[i].VendorTable;
-            break;
-        }
-    }
+    table_addr = (ptr_t)uefi_find_configuration(&table10_guid);
+    table_version = 1;
+    if (table_addr)
+        goto out;
 
-    print_info("table 1.0 at %p, table 2.0 at %p\n", table10_ptr, table20_ptr);
-    return table20_ptr ? (ptr_t)table20_ptr : (ptr_t)table10_ptr;
+    print_warn("couldn't find RSDP, ACPI is unsupported by host(?)\n");
+    return table_addr;
+
+out:
+    print_info("table v%d @0x%016llX\n", table_version, table_addr);
+    return table_addr;
 }
