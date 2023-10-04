@@ -15,3 +15,5 @@ bool uefi_pool_alloc(EFI_MEMORY_TYPE type, size_t elem_size, size_t count, VOID 
 bool uefi_get_protocol_handles(EFI_GUID *guid, EFI_HANDLE **array, UINTN *count);
 
 struct string_view uefi_status_to_string(EFI_STATUS sts);
+
+void *uefi_find_configuration(EFI_GUID *guid);

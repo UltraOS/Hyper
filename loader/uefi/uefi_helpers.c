@@ -144,3 +144,19 @@ efi_error:
     print_warn("get_protocol_handles() error: %pSV\n", &err_msg);
     return false;
 }
+
+void *uefi_find_configuration(EFI_GUID *guid)
+{
+    UINTN i;
+
+    for (i = 0; i < g_st->NumberOfTableEntries; ++i) {
+        EFI_CONFIGURATION_TABLE *ct = &g_st->ConfigurationTable[i];
+
+        if (memcmp(guid, &ct->VendorGuid, sizeof(*guid)) != 0)
+            continue;
+
+        return ct->VendorTable;
+    }
+
+    return NULL;
+}
