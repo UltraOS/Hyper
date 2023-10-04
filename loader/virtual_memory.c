@@ -220,5 +220,5 @@ u64 pt_get_root_pte_at(struct page_table *pt, u64 virtual_address)
     idx = get_level_index(pt, virtual_address, pt->levels - 1);
     memcpy(&ret, pt->root + idx * pt->entry_width, pt->entry_width);
 
-    return (u64)ret;
+    return (u64)(ret & pt->entry_address_mask);
 }
