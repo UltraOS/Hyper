@@ -34,10 +34,22 @@ static size_t get_level_bit_offset(struct page_table *pt, size_t idx)
     return pt->base_shift + (pt->table_width_shift * idx);
 }
 
+WEAK
+u8 pt_table_width_shift_for_level(struct page_table *pt, size_t idx)
+{
+    UNUSED(idx);
+    return pt->table_width_shift;
+}
+
 static size_t get_level_index(struct page_table *pt, u64 virtual_address,
                               size_t level)
 {
-    size_t table_width_mask = (1 << pt->table_width_shift) - 1;
+    u8 width_shift;
+    size_t table_width_mask;
+
+    width_shift = pt_table_width_shift_for_level(pt, level);
+
+    table_width_mask = (1 << width_shift) - 1;
     u64 table_selector = virtual_address >> get_level_bit_offset(pt, level);
 
     return table_selector & table_width_mask;
