@@ -30,6 +30,16 @@ def __guess_with_middle_parts_or_none(middle_parts, postfix,
 
     return None
 
+def __guess_with_prefixes_or_none(prefixes, postfix, validity_check=os.F_OK):
+    for prefix in prefixes:
+        path = os.path.join(prefix, postfix)
+
+        res = __guess_or_none(path, validity_check)
+        if res is not None:
+            return res
+
+    return None
+
 
 def guess_path_to_kernel_binaries():
     guess = os.path.join(abs_path_to_current_dir(), "kernel/build")
