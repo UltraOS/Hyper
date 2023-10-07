@@ -329,6 +329,14 @@ static void validate_platform_info(struct ultra_platform_info_attribute *pi,
         if (sizeof(void*) != 4)
             goto invalid_hh_base;
         break;
+    case AARCH64_48BIT_DIRECT_MAP_BASE:
+        if (pi->page_table_depth != 4)
+            goto invalid_pt_depth;
+        break;
+    case AARCH64_52BIT_DIRECT_MAP_BASE:
+        if (pi->page_table_depth != 5)
+            goto invalid_pt_depth;
+        break;
     default:
         goto invalid_hh_base;
     }
