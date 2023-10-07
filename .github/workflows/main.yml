@@ -15,7 +15,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         platform: [bios, uefi]
         toolchain: [gcc, clang]
-        arch: [i686, amd64]
+        arch: [i686, amd64, aarch64]
         exclude:
           # FIXME: the GCC build somehow ends up being corrupted with
           #        libexec/cc1 containing garbage data.
@@ -25,6 +25,11 @@ jobs:
             platform: uefi
           - arch: amd64
             platform: bios
+          - arch: aarch64
+            platform: bios
+          # GCC (or at least ld) doesn't support aarch64 mingw
+          - arch: aarch64
+            toolchain: gcc
 
     steps:
       - uses: actions/checkout@v3
