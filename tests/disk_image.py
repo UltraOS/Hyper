@@ -129,6 +129,76 @@ video-mode:
 higher-half-exclusive = true
 
 {extra_cfg_entries}
+
+[aarch64_lower_half]
+protocol=ultra
+
+cmdline = {cmdline}
+binary:
+    path = "/boot/kernel_aarch64_higher_half"
+    allocate-anywhere = true
+
+# UEFI implementations on QEMU don't provide consistent GOP
+video-mode = unset
+
+{extra_cfg_entries}
+
+[aarch64_higher_half]
+protocol=ultra
+
+cmdline = {cmdline}
+binary:
+    path = "/boot/kernel_aarch64_higher_half"
+    allocate-anywhere = true
+
+higher-half-exclusive = true
+
+# UEFI implementations on QEMU don't provide consistent GOP
+video-mode = unset
+
+{extra_cfg_entries}
+
+[aarch64_lower_half_5lvl]
+protocol=ultra
+
+cmdline = {cmdline}
+binary:
+    path = "/boot/kernel_aarch64_higher_half"
+    allocate-anywhere = true
+
+page-table:
+    levels     = 5
+    # We set this to 'maximum' and not 'exactly' because not all QEMU
+    # packages currently support 52 bit input addresses, most notably
+    # the 'ubuntu-latest' version of QEMU on github actions doesn't. 
+    constraint = maximum
+
+# UEFI implementations on QEMU don't provide consistent GOP
+video-mode = unset
+
+{extra_cfg_entries}
+
+[aarch64_higher_half_5lvl]
+protocol=ultra
+
+cmdline = {cmdline}
+binary:
+    path = "/boot/kernel_aarch64_higher_half"
+    allocate-anywhere = true
+
+page-table:
+    levels     = 5
+    # We set this to 'maximum' and not 'exactly' because not all QEMU
+    # packages currently support 52 bit input addresses, most notably
+    # the 'ubuntu-latest' version of QEMU on github actions doesn't. 
+    constraint = maximum
+
+higher-half-exclusive = true
+
+# UEFI implementations on QEMU don't provide consistent GOP
+video-mode = unset
+
+{extra_cfg_entries}
 """
 
 class UltraModule:
@@ -407,7 +477,8 @@ class DiskImage:
 
 
 def prepare_test_fs_root(opt_getter) -> str:
-    uefi_path = opt_getter(options.HYPER_UEFI_OPT)
+    x64_uefi_path = opt_getter(options.X64_HYPER_UEFI_OPT)
+    aa64_uefi_path = opt_getter(options.AA64_HYPER_UEFI_OPT)
     iso_br_path = opt_getter(options.HYPER_ISO_BR_OPT)
     kernel_dir = opt_getter(options.KERNEL_DIR_OPT)
     test_dir = opt_getter(options.INTERM_DIR_OPT)
@@ -415,25 +486,30 @@ def prepare_test_fs_root(opt_getter) -> str:
     root_dir = os.path.join(test_dir, FS_IMAGE_RELPATH)
     uefi_dir = os.path.join(test_dir, "EFI/BOOT")
 
-    i686_lh_krnl = os.path.join(kernel_dir, "kernel_i686_lower_half")
-    i686_hh_krnl = os.path.join(kernel_dir, "kernel_i686_higher_half")
-    amd64_lh_krnl = os.path.join(kernel_dir, "kernel_amd64_lower_half")
-    amd64_hh_krnl = os.path.join(kernel_dir, "kernel_amd64_higher_half")
+    kernel_paths = [
+        os.path.join(kernel_dir, "kernel_i686_lower_half"),
+        os.path.join(kernel_dir, "kernel_i686_higher_half"),
+        os.path.join(kernel_dir, "kernel_amd64_lower_half"),
+        os.path.join(kernel_dir, "kernel_amd64_higher_half"),
+        os.path.join(kernel_dir, "kernel_aarch64_lower_half"),
+        os.path.join(kernel_dir, "kernel_aarch64_higher_half"),
+    ]
 
     os.mkdir(test_dir)
     os.mkdir(root_dir)
 
-    if uefi_path:
-        os.makedirs(uefi_dir)
-        shutil.copy(uefi_path, os.path.join(uefi_dir, "BOOTX64.EFI"))
+    if x64_uefi_path:
+        os.makedirs(uefi_dir, exist_ok=True)
+        shutil.copy(x64_uefi_path, os.path.join(uefi_dir, "BOOTX64.EFI"))
+    if aa64_uefi_path:
+        os.makedirs(uefi_dir, exist_ok=True)
+        shutil.copy(aa64_uefi_path, os.path.join(uefi_dir, "BOOTAA64.EFI"))
 
     if iso_br_path:
         shutil.copy(iso_br_path, os.path.join(root_dir, HYPER_ISO_BOOT_RECORD))
 
-    shutil.copy(i686_lh_krnl, root_dir)
-    shutil.copy(i686_hh_krnl, root_dir)
-    shutil.copy(amd64_lh_krnl, root_dir)
-    shutil.copy(amd64_hh_krnl, root_dir)
+    for kernel in kernel_paths:
+        shutil.copy(kernel, root_dir)
 
     return test_dir
 
