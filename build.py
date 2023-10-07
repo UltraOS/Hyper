@@ -33,6 +33,7 @@ TEST_DEPS = {
         "xorriso",
         "mtools",
         "qemu-system-x86",
+        "qemu-system-aarch64",
     ],
     "pacman": [
         "parted",
@@ -42,6 +43,7 @@ TEST_DEPS = {
         "xorriso",
         "mtools",
         "qemu-system-x86",
+        "qemu-system-aarch64",
     ],
     "brew": [
         "llvm",
