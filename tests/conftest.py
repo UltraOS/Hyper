@@ -7,13 +7,27 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    has_uefi, has_bios, has_bios_iso = options.check_availability(config.getoption)
+    has_uefi_x64, has_uefi_aa64, has_bios, has_bios_iso = (
+        options.check_availability(config.getoption)
+    )
 
     for item in items:
-        if "uefi" in item.keywords:
-            if not has_uefi:
+        if "uefi_x64" in item.keywords:
+            if not has_uefi_x64:
                 item.add_marker(
-                    pytest.mark.skip(reason="missing UEFI loader or firmware"))
+                    pytest.mark.skip(
+                        reason="missing x64 UEFI loader or firmware"
+                    )
+                )
+            continue
+
+        if "uefi_aarch64" in item.keywords:
+            if not has_uefi_aa64:
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="missing aa64 UEFI loader or firmware"
+                    )
+                )
             continue
 
         if not has_bios and "fat" in item.keywords:

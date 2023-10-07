@@ -31,6 +31,10 @@ if __name__ == "__main__":
         "amd64_higher_half",
         "amd64_lower_half_5lvl",
         "amd64_higher_half_5lvl",
+        "aarch64_lower_half",
+        "aarch64_higher_half",
+        "aarch64_lower_half_5lvl",
+        "aarch64_higher_half_5lvl",
     ]
     parser.add_argument("--kernel-type", default="amd64_higher_half",
                         help="Type of kernel to set as default in config",
@@ -38,9 +42,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     getopt = argparse_optgetter(args)
-    has_uefi, has_bios, has_bios_br = \
+    has_uefi_x64, has_uefi_aa64, has_bios, has_bios_br = \
         options.check_availability(getopt, args.fs_type != "ISO9660",
                                    args.br_type == "GPT", False)
+    has_uefi = has_uefi_x64 or has_uefi_aa64
 
     root_dir = di.prepare_test_fs_root(getopt)
     cfg = di.make_normal_boot_config(args.kernel_type, "no-shutdown")
@@ -56,14 +61,19 @@ if __name__ == "__main__":
     print(f"Created an image at {image.path}")
     print("The image can be booted with:")
 
-    if has_uefi:
-        print("- UEFI")
+    kernel_is_x86 = "aarch64" not in args.kernel_type
 
-    if args.fs_type == "ISO9660":
-        if has_bios_br:
-            print("- BIOS as CD")
+    if kernel_is_x86:
+        if has_uefi_x64:
+            print("- UEFI")
+
+        if args.fs_type == "ISO9660":
+            if has_bios_br:
+                print("- BIOS as CD")
 
         if has_bios:
             print("- BIOS as HDD")
-    elif has_bios and args.br_type != "GPT":
-        print("- BIOS")
+        elif has_bios and args.br_type != "GPT":
+            print("- BIOS")
+    elif has_uefi_aa64:
+        print("- UEFI")

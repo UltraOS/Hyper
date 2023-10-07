@@ -48,7 +48,9 @@ def guess_path_to_kernel_binaries():
         "kernel_i686_lower_half",
         "kernel_i686_higher_half",
         "kernel_amd64_higher_half",
-        "kernel_amd64_lower_half"
+        "kernel_amd64_lower_half",
+        "kernel_aarch64_lower_half",
+        "kernel_aarch64_higher_half",
     ]
     for kernel in kernels:
         if not os.access(os.path.join(guess, kernel), os.F_OK):
@@ -66,10 +68,10 @@ def guess_path_to_installer():
     return __guess_or_none(guess, os.X_OK)
 
 
-def guess_path_to_hyper_uefi():
+def guess_path_to_hyper_uefi(arch):
     middle_parts = [
-        "build-clang-amd64-uefi",
-        "build-gcc-amd64-uefi",
+        f"build-clang-{arch}-uefi",
+        f"build-gcc-{arch}-uefi",
     ]
     postfix = os.path.join("loader", "hyper_uefi")
 
@@ -86,7 +88,11 @@ def guess_path_to_hyper_iso_br():
     return __guess_with_middle_parts_or_none(middle_parts, postfix)
 
 
-def guess_path_to_uefi_firmware():
+def guess_path_to_uefi_firmware(arch):
+    edk2_arch = arch
+    if edk2_arch == "amd64":
+        edk2_arch = "x86_64"
+
     prefixes = [
         "/usr",
     ]
@@ -100,8 +106,10 @@ def guess_path_to_uefi_firmware():
     except FileNotFoundError:
         pass
 
-    res = __guess_with_prefixes_or_none(prefixes,
-                                        "share/qemu/firmware/60-edk2-x86_64.json")
+    res = __guess_with_prefixes_or_none(
+        prefixes,
+        f"share/qemu/firmware/60-edk2-{edk2_arch}.json"
+    )
     if res is None:
         return None
 

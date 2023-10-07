@@ -47,12 +47,15 @@ def disk_image(request, fs_root, default_modules) -> DiskImage:
     br_type, fs_type, kernel_type = request.param
     cfg = request.config
 
-    has_uefi, _, has_bios_iso = options.check_availability(cfg.getoption)
+    has_uefi_x64, has_uefi_aa64, _, has_bios_iso = (
+        options.check_availability(cfg.getoption)
+    )
     installer_path = cfg.getoption(options.INSTALLER_OPT)
 
     cfg = di.make_normal_boot_config(kernel_type, kernel_type, default_modules)
     di.fs_root_set_cfg(fs_root, cfg)
 
+    has_uefi = has_uefi_x64 or has_uefi_aa64
     with DiskImage(fs_root, br_type, fs_type, has_uefi, has_bios_iso,
                    installer_path) as d:
         yield d
@@ -68,27 +71,19 @@ def print_output(stdout):
     print(stdout.decode("ascii"))
 
 
-def run_qemu(disk_image: DiskImage, is_uefi: bool, config):
-    qemu_args = ["qemu-system-x86_64",
+def do_run_qemu(arch_postfix, args, disk_image: DiskImage, config, timeout):
+    qemu_args = [f"qemu-system-{arch_postfix}",
                  "-cdrom" if disk_image.is_cd() else "-hda",
-                 disk_image.path, "-debugcon", "stdio",
-                 "-serial", "mon:null", "-cpu", "qemu64,la57=on"]
+                 disk_image.path]
+    qemu_args.extend(args)
 
     with_gui = config.getoption(options.QEMU_GUI_OPT)
     if not with_gui:
         qemu_args.append("-nographic")
 
-    if is_uefi:
-        firmware_path = config.getoption(options.UEFI_FIRMWARE_OPT)
-        if not firmware_path:
-            pytest.skip("No UEFI firmware provided")
-
-        drive_opts = f"file={firmware_path},if=pflash,format=raw,readonly=on"
-        qemu_args.extend(["-drive", drive_opts])
-
     qp = subprocess.Popen(qemu_args, stdout=subprocess.PIPE)
     try:
-        ret = qp.wait(30 if is_uefi else 3)
+        ret = qp.wait(timeout)
     except:
         print("Test timeout!")
         qp.kill()
@@ -100,6 +95,26 @@ def run_qemu(disk_image: DiskImage, is_uefi: bool, config):
 
     stdout, _ = qp.communicate()
     return stdout
+
+def run_qemu_x86(disk_image: DiskImage, is_uefi: bool, config):
+    qemu_args = ["-debugcon", "stdio", "-serial", "mon:null",
+                 "-cpu", "qemu64,la57=on"]
+
+    if is_uefi:
+        firmware_path = config.getoption(options.X64_UEFI_FIRMWARE_OPT)
+        if not firmware_path:
+            pytest.skip("No UEFI firmware provided")
+
+        drive_opts = f"file={firmware_path},if=pflash,format=raw,readonly=on"
+        qemu_args.extend(["-drive", drive_opts])
+
+    return do_run_qemu("x86_64", qemu_args, disk_image, config, 30 if is_uefi else 3)
+
+
+def run_qemu_aarch64(disk_image: DiskImage, config):
+    qemu_args = ["-M", "virt", "-cpu", "max",
+                 "-bios", config.getoption(options.AA64_UEFI_FIRMWARE_OPT)]
+    return do_run_qemu("aarch64", qemu_args, disk_image, config, 30)
 
 
 TEST_SUCCESS = b'\xCA\xFE\xBA\xBE'
@@ -145,7 +160,7 @@ def check_qemu_run(stdout):
 @pytest.mark.fat
 @pytest.mark.hdd
 def test_normal_bios_boot_fat(disk_image: DiskImage, pytestconfig):
-    res = run_qemu(disk_image, False, pytestconfig)
+    res = run_qemu_x86(disk_image, False, pytestconfig)
     check_qemu_run(res)
 
 
@@ -163,7 +178,7 @@ def test_normal_bios_boot_fat(disk_image: DiskImage, pytestconfig):
 @pytest.mark.bios
 @pytest.mark.iso
 def test_normal_bios_boot_iso_cd(disk_image: DiskImage, pytestconfig):
-    res = run_qemu(disk_image, False, pytestconfig)
+    res = run_qemu_x86(disk_image, False, pytestconfig)
     check_qemu_run(res)
 
 
@@ -180,7 +195,7 @@ def test_normal_bios_boot_iso_cd(disk_image: DiskImage, pytestconfig):
 @pytest.mark.iso
 @pytest.mark.hdd
 def test_normal_bios_boot_iso_hdd(disk_image: DiskImage, pytestconfig):
-    res = run_qemu(disk_image, False, pytestconfig)
+    res = run_qemu_x86(disk_image, False, pytestconfig)
     check_qemu_run(res)
 
 
@@ -199,11 +214,11 @@ def test_normal_bios_boot_iso_hdd(disk_image: DiskImage, pytestconfig):
     indirect=True,
     ids=disk_image_pretty_name
 )
-@pytest.mark.uefi
+@pytest.mark.uefi_x64
 @pytest.mark.fat
 @pytest.mark.hdd
-def test_normal_uefi_boot_fat(disk_image: DiskImage, pytestconfig):
-    res = run_qemu(disk_image, True, pytestconfig)
+def test_normal_uefi_x64_boot_fat(disk_image: DiskImage, pytestconfig):
+    res = run_qemu_x86(disk_image, True, pytestconfig)
     check_qemu_run(res)
 
 
@@ -217,8 +232,46 @@ def test_normal_uefi_boot_fat(disk_image: DiskImage, pytestconfig):
     indirect=True,
     ids=disk_image_pretty_name
 )
-@pytest.mark.uefi
+@pytest.mark.uefi_x64
 @pytest.mark.iso
-def test_normal_uefi_boot_iso(disk_image: DiskImage, pytestconfig):
-    res = run_qemu(disk_image, True, pytestconfig)
+def test_normal_uefi_x64_boot_iso(disk_image: DiskImage, pytestconfig):
+    res = run_qemu_x86(disk_image, True, pytestconfig)
+    check_qemu_run(res)
+
+@pytest.mark.parametrize(
+    'disk_image',
+    (
+        ("MBR", "FAT12", "aarch64_lower_half"),
+        ("MBR", "FAT12", "aarch64_higher_half_5lvl"),
+        ("MBR", "FAT16", "aarch64_lower_half_5lvl"),
+        ("MBR", "FAT16", "aarch64_higher_half"),
+        ("MBR", "FAT32", "aarch64_lower_half_5lvl"),
+        ("MBR", "FAT32", "aarch64_higher_half"),
+    ),
+    indirect=True,
+    ids=disk_image_pretty_name
+)
+@pytest.mark.uefi_aarch64
+@pytest.mark.fat
+@pytest.mark.hdd
+def test_normal_uefi_aarch64_boot_fat(disk_image: DiskImage, pytestconfig):
+    res = run_qemu_aarch64(disk_image, pytestconfig)
+    check_qemu_run(res)
+
+
+@pytest.mark.parametrize(
+    'disk_image',
+    (
+        ("CD",  "ISO9660", "aarch64_higher_half"),
+        ("CD",  "ISO9660", "aarch64_lower_half_5lvl"),
+        ("HDD", "ISO9660", "aarch64_higher_half_5lvl"),
+        ("HDD", "ISO9660", "aarch64_lower_half"),
+    ),
+    indirect=True,
+    ids=disk_image_pretty_name
+)
+@pytest.mark.uefi_aarch64
+@pytest.mark.iso
+def test_normal_uefi_aarch64_boot_iso(disk_image: DiskImage, pytestconfig):
+    res = run_qemu_aarch64(disk_image, pytestconfig)
     check_qemu_run(res)
