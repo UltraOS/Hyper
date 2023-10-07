@@ -36,6 +36,12 @@ macro(add_loader_option OPTION DESCRIPTION DEFAULT_VALUE)
     endif()
 endmacro()
 
+function(add_loader_option_for_arch OPTION DESCRIPTION DEFAULT_VALUE)
+    if (${HYPER_ARCH} IN_LIST ARGN)
+        add_loader_option(${OPTION} ${DESCRIPTION} ${DEFAULT_VALUE})
+    endif ()
+endfunction()
+
 add_executable(
     ${LOADER_EXECUTABLE}
     allocator.c
@@ -51,16 +57,18 @@ add_executable(
 set(STAGE2_BINARY ${LOADER_EXECUTABLE})
 set(STAGE2_PATH ${CMAKE_CURRENT_BINARY_DIR})
 
-add_loader_option(
+add_loader_option_for_arch(
     HYPER_E9_LOG
     "Enables 0xE9 debug logging"
     OFF
+    i686 amd64
 )
 
-add_loader_option(
+add_loader_option_for_arch(
     HYPER_SERIAL_LOG
     "Enables serial debug logging"
     OFF
+    i686
 )
 
 add_loader_option(
