@@ -2,7 +2,7 @@ ENTRY(main)
 
 SECTIONS
 {
-    . = 0xFFFFFFFF80000000; /* MAX - 2GB */
+    . = 0x0000000040000000;
 
     .text :
     {

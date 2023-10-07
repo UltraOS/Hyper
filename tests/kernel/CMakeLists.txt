@@ -117,6 +117,14 @@ function(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
            -mno-sse
            -mno-sse2
         )
+    elseif (TARGET_ARCH STREQUAL "aarch64")
+        set(ARCH_TEST_CTL_FILE test_ctl_aarch64.c)
+        set(KERNEL_ADDITIONAL_FLAGS
+            ${KERNEL_ADDITIONAL_FLAGS}
+            -mgeneral-regs-only)
+        set(KERNEL_ADDITIONAL_LINK_FLAGS
+            ${KERNEL_ADDITIONAL_LINK_FLAGS}
+            -z max-page-size=0x1000)
     endif ()
 
     target_sources(
@@ -146,6 +154,7 @@ function(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
         PRIVATE
         -nostdlib
         "-T${PROJECT_SOURCE_DIR}/${LINK_SCRIPT}"
+        ${KERNEL_ADDITIONAL_LINK_FLAGS}
     )
 
     target_include_directories(
@@ -159,3 +168,6 @@ add_kernel(kernel_i686_lower_half i686 link_1mb_generic.ld)
 add_kernel(kernel_i686_higher_half i686 link_i686_higher_half.ld)
 add_kernel(kernel_amd64_lower_half amd64 link_1mb_generic.ld)
 add_kernel(kernel_amd64_higher_half amd64 link_generic_64bit_higher_half.ld -mcmodel=kernel)
+add_kernel(kernel_aarch64_lower_half aarch64 link_1gb_generic.ld)
+add_kernel(kernel_aarch64_higher_half aarch64 link_generic_64bit_higher_half.ld)
+
