@@ -1,7 +1,7 @@
 #include <stdarg.h>
 #include "pio.h"
 #include "common/string_ex.h"
-#include "fb_tty.h"
+
 #include "test_ctl.h"
 #include "test_ctl_impl.h"
 #include "ultra_protocol.h"
@@ -35,64 +35,38 @@ void test_ctl_init(struct ultra_boot_context *bctx)
         should_shutdown = strcmp(cmdline->text, "no-shutdown") != 0;
 }
 
-static inline void put_0xe9(char c)
+static inline void e9_put_byte(char c)
 {
     out8(0xE9, c);
 }
 
-static inline void write_0xe9(const char *str, size_t len)
+void arch_put_byte(char c)
 {
-    while (len--)
-        put_0xe9(*str++);
+    if (!is_in_hypervisor())
+        return;
+
+    e9_put_byte(c);
 }
 
-void test_write_string(const char *str, size_t count)
+void arch_write_string(const char *str, size_t len)
 {
-    if (is_in_hypervisor())
-        write_0xe9(str, count);
+    if (!is_in_hypervisor())
+        return;
 
-    fb_tty_write(str, count);
+    while (len--)
+        e9_put_byte(*str++);
 }
 
 // Try various methods, then give up
-void vm_shutdown()
+void arch_hang_or_shutdown()
 {
+    if (!is_in_hypervisor() || !should_shutdown)
+        goto hang;
+
     out16(0xB004, 0x2000);
     out16(0x604,  0x2000);
     out16(0x4004, 0x3400);
 
-    for (;;) asm volatile("hlt" ::: "memory");
-}
-
-void test_vfail(const char *reason, va_list vlist)
-{
-    print("TEST FAIL!\n");
-    vprint(reason, vlist);
-
-    if (is_in_hypervisor() && should_shutdown) {
-        put_0xe9(TEST_FAIL_MARKER0);
-        put_0xe9(TEST_FAIL_MARKER1);
-        put_0xe9(TEST_FAIL_MARKER2);
-        put_0xe9(TEST_FAIL_MARKER3);
-
-        vm_shutdown();
-    }
-
-    for (;;) asm volatile("hlt" ::: "memory");
-}
-
-void test_pass()
-{
-    print("TEST PASS!\n");
-
-    if (is_in_hypervisor() && should_shutdown) {
-        put_0xe9(TEST_PASS_MARKER0);
-        put_0xe9(TEST_PASS_MARKER1);
-        put_0xe9(TEST_PASS_MARKER2);
-        put_0xe9(TEST_PASS_MARKER3);
-
-        vm_shutdown();
-    }
-
+hang:
     for (;;) asm volatile("hlt" ::: "memory");
 }
