@@ -1,19 +1,26 @@
 #include "common/helpers.h"
 #include "common/types.h"
+#include "ultra_helpers.h"
 #include "test_ctl_impl.h"
 #include "test_ctl.h"
 #include "fb_tty.h"
 
 volatile u8 *g_qemu_uart = (u8*)0x9000000;
+bool g_uart_rebased = false;
 
 void test_ctl_init(struct ultra_boot_context *bctx)
 {
-    UNUSED(bctx);
+    typedef struct ultra_platform_info_attribute upia;
+    upia *pia = (upia*)find_attr(bctx, ULTRA_ATTRIBUTE_PLATFORM_INFO);
+
+    g_qemu_uart += pia->higher_half_base;
+    g_uart_rebased = true;
 }
 
 void arch_put_byte(char c)
 {
-    *g_qemu_uart = c;
+    if (g_uart_rebased)
+        *g_qemu_uart = c;
 }
 
 void arch_hang_or_shutdown(void)
