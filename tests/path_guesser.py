@@ -87,22 +87,27 @@ def guess_path_to_hyper_iso_br():
 
 
 def guess_path_to_uefi_firmware():
-    middle_parts = [
-        "ovmf",
-        os.path.join("edk2-ovmf", "x64"),
+    prefixes = [
+        "/usr",
     ]
-    prefix = os.path.join("/usr", "share")
-    postfix = "OVMF.fd"
 
-    res = __guess_with_middle_parts_or_none(middle_parts, postfix, prefix)
-
-    if res is None and platform.system() == "Darwin":
+    try:
         bp = subprocess.run(["brew", "--prefix", "qemu"],
                             stdout=subprocess.PIPE,
                             universal_newlines=True)
         if bp.returncode == 0:
-            guess = os.path.join(bp.stdout.strip(), "share", "qemu",
-                                 "edk2-x86_64-code.fd")
-            res = __guess_or_none(guess)
+            prefixes.append(bp.stdout.strip())
+    except FileNotFoundError:
+        pass
 
-    return res
+    res = __guess_with_prefixes_or_none(prefixes,
+                                        "share/qemu/firmware/60-edk2-x86_64.json")
+    if res is None:
+        return None
+
+    import json
+    with open(res) as file:
+        path_json = json.load(file)
+    guess = path_json.get("mapping", {}).get("executable", {}).get("filename", {})
+
+    return __guess_or_none(guess) if guess else None
