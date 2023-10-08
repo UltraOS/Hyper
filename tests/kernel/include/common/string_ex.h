@@ -1,5 +1,7 @@
 #pragma once
 
+#include "types.h"
+
 /*
  * This header contains string.h functions that are not part of the hyper
  * loader, and that I am not planning to add there to prevent undesired bloat.
