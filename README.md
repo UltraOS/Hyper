@@ -1,12 +1,12 @@
 # Hyper
 
-A fast & lightweight bootloader for the x86 architecture.
+A fast & lightweight bootloader for the x86 & ARM architectures.
 
 [![CI](https://github.com/UltraOS/Hyper/actions/workflows/main.yml/badge.svg?branch=master)](https://github.com/UltraOS/Hyper/actions/workflows/main.yml)
 
 ## Features & Support
 Boot sectors for HDD, el-torito & hybrid ISO formats.  
-Support for ELF binaries targeting I386 and AMD64.
+Support for ELF binaries targeting I386, AMD64 and aarch64.
 
 ### Platforms
 - BIOS
@@ -35,13 +35,13 @@ Grab all the files from the latest release, and proceed to the steps below depen
 ### UEFI boot with MBR/EBR/GPT:
 1. Create an MBR/GPT partitioned image.
 2. Create a FAT-formatted EFI system partition.
-3. Copy `BOOTX64.EFI` to `/EFI/BOOT/` on that partition.
+3. Copy `BOOTX64.EFI` (for x86) or `BOOTAA64.EFI` (for aarch64) to `/EFI/BOOT/` on that partition.
 
 ### BIOS (+UEFI) boot with ISO hybrid:
 1. Create a directory that will be used as the root of the iso image.
 2. Copy `hyper_iso_boot` into the directory from step 1.
 3. (optionally) for UEFI support:
-    - Create a raw FAT image with at least a `EFI/BOOT/BOOTX64.EFI` inside that will be used as the ESP.
+    - Create a raw FAT image with at least a `EFI/BOOT/BOOT{X64,AA64}.EFI` inside that will be used as the ESP.
     - Copy the raw image into the directory created in step 1.
 4. Create an iso image with the following parameters:
     - `hyper_iso_boot` as the el-torito boot record with 4 sectors preloaded & boot information table enabled without emulation.
@@ -158,7 +158,7 @@ video-mode:
 ```
 
 ## Building
-1. Run `./build.sh <PLATFORM>` where `<PLATFORM>` is either `BIOS` or `UEFI`.
+1. Run `./build.py` with optional `--platform {bios,uefi}`/`--arch {i686,amd64,aarch64}`, as well as `--toolchain {gcc/clang}` flags
 
 *Build scripts assumes that you have cmake & git already installed.*
                               
@@ -169,11 +169,11 @@ video-mode:
      
 ### Dependencies & Package Managers:
 The build script attempts to automatically fetch all the dependencies needed to build
-the cross-compiler. This step can be skipped by passing `--skip-dependencies` to `toolchain/build.py`.
+the cross-compiler. This step can be skipped by specifying the `--skip-dependencies` flag.
 
 Currently supported package managers:
 - apt
 - pacman
 - brew
 
-Support for other systems/package managers can be trivially added by extending `toolchain/build.py`.
+Support for other systems/package managers can be trivially added by extending the [BuildUtils](https://github.com/UltraOS/BuildUtils) library.
