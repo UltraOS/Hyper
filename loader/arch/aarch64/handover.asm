@@ -44,9 +44,8 @@ write_hcr_el2:
 
 .global kernel_handover_aarch64
 kernel_handover_aarch64:
-    // Configure PSTATE (mask all interrupts, clear flags)
+    // Mask all interrupts
     msr daifset, #0b1111
-    msr nzcv, xzr
 
     ldr x1, [x0, handover_info_aarch64_ttbr0]
     ldr x2, [x0, handover_info_aarch64_ttbr1]
@@ -134,4 +133,5 @@ kernel_handover_aarch64:
     mov x28, xzr
     mov x29, xzr
 
+    msr nzcv, xzr
     ret
