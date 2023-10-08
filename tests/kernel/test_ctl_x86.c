@@ -1,6 +1,5 @@
 #include <stdarg.h>
 #include "pio.h"
-#include "common/string_ex.h"
 
 #include "test_ctl.h"
 #include "test_ctl_impl.h"
@@ -8,7 +7,6 @@
 #include "ultra_helpers.h"
 
 static int is_in_hypervisor_state = -1;
-static bool should_shutdown = true;
 
 #define HYPERVISOR_BIT (1 << 31)
 
@@ -24,15 +22,6 @@ static bool is_in_hypervisor(void)
     }
 
     return is_in_hypervisor_state;
-}
-
-void test_ctl_init(struct ultra_boot_context *bctx)
-{
-    struct ultra_command_line_attribute *cmdline;
-
-    cmdline = (struct ultra_command_line_attribute*)find_attr(bctx, ULTRA_ATTRIBUTE_COMMAND_LINE);
-    if (cmdline)
-        should_shutdown = strcmp(cmdline->text, "no-shutdown") != 0;
 }
 
 static inline void e9_put_byte(char c)
@@ -60,7 +49,7 @@ void arch_write_string(const char *str, size_t len)
 // Try various methods, then give up
 void arch_hang_or_shutdown()
 {
-    if (!is_in_hypervisor() || !should_shutdown)
+    if (!is_in_hypervisor() || !g_should_shutdown)
         goto hang;
 
     out16(0xB004, 0x2000);
