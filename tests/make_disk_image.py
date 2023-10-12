@@ -3,11 +3,13 @@ import argparse
 import options
 import disk_image as di
 import shutil
+import sys
+from typing import Callable, Any
 
 
-def argparse_optgetter(object):
+def argparse_optgetter(obj: Any) -> Callable:
     def do_getopt(name):
-        return getattr(object, name[2:].replace("-", "_"))
+        return getattr(obj, name[2:].replace("-", "_"))
 
     return do_getopt
 
@@ -47,16 +49,12 @@ if __name__ == "__main__":
                                    args.br_type == "GPT", False)
     has_uefi = has_uefi_x64 or has_uefi_aa64
 
-    root_dir = di.prepare_test_fs_root(getopt)
     cfg = di.make_normal_boot_config(args.kernel_type, "no-shutdown")
-
     try:
-        di.fs_root_set_cfg(root_dir, cfg)
-        image = di.DiskImage(root_dir, args.br_type, args.fs_type, has_uefi,
-                             has_bios_br, getopt(options.INSTALLER_OPT),
-                             args.out_path)
+        image = next(di.build(getopt, args.br_type, args.fs_type,
+                     cfg, args.out_path, False))
     finally:
-        shutil.rmtree(root_dir)
+        shutil.rmtree(getopt(options.INTERM_DIR_OPT))
 
     print(f"Created an image at {image.path}")
     print("The image can be booted with:")

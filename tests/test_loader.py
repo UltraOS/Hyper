@@ -4,20 +4,22 @@ import os
 import pytest
 import options
 import disk_image as di
-from disk_image import DiskImage
+from typing import List
+from image_utils import ultra
 
 
 @pytest.fixture(scope="session")
 def fs_root(request) -> str:
     cfg = request.config
+    fs_root = cfg.getoption(options.INTERM_DIR_OPT)
 
-    fs_root = di.prepare_test_fs_root(cfg.getoption)
+    os.makedirs(fs_root, exist_ok=True)
     yield fs_root
     shutil.rmtree(fs_root)
 
 
 @pytest.fixture(scope="session")
-def default_modules(fs_root) -> str:
+def default_modules(fs_root) -> List['ultra.Module']:
     modules_dir_name = "modules"
     modules_dir = os.path.join(fs_root, modules_dir_name)
     os.makedirs(modules_dir)
@@ -33,32 +35,25 @@ def default_modules(fs_root) -> str:
         f.write(b'\xCC' * cc_module_size)
 
     modules = [
-        di.UltraModule("__KERNEL__", True),
-        di.UltraModule("memory0", False, size=0x3000),
-        di.UltraModule("cc-fill", True, path=cc_module_loader_path,
-                       size=cc_module_fill_size),
+        ultra.Module("__KERNEL__", True),
+        ultra.Module("memory0", False, size=0x3000),
+        ultra.Module("cc-fill", True, path=cc_module_loader_path,
+                     size=cc_module_fill_size),
     ]
 
     return modules
 
 
 @pytest.fixture
-def disk_image(request, fs_root, default_modules) -> DiskImage:
+def disk_image(request, fs_root, default_modules):
     br_type, fs_type, kernel_type = request.param
     cfg = request.config
 
-    has_uefi_x64, has_uefi_aa64, _, has_bios_iso = (
-        options.check_availability(cfg.getoption)
-    )
-    installer_path = cfg.getoption(options.INSTALLER_OPT)
+    options.check_availability(cfg.getoption)
+    boot_cfg = di.make_normal_boot_config(kernel_type, kernel_type,
+                                          default_modules)
 
-    cfg = di.make_normal_boot_config(kernel_type, kernel_type, default_modules)
-    di.fs_root_set_cfg(fs_root, cfg)
-
-    has_uefi = has_uefi_x64 or has_uefi_aa64
-    with DiskImage(fs_root, br_type, fs_type, has_uefi, has_bios_iso,
-                   installer_path) as d:
-        yield d
+    yield from di.build(cfg.getoption, br_type, fs_type, boot_cfg)
 
 
 def disk_image_pretty_name(param):
@@ -71,7 +66,10 @@ def print_output(stdout):
     print(stdout.decode("ascii"))
 
 
-def do_run_qemu(arch_postfix, args, disk_image: DiskImage, config, timeout):
+def do_run_qemu(
+    arch_postfix: str, args: List[str], disk_image: ultra.DiskImage,
+    config: str, timeout: int
+) -> bytes:
     qemu_args = [f"qemu-system-{arch_postfix}",
                  "-cdrom" if disk_image.is_cd() else "-hda",
                  disk_image.path]
@@ -96,7 +94,10 @@ def do_run_qemu(arch_postfix, args, disk_image: DiskImage, config, timeout):
     stdout, _ = qp.communicate()
     return stdout
 
-def run_qemu_x86(disk_image: DiskImage, is_uefi: bool, config):
+
+def run_qemu_x86(
+    disk_image: ultra.DiskImage, is_uefi: bool, config: str
+) -> bytes:
     qemu_args = ["-debugcon", "stdio", "-serial", "mon:null",
                  "-cpu", "qemu64,la57=on"]
 
@@ -111,7 +112,7 @@ def run_qemu_x86(disk_image: DiskImage, is_uefi: bool, config):
     return do_run_qemu("x86_64", qemu_args, disk_image, config, 30 if is_uefi else 3)
 
 
-def run_qemu_aarch64(disk_image: DiskImage, config):
+def run_qemu_aarch64(disk_image: ultra.DiskImage, config: str) -> bytes:
     qemu_args = ["-M", "virt", "-cpu", "max",
                  "-bios", config.getoption(options.AA64_UEFI_FIRMWARE_OPT)]
     return do_run_qemu("aarch64", qemu_args, disk_image, config, 30)
@@ -120,7 +121,8 @@ def run_qemu_aarch64(disk_image: DiskImage, config):
 TEST_SUCCESS = b'\xCA\xFE\xBA\xBE'
 TEST_FAIL    = b'\xDE\xAD\xBE\xEF'
 
-def check_qemu_run(stdout):
+
+def check_qemu_run(stdout: bytes) -> None:
     if len(stdout) < 4:
         raise RuntimeError(f"Invalid kernel output {stdout}")
 
@@ -159,7 +161,7 @@ def check_qemu_run(stdout):
 @pytest.mark.bios
 @pytest.mark.fat
 @pytest.mark.hdd
-def test_normal_bios_boot_fat(disk_image: DiskImage, pytestconfig):
+def test_normal_bios_boot_fat(disk_image: ultra.DiskImage, pytestconfig):
     res = run_qemu_x86(disk_image, False, pytestconfig)
     check_qemu_run(res)
 
@@ -177,7 +179,7 @@ def test_normal_bios_boot_fat(disk_image: DiskImage, pytestconfig):
 )
 @pytest.mark.bios
 @pytest.mark.iso
-def test_normal_bios_boot_iso_cd(disk_image: DiskImage, pytestconfig):
+def test_normal_bios_boot_iso_cd(disk_image: ultra.DiskImage, pytestconfig):
     res = run_qemu_x86(disk_image, False, pytestconfig)
     check_qemu_run(res)
 
@@ -194,7 +196,7 @@ def test_normal_bios_boot_iso_cd(disk_image: DiskImage, pytestconfig):
 @pytest.mark.bios
 @pytest.mark.iso
 @pytest.mark.hdd
-def test_normal_bios_boot_iso_hdd(disk_image: DiskImage, pytestconfig):
+def test_normal_bios_boot_iso_hdd(disk_image: ultra.DiskImage, pytestconfig):
     res = run_qemu_x86(disk_image, False, pytestconfig)
     check_qemu_run(res)
 
@@ -217,7 +219,7 @@ def test_normal_bios_boot_iso_hdd(disk_image: DiskImage, pytestconfig):
 @pytest.mark.uefi_x64
 @pytest.mark.fat
 @pytest.mark.hdd
-def test_normal_uefi_x64_boot_fat(disk_image: DiskImage, pytestconfig):
+def test_normal_uefi_x64_boot_fat(disk_image: ultra.DiskImage, pytestconfig):
     res = run_qemu_x86(disk_image, True, pytestconfig)
     check_qemu_run(res)
 
@@ -234,7 +236,7 @@ def test_normal_uefi_x64_boot_fat(disk_image: DiskImage, pytestconfig):
 )
 @pytest.mark.uefi_x64
 @pytest.mark.iso
-def test_normal_uefi_x64_boot_iso(disk_image: DiskImage, pytestconfig):
+def test_normal_uefi_x64_boot_iso(disk_image: ultra.DiskImage, pytestconfig):
     res = run_qemu_x86(disk_image, True, pytestconfig)
     check_qemu_run(res)
 
@@ -254,7 +256,7 @@ def test_normal_uefi_x64_boot_iso(disk_image: DiskImage, pytestconfig):
 @pytest.mark.uefi_aarch64
 @pytest.mark.fat
 @pytest.mark.hdd
-def test_normal_uefi_aarch64_boot_fat(disk_image: DiskImage, pytestconfig):
+def test_normal_uefi_aarch64_boot_fat(disk_image: ultra.DiskImage, pytestconfig):
     res = run_qemu_aarch64(disk_image, pytestconfig)
     check_qemu_run(res)
 
@@ -272,6 +274,8 @@ def test_normal_uefi_aarch64_boot_fat(disk_image: DiskImage, pytestconfig):
 )
 @pytest.mark.uefi_aarch64
 @pytest.mark.iso
-def test_normal_uefi_aarch64_boot_iso(disk_image: DiskImage, pytestconfig):
+def test_normal_uefi_aarch64_boot_iso(
+    disk_image: ultra.DiskImage, pytestconfig
+):
     res = run_qemu_aarch64(disk_image, pytestconfig)
     check_qemu_run(res)
