@@ -4,6 +4,7 @@
 #include "common/string.h"
 #include "common/log.h"
 #include "services.h"
+#include "bios_call.h"
 
 #define RSDP_SIGNATURE "RSD PTR "
 #define RSDP_SIGNATURE_LEN 8
@@ -22,7 +23,7 @@
 */
 
 // contains (ebda_base >> 4), aka segment value
-#define BDA_EBDA_POINTER 0x040E
+#define BDA_EBDA_POINTER_OFFSET 0x0E
 
 #define EBDA_SEARCH_BASE      0x00400
 #define BIOS_AREA_SEARCH_BASE 0xE0000
@@ -50,7 +51,9 @@ static ptr_t find_signature_in_range(u32 addr, u32 end)
 
 ptr_t services_find_rsdp(void)
 {
-    u32 ebda_address = *(volatile u16*)BDA_EBDA_POINTER;
+    u32 ebda_address;
+
+    ebda_address = bios_read_bda(BDA_EBDA_POINTER_OFFSET, 2);
     ebda_address <<= 4;
 
     return find_signature_in_range(ebda_address, ebda_address + EBDA_SEARCH_SIZE) ?:
