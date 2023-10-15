@@ -34,6 +34,8 @@ static inline bool is_zero_set(const struct real_mode_regs *regs)
     return regs->flags & (1 << 6);
 }
 
+u32 bios_read_bda(u16 offset, u8 width);
+
 NORETURN
 void bios_jmp_to_reset_vector(void);
 

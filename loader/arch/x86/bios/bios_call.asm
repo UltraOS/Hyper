@@ -1,3 +1,35 @@
+section .text
+
+BDA_BASE: equ 0x0400
+
+; u32 bios_read_bda(u16 offset, u8 width)
+global bios_read_bda
+bios_read_bda:
+BITS 32
+    mov eax, BDA_BASE
+    add ax, word [esp + 4]
+
+    movzx edx, byte [esp + 4]
+
+.read_as_byte:
+    cmp edx, 1
+    jne .read_as_word
+
+    movzx eax, byte [eax]
+    ret
+
+.read_as_word:
+    cmp edx, 2
+    jne .read_as_dword
+
+    movzx eax, word [eax]
+    ret
+
+.read_as_dword:
+    mov eax, dword [eax]
+    ret
+
+
 extern gdt_ptr
 
 PROTECTED_MODE_CODE_SELECTOR: equ 0x08

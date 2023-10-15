@@ -37,7 +37,7 @@ static u8 cache_last_disk_id;
 #define FIRST_DRIVE_INDEX 0x80
 #define LAST_DRIVE_INDEX 0xFF
 
-#define BDA_DISK_COUNT_ADDRESS 0x0475
+#define BDA_DISK_COUNT_OFFSET 0x75
 
 #define REMOVABLE_DRIVE (1 << 2)
 struct PACKED drive_parameters {
@@ -136,7 +136,9 @@ static void fetch_all_disks(void)
     struct drive_parameters drive_params;
     u16 drive_index;
     u8 detected_non_removable_disks = 0;
-    u8 number_of_bios_detected_disks = *(volatile u8*)BDA_DISK_COUNT_ADDRESS;
+    u8 number_of_bios_detected_disks;
+
+    number_of_bios_detected_disks = bios_read_bda(BDA_DISK_COUNT_OFFSET, 1);
     print_info("BIOS-detected disks: %d\n", number_of_bios_detected_disks);
 
     for (drive_index = FIRST_DRIVE_INDEX; drive_index <= LAST_DRIVE_INDEX; ++drive_index) {
