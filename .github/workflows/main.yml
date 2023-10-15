@@ -37,10 +37,13 @@ jobs:
           submodules: true
 
       - if: ${{ matrix.toolchain == 'gcc' }}
+        name: Restore cache
         uses: actions/cache@v3.0.2
+        env:
+          gcc-version: 13.2.0
         with:
           path: "${{ github.workspace }}/toolchain/tools_${{ matrix.arch }}_${{ matrix.platform }}_gcc"
-          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ matrix.platform }}-gcc"
+          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ matrix.platform }}-gcc-${{ env.gcc-version }}"
 
       - name: Build platform toolchain & Hyper
         run: "${{ github.workspace }}/build.py --arch ${{ matrix.arch }} --platform ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native --e9-debug-log=on"
