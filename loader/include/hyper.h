@@ -4,7 +4,7 @@
 #include "common/helpers.h"
 
 #define HYPER_MAJOR 0
-#define HYPER_MINOR 6
+#define HYPER_MINOR 7
 #define HYPER_PATCH 0
 
 #define MAKE_BRAND_STRING(mj, mi, pa) SV("HyperLoader v" TO_STR(mj) "." TO_STR(mi) "." TO_STR(pa))
