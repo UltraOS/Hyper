@@ -8,6 +8,7 @@
 
 struct binary_options {
     struct full_path path;
+    struct filesystem *fs;
     bool allocate_anywhere;
 };
 
