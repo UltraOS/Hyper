@@ -643,8 +643,6 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
             memmove(out_rec->name, name_ptr, chars_written);
 
         out_rec->name_len = chars_written;
-        process_normal_entry(&normal_entry, out_rec, true);
-
         checksum = generate_short_name_checksum(normal_entry.filename);
 
         for (i = 0; i < initial_sequence_number; ++i) {
@@ -655,6 +653,7 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
             return false;
         }
 
+        process_normal_entry(&normal_entry, out_rec, true);
         return true;
     }
 }
