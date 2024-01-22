@@ -26,6 +26,7 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le,
 {
     struct value binary_val;
     struct string_view string_path;
+    const struct fs_entry *fse;
 
     CFG_MANDATORY_GET_ONE_OF(VALUE_STRING | VALUE_OBJECT, cfg, le,
                              SV("binary"), &binary_val);
@@ -40,6 +41,12 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le,
 
     if (!path_parse(string_path, &opts->path))
         cfg_oops_invalid_key_value(SV("binary/path"), string_path);
+
+    fse = fst_fs_by_full_path(&opts->path);
+    if (!fse)
+        oops("no such disk/partition %pSV\n", &string_path);
+
+    opts->fs = fse->fs;
 }
 
 #define SIZE_KEY SV("size")
@@ -247,7 +254,6 @@ static void module_load(struct config *cfg, struct value *module_value,
 static void load_kernel(struct config *cfg, struct loadable_entry *entry,
                         struct kernel_info *info)
 {
-    const struct fs_entry *fse;
     struct binary_options *bo = &info->bin_opts;
     struct handover_info *hi = &info->hi;
     struct elf_binary_info *bi = &info->bin_info;
@@ -259,9 +265,8 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry,
     };
 
     get_binary_options(cfg, entry, bo);
-    fse = fst_fs_by_full_path(&bo->path);
 
-    info->binary = path_open(fse->fs, bo->path.path_within_partition);
+    info->binary = path_open(bo->fs, bo->path.path_within_partition);
     if (!info->binary)
         oops("failed to open %pSV\n", &bo->path.path_within_partition);
 
