@@ -807,7 +807,7 @@ static void load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
                              size, size, false);
 
     if (!binary->fs->read_file(binary, data, 0, size))
-        oops("failed to read kernel binary");
+        oops("failed to read kernel binary\n");
 
     mi = module_alloc(&spec->module_buf);
     mi->type = ULTRA_MODULE_TYPE_FILE;
