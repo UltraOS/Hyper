@@ -348,9 +348,9 @@ static void gop_init(void)
         return;
     }
 
-    if (edid_blob->SizeOfEdid != sizeof(struct edid)) {
-        print_warn("unexpected EDID blob size, expected %zu got %u\n",
-                   sizeof(struct edid), edid_blob->SizeOfEdid);
+    if (edid_blob->SizeOfEdid < sizeof(struct edid)) {
+        print_warn("unexpected EDID blob size %u, expected at least %zu\n",
+                   edid_blob->SizeOfEdid, sizeof(struct edid));
         return;
     }
 
