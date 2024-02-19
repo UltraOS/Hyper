@@ -473,6 +473,7 @@ struct attribute_array_spec {
 
     ptr_t acpi_rsdp_address;
     ptr_t dtb_address;
+    ptr_t smbios_address;
 };
 
 static void ultra_memory_map_entry_convert(struct memory_map_entry *entry,
@@ -518,6 +519,7 @@ static void *write_platform_info(struct ultra_platform_info_attribute *pi,
     pi->loader_minor = HYPER_MINOR;
     pi->acpi_rsdp_address = spec->acpi_rsdp_address;
     pi->dtb_address = spec->dtb_address;
+    pi->smbios_address = spec->smbios_address;
     pi->higher_half_base = spec->kern_info.hi.direct_map_base;
     pi->page_table_depth = spec->page_table_depth;
     sv_terminated_copy(pi->loader_name, HYPER_BRAND_STRING);
@@ -1124,6 +1126,7 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     allocate_stack(cfg, le, hi);
     spec.acpi_rsdp_address = services_find_rsdp();
     spec.dtb_address = services_find_dtb();
+    spec.smbios_address = services_find_smbios();
 
    /*
     * Attempt to set video mode last, as we're not going to be able to use
