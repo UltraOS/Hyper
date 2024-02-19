@@ -31,7 +31,7 @@ target_sources(
     PRIVATE
     bios_disk_services.c
     bios_entry.c
-    bios_find_rsdp.c
+    bios_find.c
     bios_handover.c
     bios_memory_services.c
     bios_video_services.c
