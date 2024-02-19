@@ -23,6 +23,12 @@ ptr_t services_find_rsdp(void);
 ptr_t services_find_dtb(void);
 
 /*
+ * Attempts to retrieve the SMBIOS entry point structure location.
+ * Returns a 16-byte aligned address of the structure if successful, NULL otherwise.
+ */
+ptr_t services_find_smbios(void);
+
+/*
  * Aborts the loader execution in a platform-specific manner.
  * Must be used for unrecoverable errors.
  */
