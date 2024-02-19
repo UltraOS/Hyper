@@ -29,7 +29,7 @@ target_sources(
     PRIVATE
     uefi_disk_services.c
     uefi_entry.c
-    uefi_find_rsdp.c
+    uefi_find.c
     uefi_helpers.c
     uefi_memory_services.c
     uefi_video_services.c
