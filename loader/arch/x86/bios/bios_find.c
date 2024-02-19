@@ -1,4 +1,4 @@
-#define MSG_FMT(msg) "BIOS-ACPI: " msg
+#define MSG_FMT(msg) "BIOS-TBL: " msg
 
 #include "common/constants.h"
 #include "common/string.h"
@@ -76,4 +76,45 @@ ptr_t services_find_rsdp(void)
 ptr_t services_find_dtb(void)
 {
     return 0;
+}
+
+/*
+ * On non-UEFI systems, the 32-bit SMBIOS Entry Point structure, can be located
+ * by application software by searching for the anchor-string on paragraph
+ * (16-byte) boundaries within the physical memory address range 000F0000h to
+ * 000FFFFFh.
+ */
+#define SMBIOS_RANGE_BEGIN 0x000F0000
+#define SMBIOS_RANGE_END 0x000FFFFF
+#define SMBIOS_ALIGNMENT 16
+
+#define SMBIOS_2_ANCHOR_STRING "_SM_"
+#define SMBIOS_2_ANCHOR_STRING_LENGTH 4
+
+#define SMBIOS_3_ANCHOR_STRING "_SM3_"
+#define SMBIOS_3_ANCHOR_STRING_LENGTH 5
+
+ptr_t services_find_smbios(void)
+{
+    u8 bitness = 64;
+    u32 address;
+
+    address = find_signature_in_range(
+        SMBIOS_3_ANCHOR_STRING, SMBIOS_3_ANCHOR_STRING_LENGTH,
+        SMBIOS_ALIGNMENT, SMBIOS_RANGE_BEGIN, SMBIOS_RANGE_END
+    );
+    if (address == 0) {
+        address = find_signature_in_range(
+            SMBIOS_2_ANCHOR_STRING, SMBIOS_2_ANCHOR_STRING_LENGTH,
+            SMBIOS_ALIGNMENT, SMBIOS_RANGE_BEGIN, SMBIOS_RANGE_END
+        );
+        bitness = 32;
+    }
+
+    if (address) {
+        print_info("found (%d-bit) SMBIOS entry at 0x%08X\n",
+                   bitness, address);
+    }
+
+    return address;
 }
