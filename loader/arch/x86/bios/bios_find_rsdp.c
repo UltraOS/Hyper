@@ -31,18 +31,18 @@
 
 #define EBDA_SEARCH_SIZE (1 * KB)
 
-static ptr_t find_signature_in_range(u32 addr, u32 end)
+static u32 find_signature_in_range(
+    const char *signature, size_t length, u32 align, u32 addr, u32 end
+)
 {
     // Don't attempt to search too low
     if (addr <= EBDA_SEARCH_BASE)
         return 0;
 
-    for (; addr < end; addr += RSDP_ALIGNMENT) {
-        if (memcmp((void*)addr, RSDP_SIGNATURE, RSDP_SIGNATURE_LEN) != 0)
+    for (; addr < end; addr += align) {
+        if (memcmp((void*)addr, signature, length) != 0)
             continue;
 
-        // TODO: verify checksums before actually returning it
-        print_info("found RSDP at 0x%08X\n", addr);
         return addr;
     }
 
@@ -51,13 +51,26 @@ static ptr_t find_signature_in_range(u32 addr, u32 end)
 
 ptr_t services_find_rsdp(void)
 {
-    u32 ebda_address;
+    u32 address, ebda_address;
 
     ebda_address = bios_read_bda(BDA_EBDA_POINTER_OFFSET, 2);
     ebda_address <<= 4;
 
-    return find_signature_in_range(ebda_address, ebda_address + EBDA_SEARCH_SIZE) ?:
-           find_signature_in_range(BIOS_AREA_SEARCH_BASE, BIOS_AREA_SEARCH_END);
+    address = find_signature_in_range(
+        RSDP_SIGNATURE, RSDP_SIGNATURE_LEN, RSDP_ALIGNMENT,
+        ebda_address, ebda_address + EBDA_SEARCH_SIZE
+    );
+    if (address == 0) {
+        address = find_signature_in_range(
+            RSDP_SIGNATURE, RSDP_SIGNATURE_LEN, RSDP_ALIGNMENT,
+            BIOS_AREA_SEARCH_BASE, BIOS_AREA_SEARCH_END
+        );
+    }
+
+    if (address)
+        print_info("found RSDP at 0x%08X\n", address);
+
+    return address;
 }
 
 ptr_t services_find_dtb(void)
