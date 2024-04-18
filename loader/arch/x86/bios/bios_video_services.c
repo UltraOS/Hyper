@@ -327,7 +327,7 @@ static void fetch_all_video_modes(void)
         if (fb_format == FB_FORMAT_INVALID)
             continue;
 
-	if (video_mode_count == MODE_BUFFER_CAPACITY) {
+        if (video_mode_count == MODE_BUFFER_CAPACITY) {
             print_warn("exceeded video mode storage capacity, skipping the rest\n");
             return;
         }
