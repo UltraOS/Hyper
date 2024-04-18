@@ -33,16 +33,14 @@ if (HYPER_TOOLCHAIN)
 endif ()
 
 if (NOT HYPER_TOOLCHAIN)
-    set(HYPER_TOOLCHAIN "gcc")
-elseif (NOT HYPER_TOOLCHAIN STREQUAL "gcc" AND
-        NOT HYPER_TOOLCHAIN STREQUAL "clang")
-    message(FATAL_ERROR "Unknown toolchain '${HYPER_TOOLCHAIN}'")
+    if ($ENV{CLION_IDE})
+        set(HYPER_TOOLCHAIN dummy)
+        message("Detected CLion, using a dummy toolchain file")
+    else ()
+        set(HYPER_TOOLCHAIN "gcc")
+    endif ()
 endif ()
 
-if ($ENV{CLION_IDE})
-    set(HYPER_TOOLCHAIN dummy)
-    message("Detected CLion, using a dummy toolchain file")
-endif ()
 
 if (HYPER_TOOLCHAIN STREQUAL "gcc" OR HYPER_TOOLCHAIN STREQUAL "clang")
     set(HYPER_TOOLCHAIN_DIR "${CMAKE_SOURCE_DIR}/toolchain")
