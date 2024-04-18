@@ -49,7 +49,7 @@ add_custom_command(
     OUTPUT
     ${ISO_STAGE2_FULL_PATH}
     COMMAND
-    cat ${ISO_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH} > ${ISO_STAGE2_FULL_PATH}
+    "${CMAKE_COMMAND}" -E cat ${ISO_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH} > ${ISO_STAGE2_FULL_PATH}
     DEPENDS
     ${ISO_BOOT_REC_BINARY} ${STAGE2_BINARY}
     COMMENT
@@ -62,10 +62,18 @@ ExternalProject_Add(
     installer
     SOURCE_DIR
     ${PROJECT_SOURCE_DIR}/installer
+    BUILD_COMMAND
+    "${CMAKE_MAKE_PROGRAM}"
     CMAKE_ARGS
     -DMBR_PATH=${MBR_FULL_PATH}
     -DISO_MBR_PATH=${ISO_MBR_FULL_PATH}
     -DSTAGE2_PATH=${STAGE2_FULL_PATH}
+    -DCMAKE_MAKE_PROGRAM="${CMAKE_MAKE_PROGRAM}"
+    # Don't inherit C compiler which may be tied to target rather than host.
+    # There should ideally be a way to pass this through or otherwise request
+    # A toolchain from the subproject.
+    #-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_C_COMPILER_WORKS=1
     INSTALL_COMMAND
     cmake -E echo "Skipping install step"
 )
