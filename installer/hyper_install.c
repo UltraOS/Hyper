@@ -34,8 +34,10 @@ struct mbr_partition_entry {
 #define MBR_PARTITION_COUNT 4
 
 _Noreturn
-#ifdef __GNUC__
+#ifdef __clang__
 __attribute__((format(printf, 1, 2)))
+#elif defined(__GNUC__)
+__attribute__((format(gnu_printf, 1, 2)))
 #endif
 void panic(const char *err, ...)
 {
