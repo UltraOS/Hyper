@@ -44,8 +44,12 @@ if ($ENV{CLION_IDE})
     message("Detected CLion, using a dummy toolchain file")
 endif ()
 
-set(HYPER_TOOLCHAIN_DIR "${CMAKE_SOURCE_DIR}/toolchain")
-include("${HYPER_TOOLCHAIN_DIR}/toolchain_${HYPER_TOOLCHAIN}.cmake")
+if (HYPER_TOOLCHAIN STREQUAL "gcc" OR HYPER_TOOLCHAIN STREQUAL "clang")
+    set(HYPER_TOOLCHAIN_DIR "${CMAKE_SOURCE_DIR}/toolchain")
+    include("${HYPER_TOOLCHAIN_DIR}/toolchain_${HYPER_TOOLCHAIN}.cmake")
+else ()
+    include("${HYPER_TOOLCHAIN}")
+endif()
 
 project(Hyper C)
 
