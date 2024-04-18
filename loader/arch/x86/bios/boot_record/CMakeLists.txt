@@ -5,7 +5,8 @@ project(BootRecord ASM_NASM)
 set(CMAKE_ASM_NASM_FLAGS -fbin)
 
 # Prevent cmake from attempting to link the flat binary
-set(CMAKE_ASM_NASM_LINK_EXECUTABLE "cp <OBJECTS> <TARGET>")
+set(CMAKE_ASM_NASM_LINK_EXECUTABLE
+        "\"${CMAKE_COMMAND}\" -E copy \"<OBJECTS>\" \"<TARGET>\"")
 
 add_executable(hyper_mbr boot_record.asm)
 
