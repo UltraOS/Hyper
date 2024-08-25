@@ -26,7 +26,8 @@ void mm_sort(struct memory_map_entry *buf, size_t count);
 #define FIXUP_UNSORTED                   (1 << 0)
 #define FIXUP_IF_DIRTY                   (1 << 1)
 #define FIXUP_OVERLAP_RESOLVE            (1 << 2)
-#define FIXUP_NO_PRESERVE_LOADER_RECLAIM (1 << 3)
+#define FIXUP_OVERLAP_INTENTIONAL        (1 << 3)
+#define FIXUP_NO_PRESERVE_LOADER_RECLAIM (1 << 4)
 
 size_t mm_fixup(struct memory_map_entry *buf, size_t count, size_t cap, u8 flags);
 

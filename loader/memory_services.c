@@ -304,18 +304,24 @@ out_no_merge:
     return 1;
 }
 
-static void mm_overlap_fixup(struct memory_map_entry *buf, size_t lhs_idx, size_t rhs_idx,
-                             size_t count, size_t cap, struct fixup_result *res)
+static void mm_overlap_fixup(
+    struct memory_map_entry *buf, size_t lhs_idx, size_t rhs_idx,
+    size_t count, size_t cap, struct fixup_result *res,
+    bool intentional_overlap
+)
 {
     struct memory_map_entry *lhs = &buf[lhs_idx];
     struct memory_map_entry *rhs = &buf[rhs_idx];
     struct overlap_resolution or;
 
-    /*
-     * Overlaps between loader/protocol allocated memory are a fatal error.
-     * This basically implies a bug in firmware allocator or some memory corruption.
-     */
-    BUG_ON(lhs->type > MEMORY_TYPE_MAX || rhs->type > MEMORY_TYPE_MAX);
+    if (!intentional_overlap) {
+        /*
+         * Overlaps between loader/protocol allocated memory are a fatal error.
+         * This basically implies a bug in firmware allocator or some memory
+         * corruption.
+         */
+        BUG_ON(lhs->type > MEMORY_TYPE_MAX || rhs->type > MEMORY_TYPE_MAX);
+    }
 
     do_resolve_overlap(lhs, rhs, &or);
 
@@ -349,9 +355,10 @@ static void mm_overlap_fixup(struct memory_map_entry *buf, size_t lhs_idx, size_
     }
 }
 
-#define MM_FIXUP_DIE_ON_OVERLAP 0
-
-static size_t mm_do_fixup(struct memory_map_entry *buf, size_t count, size_t buf_cap)
+static size_t mm_do_fixup(
+    struct memory_map_entry *buf, size_t count, size_t buf_cap,
+    u8 flags
+)
 {
     size_t i, j;
     struct memory_map_entry *this, *next;
@@ -367,13 +374,18 @@ static size_t mm_do_fixup(struct memory_map_entry *buf, size_t count, size_t buf
 
         if (this_end > next->physical_address) {
             struct fixup_result fr;
+            bool is_intentional = flags & FIXUP_OVERLAP_INTENTIONAL;
 
-            print_warn("detected overlapping physical ranges:\n"
-                       MM_ENT_FMT"\n"MM_ENT_FMT"\n",
-                       MM_ENT_PRT(this), MM_ENT_PRT(next));
-            DIE_UNLESS(buf_cap != MM_FIXUP_DIE_ON_OVERLAP);
+            if (!is_intentional) {
+                print_warn(
+                    "detected overlapping physical ranges:\n"
+                    MM_ENT_FMT"\n"MM_ENT_FMT"\n",
+                    MM_ENT_PRT(this), MM_ENT_PRT(next)
+                );
+            }
+            DIE_ON(!(flags & FIXUP_OVERLAP_RESOLVE));
 
-            mm_overlap_fixup(buf, j, i, count, buf_cap, &fr);
+            mm_overlap_fixup(buf, j, i, count, buf_cap, &fr, is_intentional);
 
             // Both ranges collapsed into one, skip rhs
             if (fr.new_count < count)
@@ -437,10 +449,7 @@ size_t mm_fixup(struct memory_map_entry *buf, size_t count, size_t cap, u8 flags
     if (!merge_reclaim)
         known_standard_mask |= KNOWS_MEMORY_TYPE_LOADER_RECLAIM;
 
-    if (!(flags & FIXUP_OVERLAP_RESOLVE))
-        cap = MM_FIXUP_DIE_ON_OVERLAP;
-
-    ret = mm_do_fixup(buf, count, cap);
+    ret = mm_do_fixup(buf, count, cap, flags);
     known_standard_mask = known_mask_prev;
     map_is_dirty = false;
 
