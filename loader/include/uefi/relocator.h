@@ -18,6 +18,7 @@ struct relocation_entry {
     };
 
     EFI_PHYSICAL_ADDRESS max_address;
+    EFI_MEMORY_TYPE memory_type;
 
     void *user;
     relocated_cb_t cb;
