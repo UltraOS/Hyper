@@ -268,7 +268,9 @@ static bool fetch_vga_info(struct super_vga_info* vga_info)
 
 #define MEMORY_MODEL_DIRECT_COLOR 0x06
 
-static u16 mode_fb_format(struct mode_information *m, bool use_linear)
+static u16 mode_fb_format(
+    struct mode_information *m, u16 mode_id, bool use_linear
+)
 {
     u8 r_shift, g_shift, b_shift, x_shift;
 
@@ -287,10 +289,54 @@ static u16 mode_fb_format(struct mode_information *m, bool use_linear)
         return FB_FORMAT_INVALID;
     if ((use_linear ? m->red_mask_size_linear : m->red_mask_size) != 8)
         return FB_FORMAT_INVALID;
-    if (m->bits_per_pixel == 32 && ((use_linear ? m->reserved_mask_size_linear : m->reserved_mask_size) != 8))
-        return FB_FORMAT_INVALID;
 
-    return fb_format_from_mask_shifts_8888(r_shift, g_shift, b_shift, x_shift, m->bits_per_pixel);
+    if (m->bits_per_pixel == 32) {
+        u8 x_size;
+
+        x_size = use_linear ? m->reserved_mask_size_linear :
+                m->reserved_mask_size;
+
+        /*
+         * Some BIOSes don't bother filling the reserved component's shift and
+         * size values, derive them from other components here.
+         */
+        if (unlikely(x_size == 0)) {
+            x_size = 8;
+            print_warn(
+                "32-bpp mode %d with zeroed x-component size, assuming 8 bits\n",
+                mode_id
+            );
+
+            if (x_shift == 0) {
+                switch (r_shift + g_shift + b_shift) {
+                case 24: // 0 + 8 + 16 [+ 24]
+                    x_shift = 24;
+                    break;
+                case 32: // 0 + 8 + 24 [+ 16]
+                    x_shift = 16;
+                    break;
+                case 40: // 0 + 16 + 24 [+ 8]
+                    x_shift = 8;
+                default:
+                    break;
+                }
+
+                if (x_shift != 0) {
+                    print_warn(
+                        "32-bpp mode %d with zeroed x-component shift, "
+                        "guessing %d bits\n", mode_id, x_shift
+                    );
+                }
+            }
+        }
+
+        if (unlikely(x_size != 8))
+            return FB_FORMAT_INVALID;
+    }
+
+    return fb_format_from_mask_shifts_8888(
+        r_shift, g_shift, b_shift, x_shift, m->bits_per_pixel
+    );
 }
 
 static void fetch_all_video_modes(void)
@@ -323,7 +369,7 @@ static void fetch_all_video_modes(void)
         if (!fetch_mode_info(mode_id, &info))
             return;
 
-        fb_format = mode_fb_format(&info, vesa_detected_major >= 3);
+        fb_format = mode_fb_format(&info, mode_id, vesa_detected_major >= 3);
         if (fb_format == FB_FORMAT_INVALID)
             continue;
 
