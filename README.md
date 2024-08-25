@@ -93,7 +93,8 @@ Value types can be one of the following:
 - Integer, both signed & unsigned, including decimal, hex, octal and binary (up to 64 bits).
 - Boolean, literal `true`/`false` in any case.
 - Null, literal `null` in any case.
-- String, both quoted (with `'` or `"`) and unquoted.
+- String, both quoted (with `'` or `"`) and unquoted. Please note that string escaping is not supported, 
+use a combination of `'` with `"` instead.
 
 The loader attempts to interpret each value in the aforementioned order,
 stopping at the first type that succeeds the conversion.
