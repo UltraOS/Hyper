@@ -97,7 +97,10 @@ def build_toolchain(args):
 
         # Brew doesn't have a pytest package
         if pm.get_package_manager().name == "brew":
-            subprocess.check_call(["python3", "-m", "pip", "install", "pytest"])
+            subprocess.check_call([
+                "python3", "-m", "pip", "install", "pytest",
+                "--break-system-packages"
+            ])
 
     tb.build_toolchain(tp)
 
