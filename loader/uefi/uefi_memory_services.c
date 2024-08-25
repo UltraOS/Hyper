@@ -17,22 +17,27 @@ static size_t buf_entry_count = 0;
 static size_t map_key = 0;
 static size_t map_efi_desc_size = 0;
 
-// Reserved for use by UEFI OS loaders that are provided by operating system vendors
-#define VALID_LOADER_MEMORY_TYPE_BASE 0x80000000
+/*
+ * Storage for protocol-specific allocations that use custom memory types.
+ *
+ * While UEFI does have a native way to allocate memory using custom types,
+ * older implementations using pre-2011 EDK2 all have the same bug, which causes
+ * GetMemoryMap to crash if a custom memory type is used.
+ *
+ * Fix for the bug in EDK2:
+ * https://github.com/tianocore/edk2/commit/10fe0d814add860a1040e648b1f5782c0de350e6
+ *
+ * The code with protocol_allocations & account_allocation is workaround for
+ * that.
+ */
+static struct memory_map_entry *protocol_allocations = NULL;
+static size_t protocol_allocations_count = 0;
+static size_t protocol_allocations_capacity = 0;
 
-static EFI_MEMORY_TYPE native_memory_type_to_efi(u32 type)
-{
-    if (likely(type >= VALID_LOADER_MEMORY_TYPE_BASE))
-        return type;
-
-    panic("invalid native -> efi memory type conversion: type 0x%08X\n", type);
-}
+#define PROTOCOL_ALLOCATIONS_BUFFER_INCREMENT 64
 
 static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
 {
-    if ((u32)type >= VALID_LOADER_MEMORY_TYPE_BASE)
-        return type;
-
     switch (type) {
     case EfiReservedMemoryType:
         return MEMORY_TYPE_RESERVED;
@@ -68,19 +73,55 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
     panic("don't know how to convert efi memory type 0x%08X into native\n", type);
 }
 
+static inline void account_allocation(u64 address, size_t count, u32 type)
+{
+    struct memory_map_entry *entry;
+
+    if (type < MEMORY_TYPE_PROTO_SPECIFIC_BASE)
+        return;
+
+    if (protocol_allocations_count == protocol_allocations_capacity) {
+        void *new_buf;
+
+        OOPS_ON(!uefi_pool_alloc(
+            EfiLoaderData, sizeof(struct memory_map_entry),
+            protocol_allocations_capacity + PROTOCOL_ALLOCATIONS_BUFFER_INCREMENT,
+            &new_buf
+        ));
+
+        if (protocol_allocations != NULL) {
+            memcpy(
+                new_buf, protocol_allocations,
+                protocol_allocations_capacity * sizeof(struct memory_map_entry)
+            );
+            g_st->BootServices->FreePool(protocol_allocations);
+        }
+
+        protocol_allocations_capacity += PROTOCOL_ALLOCATIONS_BUFFER_INCREMENT;
+        protocol_allocations = new_buf;
+    }
+
+    entry = &protocol_allocations[protocol_allocations_count++];
+
+    entry->physical_address = address;
+    entry->size_in_bytes = count << PAGE_SHIFT;
+    entry->type = type;
+}
+
 u64 ms_allocate_pages_at(u64 address, size_t count, u32 type)
 {
     SERVICE_FUNCTION();
 
     EFI_STATUS ret;
 
-    ret = g_st->BootServices->AllocatePages(AllocateAddress, native_memory_type_to_efi(type), count, &address);
+    ret = g_st->BootServices->AllocatePages(AllocateAddress, EfiLoaderData, count, &address);
     if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("AllocatePages(AllocateAddress, %zu, 0x%016llX) failed: %pSV\n", count, address, &err_msg);
         return 0;
     }
 
+    account_allocation(address, count, type);
     return address;
 }
 
@@ -91,13 +132,14 @@ u64 ms_allocate_pages(size_t count, u64 upper_limit, u32 type)
     EFI_STATUS ret;
     u64 address = upper_limit;
 
-    ret = g_st->BootServices->AllocatePages(AllocateMaxAddress, native_memory_type_to_efi(type), count, &address);
+    ret = g_st->BootServices->AllocatePages(AllocateMaxAddress, EfiLoaderData, count, &address);
     if (unlikely_efi_error(ret)) {
         struct string_view err_msg = uefi_status_to_string(ret);
         print_warn("AllocatePages(AllocateMaxAddress, %zu, 0x%016llX) failed: %pSV\n", count, address, &err_msg);
         return 0;
     }
 
+    account_allocation(address, count, type);
     return address;
 }
 
@@ -149,6 +191,7 @@ static struct memory_map_entry *mm_entry_at(size_t i)
 static void efi_memory_map_fixup(void)
 {
     size_t i, j = 0;
+    u8 fixup_flags = FIXUP_UNSORTED | FIXUP_OVERLAP_RESOLVE;
 
     // Convert UEFI memory map to native format, we do this in-place
     for (i = 0; i < buf_entry_count; ++i) {
@@ -165,9 +208,24 @@ static void efi_memory_map_fixup(void)
             memcpy(mm_entry_at(j++), &me, sizeof(me));
     }
 
-    buf_entry_count = mm_fixup(memory_map_buf, j,
-                               buf_byte_capacity / sizeof(struct memory_map_entry),
-                               FIXUP_UNSORTED | FIXUP_OVERLAP_RESOLVE);
+    /*
+     * Pretend the custom type allocations were there in the first place, even
+     * though this causes collisions with EfiLoaderData ranges. This is fine as
+     * mm_fixup is able to take care of those by letting the higher priority
+     * (larger type value) allocations win in the range collision resolution.
+     */
+    if (protocol_allocations_count) {
+        fixup_flags |= FIXUP_OVERLAP_INTENTIONAL;
+        buf_entry_count = j + protocol_allocations_count;
+        memcpy(mm_entry_at(j), protocol_allocations,
+               protocol_allocations_count * sizeof(struct memory_map_entry));
+    }
+
+    buf_entry_count = mm_fixup(
+        memory_map_buf, buf_entry_count,
+        buf_byte_capacity / sizeof(struct memory_map_entry),
+        fixup_flags
+    );
 }
 
 static void fill_internal_memory_map_buffer(void)
@@ -193,7 +251,10 @@ static void fill_internal_memory_map_buffer(void)
                   sizeof(EFI_MEMORY_DESCRIPTOR), map_efi_desc_size);
         }
 
-        internal_buf_ensure_capacity(bytes_inout);
+        internal_buf_ensure_capacity(
+            bytes_inout +
+            protocol_allocations_count * sizeof(struct memory_map_entry)
+        );
     }
 
     buf_entry_count = bytes_inout / map_efi_desc_size;
