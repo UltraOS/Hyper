@@ -47,7 +47,9 @@ void relocate_entries(struct relocation_entry *entries)
         if (byte_len > last_bytes_rem || last_ceiling > entry->max_address) {
             EFI_STATUS ret;
 
-            ret = g_st->BootServices->AllocatePages(AllocateMaxAddress, EfiLoaderData, pages, &addr);
+            ret = g_st->BootServices->AllocatePages(
+                AllocateMaxAddress, entry->memory_type, pages, &addr
+            );
             if (unlikely_efi_error(ret)) {
                 panic("failed to allocate %zu pages below 0x%016llX\n",
                       pages, entry->max_address);
