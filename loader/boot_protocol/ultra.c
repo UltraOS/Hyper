@@ -531,11 +531,16 @@ static void*
 write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
                             const struct kernel_info *ki)
 {
-    struct string_view path_str = ki->bin_opts.path.path_within_partition;
-    u32 partition_type = ki->bin_opts.path.partition_id_type;
+    const struct full_path *fp = &ki->bin_opts.path;
+    struct string_view path_str = fp->path_within_partition;
+    u32 partition_type = fp->partition_id_type;
 
     if (partition_type == PARTITION_IDENTIFIER_ORIGIN) {
-        switch (fst_get_origin()->entry_type) {
+        const struct fs_entry *origin;
+
+        origin = fst_get_origin();
+
+        switch (origin->entry_type) {
         case FSE_TYPE_RAW:
             partition_type = ULTRA_PARTITION_TYPE_RAW;
             break;
@@ -548,6 +553,21 @@ write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
         default:
             BUG();
         }
+
+        attr->disk_index = origin->disk_id;
+        attr->partition_index = origin->partition_index;
+
+        memcpy(&attr->disk_guid, &origin->disk_guid, sizeof(attr->disk_guid));
+        memcpy(&attr->partition_guid, &origin->partition_guid,
+               sizeof(attr->partition_guid));
+    } else {
+        attr->partition_index = fp->partition_index;
+        attr->disk_index = fp->disk_index;
+
+        BUILD_BUG_ON(sizeof(attr->disk_guid) != sizeof(fp->disk_guid));
+        memcpy(&attr->disk_guid, &fp->disk_guid, sizeof(attr->disk_guid));
+        memcpy(&attr->partition_guid, &fp->partition_guid,
+               sizeof(attr->partition_guid));
     }
 
     attr->header = (struct ultra_attribute_header) {
@@ -558,14 +578,6 @@ write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
     attr->virtual_base = ki->bin_info.virtual_base;
     attr->size = ki->bin_info.physical_ceiling - ki->bin_info.physical_base;
     attr->partition_type = partition_type;
-    attr->partition_index = ki->bin_opts.path.partition_index;
-
-    BUILD_BUG_ON(sizeof(attr->disk_guid) !=
-                 sizeof(ki->bin_opts.path.disk_guid));
-    memcpy(&attr->disk_guid, &ki->bin_opts.path.disk_guid,
-           sizeof(attr->disk_guid));
-    memcpy(&attr->partition_guid, &ki->bin_opts.path.partition_guid,
-           sizeof(attr->partition_guid));
 
     BUG_ON(path_str.size > (sizeof(attr->fs_path) - 1));
     memcpy(attr->fs_path, path_str.text, path_str.size);
