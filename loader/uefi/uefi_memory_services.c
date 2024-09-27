@@ -207,6 +207,7 @@ static void efi_memory_map_fixup(void)
         if (mme_is_valid(&me))
             memcpy(mm_entry_at(j++), &me, sizeof(me));
     }
+    buf_entry_count = j;
 
     /*
      * Pretend the custom type allocations were there in the first place, even
@@ -216,7 +217,7 @@ static void efi_memory_map_fixup(void)
      */
     if (protocol_allocations_count) {
         fixup_flags |= FIXUP_OVERLAP_INTENTIONAL;
-        buf_entry_count = j + protocol_allocations_count;
+        buf_entry_count += protocol_allocations_count;
         memcpy(mm_entry_at(j), protocol_allocations,
                protocol_allocations_count * sizeof(struct memory_map_entry));
     }
