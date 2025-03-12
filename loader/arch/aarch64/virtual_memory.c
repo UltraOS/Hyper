@@ -17,17 +17,16 @@ static u8 unified_pt_depth(enum pt_type type)
 void page_table_init(struct page_table *pt, enum pt_type type,
                      u64 max_table_address)
 {
-    pt->root = pt_get_table_page(max_table_address);
-    OOPS_ON(!pt->root);
+    ptr_t root_page = pt_get_table_page(max_table_address);
+    OOPS_ON(!root_page);
 
+    pt->root = ADDR_TO_PTR(root_page);
     pt->levels = unified_pt_depth(type);
     pt->base_shift = PAGE_SHIFT;
     pt->max_table_address = max_table_address;
 
     // We currently don't support 52-bit OA, so this is the mask
     pt->entry_address_mask = ~(BIT_MASK(48, 64) | BIT_MASK(0, PAGE_SHIFT));
-
-    memzero(pt->root, PAGE_SIZE);
 
     pt->entry_width = 8;
     pt->table_width_shift = 9;
