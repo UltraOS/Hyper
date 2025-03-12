@@ -43,4 +43,31 @@ void page_table_init(struct page_table *pt, enum pt_type type,
         pt->write_slot = write_u32_u64;
         pt->read_slot = read_u32_zero_extend;
     }
+
+    /*
+     * 32-bit PAE paging is a bit strange in that the root table consists of
+     * only four pointers, which have really strange semantics:
+     *
+     * 1. On intel, they're cached in shadow registers as soon as CR3 is loaded
+     *    with a new table. What this means is, modifications to the root table
+     *    won't be picked up until a full CR3 flush occurs.
+     * 2. The WRITE bit for the root table entries is reserved, only the
+     *    PRESENT bit must be set.
+     *
+     * The semantics above make it really annoying to deal with lazy allocation
+     * of the PAE tables, so let's pre-populate all root table slots right away.
+     */
+    if (type == PT_TYPE_I386_PAE) {
+        size_t i;
+        ptr_t entry;
+        void *table = pt->root;
+
+        for (i = 0; i < 4; ++i) {
+            entry = pt_get_table_page(pt->max_table_address);
+            OOPS_ON(!entry);
+
+            pt->write_slot(table, entry | PAGE_PRESENT);
+            table += pt->entry_width;
+        }
+    }
 }
