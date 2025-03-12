@@ -47,6 +47,7 @@ TEST_DEPS = {
     ],
     "brew": [
         "llvm",
+        "lld",
         "xorriso",
         "mtools",
         "gdisk",

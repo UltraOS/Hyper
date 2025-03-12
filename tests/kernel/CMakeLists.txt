@@ -3,12 +3,12 @@ cmake_minimum_required(VERSION 3.16)
 if (APPLE)
     execute_process(
         COMMAND
-        brew --prefix llvm
+        brew --prefix lld
         OUTPUT_VARIABLE
-        BREW_LLVM_PREFIX
+        BREW_LLD_PREFIX
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
-    set(LLD_LINKER "${BREW_LLVM_PREFIX}/bin/ld.lld")
+    set(LLD_LINKER "${BREW_LLD_PREFIX}/bin/ld.lld")
 else ()
     set(LLD_LINKER "ld.lld")
 endif ()
