@@ -16,8 +16,9 @@ struct bulk_map_ctx {
     bool huge;
 };
 
-void *pt_get_table_page(u64 max_address)
+ptr_t pt_get_table_page(u64 max_address)
 {
+    void *ptr;
     struct allocation_spec spec = {
         .ceiling = max_address,
         .pages = 1,
@@ -26,7 +27,12 @@ void *pt_get_table_page(u64 max_address)
     if (!spec.ceiling || spec.ceiling > (4ull * GB))
         spec.ceiling = 4ull * GB;
 
-    return ADDR_TO_PTR(allocate_pages_ex(&spec));
+    ptr = ADDR_TO_PTR(allocate_pages_ex(&spec));
+    if (unlikely(ptr == NULL))
+        return 0;
+
+    memzero(ptr, PAGE_SIZE);
+    return (ptr_t)ptr;
 }
 
 static size_t get_level_bit_offset(struct page_table *pt, size_t idx)
@@ -63,7 +69,6 @@ static void *get_table_slot(struct page_table *pt, void *table, size_t idx)
 static void *table_at(struct page_table *pt, void *table, size_t idx)
 {
     u64 entry;
-    void *page;
 
     table = get_table_slot(pt, table, idx);
     entry = pt->read_slot(table);
@@ -72,20 +77,15 @@ static void *table_at(struct page_table *pt, void *table, size_t idx)
         BUG_ON(pt_is_huge_page(entry));
 
         entry = entry & pt->entry_address_mask;
-        return (void*)((ptr_t)entry);
+        return ADDR_TO_PTR(entry);
     }
 
-    page = pt_get_table_page(pt->max_table_address);
-    if (!page)
+    entry = pt_get_table_page(pt->max_table_address);
+    if (!entry)
         return NULL;
 
-    memzero((void*)page, PAGE_SIZE);
-
-    entry = (ptr_t)page;
-    entry |= PAGE_READWRITE | PAGE_PRESENT | PAGE_NORMAL;
-
-    pt->write_slot(table, entry);
-    return page;
+    pt->write_slot(table, entry | PAGE_READWRITE | PAGE_PRESENT | PAGE_NORMAL);
+    return ADDR_TO_PTR(entry);
 }
 
 #define PTE_HANDLE_LEVEL(level)                                     \
