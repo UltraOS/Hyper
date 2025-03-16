@@ -306,6 +306,24 @@ static void validate_modules(struct ultra_module_info_attribute *mi,
     print("modules OK\n");
 }
 
+static void validate_apm_info(struct ultra_apm_attribute *apm)
+{
+    struct ultra_apm_info *info = &apm->info;
+
+    if (info->version < 0x0100)
+        test_fail("bogus APM version 0x%04X\n", info->version);
+    if (!(info->flags & 2))
+        test_fail("bogus APM flags: %d\n", info->flags);
+    if (info->pm_code_segment_length == 0)
+        test_fail("bogus pm code segment length %d\n", info->pm_code_segment_length);
+    if (info->rm_code_segment_length == 0)
+        test_fail("bogus rm code segment length %d\n", info->rm_code_segment_length);
+    if (info->data_segment_length == 0)
+        test_fail("bogus data segment length %d\n", info->data_segment_length);
+
+    print("APM info OK\n");
+}
+
 static void validate_platform_info(struct ultra_platform_info_attribute *pi,
                                    struct ultra_kernel_info_attribute *ki)
 {
@@ -363,6 +381,7 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
     struct ultra_command_line_attribute *cl = NULL;
     struct ultra_framebuffer_attribute *fb = NULL;
     struct ultra_memory_map_attribute *mm = NULL;
+    struct ultra_apm_attribute *apm_info = NULL;
     struct ultra_module_info_attribute *modules_begin = NULL;
     size_t i, module_count = 0;
     bool modules_eof = false;
@@ -435,6 +454,10 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
 
             break;
 
+        case ULTRA_ATTRIBUTE_APM_INFO:
+            apm_info = cursor;
+            break;
+
         default:
             test_fail("invalid attribute type %u\n", hdr->type);
         }
@@ -453,6 +476,9 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
 
     validate_platform_info(pi, ki);
     validate_modules(modules_begin, module_count, mm, pi);
+
+    if (apm_info)
+        validate_apm_info(apm_info);
 
     print("\nLoader info: %s (version %d.%d) on %s\n",
           pi->loader_name, pi->loader_major, pi->loader_minor,

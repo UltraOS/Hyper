@@ -11,6 +11,7 @@ default-entry = {default_entry}
 
 [i686_lower_half]
 protocol=ultra
+setup-apm = true
 
 cmdline    = {cmdline}
 binary     = "/boot/kernel_i686_lower_half"
@@ -37,6 +38,7 @@ video-mode:
 
 [i686_higher_half]
 protocol=ultra
+setup-apm = true
 
 cmdline    = {cmdline}
 binary:
@@ -68,6 +70,7 @@ higher-half-exclusive = true
 
 [amd64_lower_half]
 protocol=ultra
+setup-apm = true
 
 cmdline    = {cmdline}
 binary     = "/boot/kernel_amd64_lower_half"
@@ -94,6 +97,7 @@ video-mode:
 
 [amd64_higher_half]
 protocol=ultra
+setup-apm = true
 
 cmdline = {cmdline}
 binary:
@@ -109,6 +113,7 @@ higher-half-exclusive = true
 
 [amd64_higher_half_5lvl]
 protocol=ultra
+setup-apm = true
 
 cmdline = {cmdline}
 binary:
