@@ -2,6 +2,7 @@
 
 #include "common/types.h"
 #include "common/attributes.h"
+#include "apm.h"
 
 enum service_provider {
     SERVICE_PROVIDER_INVALID,
@@ -27,6 +28,12 @@ ptr_t services_find_dtb(void);
  * Returns a 16-byte aligned address of the structure if successful, NULL otherwise.
  */
 ptr_t services_find_smbios(void);
+
+/*
+ * Attempts to setup the 32-bit protected-mode interface for APM if it exists.
+ * Returns true if the interface was successfully installed, false otherwise.
+ */
+bool services_setup_apm(struct apm_info *out_info);
 
 /*
  * Aborts the loader execution in a platform-specific manner.

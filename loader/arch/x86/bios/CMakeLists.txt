@@ -29,6 +29,7 @@ target_sources(
 target_sources(
     ${LOADER_EXECUTABLE}
     PRIVATE
+    apm.c
     bios_disk_services.c
     bios_entry.c
     bios_find.c

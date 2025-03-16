@@ -34,4 +34,5 @@ target_sources(
     uefi_memory_services.c
     uefi_video_services.c
     relocator.c
+    stubs.c
 )

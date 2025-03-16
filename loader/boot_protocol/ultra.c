@@ -458,10 +458,28 @@ static bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
     return true;
 }
 
+static bool apm_setup(struct config *cfg, struct loadable_entry *le,
+                      struct apm_info *out_info)
+{
+    bool wants_apm = false;
+
+    cfg_get_bool(cfg, le, SV("setup-apm"), &wants_apm);
+    if (!wants_apm)
+        return false;
+
+    if (services_get_provider() != SERVICE_PROVIDER_BIOS) {
+        print_info("ignoring request to set up APM on UEFI\n");
+        return false;
+    }
+
+    return services_setup_apm(out_info);
+}
+
 struct attribute_array_spec {
     bool higher_half_pointers;
     bool fb_present;
     bool cmdline_present;
+    bool apm_info_present;
     uint8_t page_table_depth;
 
     struct ultra_framebuffer fb;
@@ -470,6 +488,8 @@ struct attribute_array_spec {
     struct kernel_info kern_info;
 
     struct dynamic_buffer module_buf;
+
+    struct apm_info apm_info;
 
     ptr_t acpi_rsdp_address;
     ptr_t dtb_address;
@@ -595,6 +615,18 @@ static void *write_framebuffer(struct ultra_framebuffer_attribute *fb_attr,
     return ++fb_attr;
 }
 
+static void *write_apm_info(struct ultra_apm_attribute *apm_attr,
+                            const struct attribute_array_spec *spec)
+{
+    apm_attr->header.type = ULTRA_ATTRIBUTE_APM_INFO;
+    apm_attr->header.size = sizeof(struct ultra_apm_attribute);
+
+    BUILD_BUG_ON(sizeof(apm_attr->info) != sizeof(struct apm_info));
+    memcpy(&apm_attr->info, &spec->apm_info, sizeof(struct apm_info));
+
+    return ++apm_attr;
+}
+
 static void *write_memory_map(void *attr_ptr, size_t entry_count)
 {
     struct ultra_memory_map_attribute *mm = attr_ptr;
@@ -651,6 +683,8 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
     bytes_needed += cmdline_aligned_length;
     bytes_needed += spec->fb_present *
                         sizeof(struct ultra_framebuffer_attribute);
+    bytes_needed += spec->apm_info_present *
+                        sizeof(struct ultra_apm_attribute);
     bytes_needed += sizeof(struct ultra_memory_map_attribute);
 
     // Add 2 to give some leeway for memory map growth after the next allocation
@@ -722,6 +756,11 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
 
     if (spec->fb_present) {
         attr_ptr = write_framebuffer(attr_ptr, spec);
+        *attr_count += 1;
+    }
+
+    if (spec->apm_info_present) {
+        attr_ptr = write_apm_info(attr_ptr, spec);
         *attr_count += 1;
     }
 
@@ -1139,6 +1178,8 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     spec.acpi_rsdp_address = services_find_rsdp();
     spec.dtb_address = services_find_dtb();
     spec.smbios_address = services_find_smbios();
+
+    spec.apm_info_present = apm_setup(cfg, le, &spec.apm_info);
 
    /*
     * Attempt to set video mode last, as we're not going to be able to use
