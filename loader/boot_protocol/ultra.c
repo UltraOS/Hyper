@@ -815,7 +815,7 @@ static void allocate_stack(struct config *cfg, struct loadable_entry *le,
             size = PAGE_ROUND_UP(size_val.as_unsigned);
         }
 
-        if (unlikely(!size || ((as.addr + size) < as.addr))) {
+        if (unlikely(!size || (has_alloc_at && ((as.addr + size) < as.addr)))) {
             oops("invalid stack address (0x%016llX) + size (%zu) combination\n",
                  as.addr, size);
         }

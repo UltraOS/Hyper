@@ -107,6 +107,9 @@ binary:
 video-mode:
     format = xrgb8888
 
+stack:
+    size = 0x4000
+
 higher-half-exclusive = true
 
 {extra_cfg_entries}
