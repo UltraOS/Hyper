@@ -239,6 +239,9 @@ static u64 allocate_within(size_t page_count, u64 lower_limit, u64 upper_limit, 
         u64 end = mme_end(picked_mme);
         bool is_bad_range;
 
+        if (picked_mme->physical_address > upper_limit)
+            return 0;
+
         if (picked_mme->type == MEMORY_TYPE_FREE) {
             u64 available_gap = MIN(end, upper_limit) - MAX(picked_mme->physical_address, lower_limit);
             is_bad_range = available_gap < bytes_to_allocate;
