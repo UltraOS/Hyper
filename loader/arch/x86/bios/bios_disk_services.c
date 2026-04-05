@@ -35,7 +35,7 @@ static struct block_cache tb_cache;
 static u8 cache_last_disk_id;
 
 #define FIRST_DRIVE_INDEX 0x80
-#define LAST_DRIVE_INDEX 0xFF
+#define LAST_DRIVE_INDEX 0xF0
 
 #define BDA_DISK_COUNT_OFFSET 0x75
 
