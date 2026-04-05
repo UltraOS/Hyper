@@ -26,7 +26,7 @@ static u64 do_64bit_division(u64 a, u64 b, u64 *c)
             quotient |= 1ull << bit;
         }
     }
-    
+
     if (c)
         *c = remainder;
 
@@ -36,7 +36,7 @@ static u64 do_64bit_division(u64 a, u64 b, u64 *c)
 /*
  * Documentation says this takes in an "unsigned long", which is a lie.
  * It takes in an 8 byte integer for all inputs & outputs.
- * 
+ *
  * NOTE: none of the other overloads of these functions are ever referenced,
  *       so they're not implemented here.
  */
@@ -62,7 +62,7 @@ u64 __udivmoddi4(u64 a, u64 b, u64 *c)
         if (b == 1) {
             if (c)
                 *c = 0;
-        
+
             return a;
         }
 
