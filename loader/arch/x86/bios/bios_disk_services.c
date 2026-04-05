@@ -142,7 +142,7 @@ static void fetch_all_disks(void)
     print_info("BIOS-detected disks: %d\n", number_of_bios_detected_disks);
 
     for (drive_index = FIRST_DRIVE_INDEX; drive_index <= LAST_DRIVE_INDEX; ++drive_index) {
-        bool is_removable = false;
+        bool is_removable = false, checked_edd = false;
         memzero(&regs, sizeof(regs));
         memzero(&drive_params, sizeof(drive_params));
 
@@ -184,14 +184,34 @@ static void fetch_all_disks(void)
             void *edpt = from_real_mode_addr(drive_params.edd_config_segment,
                                              drive_params.edd_config_offset);
             is_removable |= edpt_is_removable_disk(edpt);
+            checked_edd = true;
         }
 
         pretty_print_drive_info(drive_index, drive_params.total_sector_count,
                                 drive_params.bytes_per_sector, is_removable);
 
-        // Removable disks are not reported in BDA_DISK_COUNT_ADDRESS, so we accept any amount
+        /*
+         * Removable disks are not reported in BDA_DISK_COUNT_ADDRESS,
+         * so we accept any amount
+         */
         if (!is_removable) {
-            if (unlikely(detected_non_removable_disks >= number_of_bios_detected_disks)) {
+            bool should_skip =
+                detected_non_removable_disks >= number_of_bios_detected_disks;
+
+            /*
+             * Special case VMWare BIOS that doesn't mark ATAPI drives as
+             * removable. This can sometimes be worked around by checking the
+             * EDD, but it's not present in some guest OS compatibility modes,
+             * e.g. Ubuntu 64-bit. There's only one ATAPI drive that is visible
+             * via this discovery mechanism, and it has the index 0x9F.
+             */
+            if (unlikely(should_skip && !checked_edd && drive_index == 0x9F &&
+                         drive_params.bytes_per_sector == 2048)) {
+                should_skip = false;
+                print_warn("allowing unaccounted non-removable drive 0x9F\n");
+            }
+
+            if (unlikely(should_skip)) {
                 print_warn("skipping unexpected drive 0x%X\n", drive_index);
                 continue;
             }
