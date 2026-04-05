@@ -94,4 +94,31 @@ u64 __udivdi3(u64 a, u64 b)
 {
     return __udivmoddi4(a, b, NULL);
 }
+
+u64 __ashldi3(u64 a, int b) {
+    union {
+        u64 full;
+        struct {
+            u32 lo, hi;
+        };
+    } number;
+
+    if (b == 0)
+        return a;
+
+    number.hi = QWORD_HI(a);
+    number.lo = QWORD_LO(a);
+
+    if (b >= 32) {
+        number.hi = number.lo << (b - 32);
+        number.lo = 0;
+        return number.full;
+    }
+
+    // We know 'b' is strictly between 1 and 31 here
+    number.hi = (number.hi << b) | (number.lo >> (32 - b));
+    number.lo = number.lo << b;
+
+    return number.full;
+}
 #endif
