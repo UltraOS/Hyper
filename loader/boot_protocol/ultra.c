@@ -903,7 +903,7 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le,
                                  &module_value, true));
 }
 
-#define MAX_CMDLINE_LEN 256
+#define MAX_CMDLINE_LEN 512
 
 static bool get_cmdline(struct config *cfg, struct loadable_entry *le,
                         char *storage, struct string_view *out_str)
@@ -912,7 +912,10 @@ static bool get_cmdline(struct config *cfg, struct loadable_entry *le,
         return false;
 
     if (out_str->size > MAX_CMDLINE_LEN)
-        oops("command line is too big %zu vs max 256\n", out_str->size);
+        oops(
+            "command line is too big %zu vs max " TO_STR(MAX_CMDLINE_LEN) "\n",
+            out_str->size
+    	);
 
     memcpy(storage, out_str->text, out_str->size);
 
