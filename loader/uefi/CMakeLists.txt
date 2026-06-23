@@ -33,6 +33,7 @@ target_sources(
     uefi_helpers.c
     uefi_memory_services.c
     uefi_video_services.c
+    uefi_pxe_services.c
     relocator.c
     stubs.c
 )

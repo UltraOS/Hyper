@@ -549,7 +549,7 @@ static void *write_platform_info(struct ultra_platform_info_attribute *pi,
 }
 
 /*
- * The loader and protocol GUID type is deliberately kept layout-identical
+ * The loader and protocol GUID/IP types are deliberately kept layout-identical
  * so the fs_entry fields can be copied into the attribute verbatim. Guard that
  * assumption here instead of relying on it silently.
  */
@@ -558,6 +558,9 @@ BUILD_BUG_ON(offsetof(struct guid, data1) != offsetof(struct ultra_guid, data1))
 BUILD_BUG_ON(offsetof(struct guid, data2) != offsetof(struct ultra_guid, data2));
 BUILD_BUG_ON(offsetof(struct guid, data3) != offsetof(struct ultra_guid, data3));
 BUILD_BUG_ON(offsetof(struct guid, data4) != offsetof(struct ultra_guid, data4));
+
+BUILD_BUG_ON(sizeof(ipv4_addr) != sizeof(struct ultra_ipv4_addr));
+BUILD_BUG_ON(sizeof(ipv6_addr) != sizeof(struct ultra_ipv6_addr));
 
 static void*
 write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
@@ -590,6 +593,15 @@ write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
         memcpy(&attr->disk_guid, &loc->disk_guid, sizeof(attr->disk_guid));
         memcpy(&attr->partition_guid, &loc->partition_guid,
                sizeof(attr->partition_guid));
+        break;
+    case FSE_TYPE_PXE:
+        if (loc->ip.type == IP_TYPE_V4) {
+            memcpy(&attr->pxe_v4, &loc->ip.v4, IPV4_ADDR_LEN);
+            attr->partition_type = ULTRA_PARTITION_TYPE_PXE_V4;
+        } else {
+            memcpy(&attr->pxe_v6, &loc->ip.v6, IPV6_ADDR_LEN);
+            attr->partition_type = ULTRA_PARTITION_TYPE_PXE_V6;
+        }
         break;
     default:
         BUG();

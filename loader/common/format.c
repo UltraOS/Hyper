@@ -4,6 +4,7 @@
 #include "common/string.h"
 #include "common/minmax.h"
 #include "common/string_view.h"
+#include "ip.h"
 
 struct fmt_buf_state {
     char *buffer;
@@ -304,6 +305,25 @@ int vsnprintf(char *buffer, size_t capacity, const char *fmt, va_list vlist)
             if (consume(&fmt, "SV")) {
                 struct string_view *str = va_arg(vlist, struct string_view*);
                 write_many(&fb_state, str->text, str->size);
+                continue;
+            }
+
+            if (consume(&fmt, "IP4")) {
+                char as_str[4];
+                size_t i;
+                int len;
+                ipv4_addr *ip = va_arg(vlist, ipv4_addr*);
+
+                for (i = 0; i < IPV4_ADDR_LEN; i++) {
+                    len = snprintf(as_str, sizeof(as_str), "%u", ip->addr[i]);
+                    if (unlikely(len < 0))
+                        return len;
+
+                    if (i)
+                        write_one(&fb_state, '.');
+                    write_many(&fb_state, as_str, len);
+                }
+
                 continue;
             }
 

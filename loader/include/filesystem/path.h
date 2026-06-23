@@ -9,7 +9,8 @@ enum disk_identifier {
     DISK_IDENTIFIER_INVALID,
     DISK_IDENTIFIER_INDEX,
     DISK_IDENTIFIER_UUID,
-    DISK_IDENTIFIER_ORIGIN
+    DISK_IDENTIFIER_ORIGIN,
+    DISK_IDENTIFIER_PXE
 };
 
 enum partition_identifier {

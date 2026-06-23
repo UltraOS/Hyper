@@ -35,6 +35,7 @@ target_sources(
     bios_find.c
     bios_handover.c
     bios_memory_services.c
+    bios_pxe_services.c
     bios_video_services.c
     scratch_buffer.c
 )
@@ -44,8 +45,10 @@ add_subdirectory(boot_record)
 set(MBR_FULL_PATH "${MBR_PATH}/${MBR_BINARY}")
 set(ISO_MBR_FULL_PATH "${MBR_PATH}/${ISO_MBR_BINARY}")
 set(ISO_BOOT_REC_FULL_PATH "${MBR_PATH}/${ISO_BOOT_REC_BINARY}")
+set(PXE_BOOT_REC_FULL_PATH "${MBR_PATH}/${PXE_BOOT_REC_BINARY}")
 set(STAGE2_FULL_PATH "${STAGE2_PATH}/${STAGE2_BINARY}")
 set(ISO_STAGE2_FULL_PATH "${STAGE2_PATH}/hyper_iso_boot")
+set(PXE_STAGE2_FULL_PATH "${STAGE2_PATH}/hyper_pxe")
 
 add_custom_command(
     OUTPUT
@@ -58,6 +61,20 @@ add_custom_command(
     "Generating iso stage2 loader"
 )
 add_custom_target(hyper_iso_boot ALL DEPENDS ${ISO_STAGE2_FULL_PATH})
+
+# PXE network bootable image: the PXE boot record concatenated with stage2.
+# PXE loads the whole blob at MBR_LOAD_BASE, landing stage2 at STAGE2_LOAD_BASE.
+add_custom_command(
+    OUTPUT
+    ${PXE_STAGE2_FULL_PATH}
+    COMMAND
+    "${CMAKE_COMMAND}" -E cat ${PXE_BOOT_REC_FULL_PATH} ${STAGE2_FULL_PATH} > ${PXE_STAGE2_FULL_PATH}
+    DEPENDS
+    ${PXE_BOOT_REC_BINARY} ${STAGE2_BINARY}
+    COMMENT
+    "Generating pxe stage2 loader"
+)
+add_custom_target(hyper_pxe ALL DEPENDS ${PXE_STAGE2_FULL_PATH})
 
 include(ExternalProject)
 ExternalProject_Add(

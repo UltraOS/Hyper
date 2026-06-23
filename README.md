@@ -16,6 +16,7 @@ Support for ELF binaries targeting I386, AMD64 and aarch64.
 - GPT
 - MBR/EBR
 - RAW
+- PXE (network boot)
 
 ### File Systems:
 - FAT12/16/32
@@ -118,6 +119,7 @@ Paths can optionally start with prefixes, such as:
 - `DISK3-GPTUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A::/` - disk 3, GPT partition with this UUID
 - `DISKUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A-GPT2::/` - disk with this UUID, GPT partition 2
 - `DISKUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A-PARTUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A::/` - disk with this UUID, partition with this UUID
+- `PXE::/` (or `TFTP::/`) - the PXE/TFTP server the loader booted from (network boot)
       
 Note that all numbers are specified in hexadecimal.
              

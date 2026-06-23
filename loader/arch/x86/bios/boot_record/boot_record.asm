@@ -131,6 +131,10 @@ skip_bpb:
     mov [DAP.sector_begin_low], ecx
 %endif
 
+; When booting over PXE the network stack has already loaded the entire image
+; (this boot record + stage2) at MBR_LOAD_BASE, so stage2 is sitting right after
+; us at STAGE2_LOAD_BASE and there is nothing to read from disk.
+%ifndef HYPER_PXE_BOOT_RECORD
     mov ebx, STAGE2_LOAD_BASE
     mov cx, STAGE2_SECTORS_TO_LOAD
 
@@ -149,6 +153,7 @@ skip_bpb:
         add ebx, BYTES_PER_BATCH
         sub cx, SECTORS_PER_BATCH
         jnz load_stage2
+%endif
 
     STAGE2_MAGIC_LOWER: equ 'Hype'
     STAGE2_MAGIC_UPPER: equ 'rST2'

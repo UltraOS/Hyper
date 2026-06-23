@@ -7,6 +7,9 @@
 #include "filesystem/filesystem_table.h"
 #include "filesystem/mbr.h"
 #include "filesystem/gpt.h"
+#include "filesystem/pxe.h"
+
+#include "pxe_services.h"
 
 CTOR_SECTION_DEFINE_ITERATOR(filesystem_type_entry, filesystems);
 
@@ -100,4 +103,15 @@ void fs_detect_all(struct disk *d, struct block_cache *bc)
         return;
 
     detect_raw(d, bc);
+}
+
+void fs_detect_pxe(void)
+{
+    ip_addr addr;
+
+    if (!pxe_services_setup())
+        return;
+
+    pxe_server_ip_address(&addr);
+    fst_add_pxe_fs_entry(&g_pxe_fs, &addr);
 }
