@@ -8,6 +8,7 @@ target_sources(
     gpt.c
     mbr.c
     path.c
+    pxe.c
 )
 
 add_subdirectory(fat)

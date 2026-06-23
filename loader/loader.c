@@ -84,6 +84,8 @@ void init_all_disks(void)
     }
 
     free_pages(buf, 1);
+
+    fs_detect_pxe();
 }
 
 static struct string_view search_paths[] = {

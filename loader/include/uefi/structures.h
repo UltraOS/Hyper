@@ -1030,3 +1030,206 @@ typedef struct _EFI_DISK_IO_PROTOCOL {
     EFI_DISK_READ ReadDisk;
     EFI_DISK_WRITE WriteDisk;
 } EFI_DISK_IO_PROTOCOL;
+
+#define EFI_PXE_BASE_CODE_PROTOCOL_GUID \
+    { 0x03C4E603, 0xAC28, 0x11D3, { 0x9A, 0x2D, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D } }
+
+#define EFI_PXE_BASE_CODE_PROTOCOL_REVISION 0x00010000
+
+typedef UINT16 EFI_PXE_BASE_CODE_UDP_PORT;
+
+typedef struct {
+    UINT8 Addr[4];
+} EFI_IPv4_ADDRESS;
+
+typedef struct {
+    UINT8 Addr[16];
+} EFI_IPv6_ADDRESS;
+
+typedef union {
+    UINT32 Addr[4];
+    EFI_IPv4_ADDRESS v4;
+    EFI_IPv6_ADDRESS v6;
+} EFI_IP_ADDRESS;
+
+typedef struct {
+    UINT8 Addr[32];
+} EFI_MAC_ADDRESS;
+
+#define EFI_PXE_BASE_CODE_MAX_IPCNT          8
+#define EFI_PXE_BASE_CODE_MAX_ARP_ENTRIES    8
+#define EFI_PXE_BASE_CODE_MAX_ROUTE_ENTRIES  8
+
+typedef struct {
+    UINT8 Filters;
+    UINT8 IpCnt;
+    UINT16 reserved;
+    EFI_IP_ADDRESS IpList[EFI_PXE_BASE_CODE_MAX_IPCNT];
+} EFI_PXE_BASE_CODE_IP_FILTER;
+
+typedef struct {
+    EFI_IP_ADDRESS IpAddr;
+    EFI_MAC_ADDRESS MacAddr;
+} EFI_PXE_BASE_CODE_ARP_ENTRY;
+
+typedef struct {
+    EFI_IP_ADDRESS IpAddr;
+    EFI_IP_ADDRESS SubnetMask;
+    EFI_IP_ADDRESS GwAddr;
+} EFI_PXE_BASE_CODE_ROUTE_ENTRY;
+
+typedef struct {
+    UINT8 Type;
+    UINT8 Code;
+    UINT16 Checksum;
+    union {
+        UINT32 reserved;
+        UINT32 Mtu;
+        UINT32 Pointer;
+        struct {
+            UINT16 Identifier;
+            UINT16 Sequence;
+        } Echo;
+    } u;
+    UINT8 Data[494];
+} EFI_PXE_BASE_CODE_ICMP_ERROR;
+
+typedef struct {
+    UINT8 ErrorCode;
+    CHAR8 ErrorString[127];
+} EFI_PXE_BASE_CODE_TFTP_ERROR;
+
+typedef struct {
+    UINT8 BootpOpcode;
+    UINT8 BootpHwType;
+    UINT8 BootpHwAddrLen;
+    UINT8 BootpGateHops;
+    UINT32 BootpIdent;
+    UINT16 BootpSeconds;
+    UINT16 BootpFlags;
+    UINT8 BootpCiAddr[4];
+    UINT8 BootpYiAddr[4];
+    UINT8 BootpSiAddr[4];
+    UINT8 BootpGiAddr[4];
+    UINT8 BootpHwAddr[16];
+    UINT8 BootpSrvName[64];
+    UINT8 BootpBootFile[128];
+    UINT32 DhcpMagik;
+    UINT8 DhcpOptions[56];
+} EFI_PXE_BASE_CODE_DHCPV4_PACKET;
+
+typedef struct {
+    UINT32 MessageType:8;
+    UINT32 TransactionId:24;
+    UINT8 DhcpOptions[1024];
+} EFI_PXE_BASE_CODE_DHCPV6_PACKET;
+
+typedef union {
+    UINT8 Raw[1472];
+    EFI_PXE_BASE_CODE_DHCPV4_PACKET Dhcpv4;
+    EFI_PXE_BASE_CODE_DHCPV6_PACKET Dhcpv6;
+} EFI_PXE_BASE_CODE_PACKET;
+
+typedef struct {
+    BOOLEAN Started;
+    BOOLEAN Ipv6Available;
+    BOOLEAN Ipv6Supported;
+    BOOLEAN UsingIpv6;
+    BOOLEAN BisSupported;
+    BOOLEAN BisDetected;
+    BOOLEAN AutoArp;
+    BOOLEAN SendGUID;
+    BOOLEAN DhcpDiscoverValid;
+    BOOLEAN DhcpAckReceived;
+    BOOLEAN ProxyOfferReceived;
+    BOOLEAN PxeDiscoverValid;
+    BOOLEAN PxeReplyReceived;
+    BOOLEAN PxeBisReplyReceived;
+    BOOLEAN IcmpErrorReceived;
+    BOOLEAN TftpErrorReceived;
+    BOOLEAN MakeCallbacks;
+    UINT8 TTL;
+    UINT8 ToS;
+    EFI_IP_ADDRESS StationIp;
+    EFI_IP_ADDRESS SubnetMask;
+    EFI_PXE_BASE_CODE_PACKET DhcpDiscover;
+    EFI_PXE_BASE_CODE_PACKET DhcpAck;
+    EFI_PXE_BASE_CODE_PACKET ProxyOffer;
+    EFI_PXE_BASE_CODE_PACKET PxeDiscover;
+    EFI_PXE_BASE_CODE_PACKET PxeReply;
+    EFI_PXE_BASE_CODE_PACKET PxeBisReply;
+    EFI_PXE_BASE_CODE_IP_FILTER IpFilter;
+    UINT32 ArpCacheEntries;
+    EFI_PXE_BASE_CODE_ARP_ENTRY ArpCache[EFI_PXE_BASE_CODE_MAX_ARP_ENTRIES];
+    UINT32 RouteTableEntries;
+    EFI_PXE_BASE_CODE_ROUTE_ENTRY RouteTable[EFI_PXE_BASE_CODE_MAX_ROUTE_ENTRIES];
+    EFI_PXE_BASE_CODE_ICMP_ERROR IcmpError;
+    EFI_PXE_BASE_CODE_TFTP_ERROR TftpError;
+} EFI_PXE_BASE_CODE_MODE;
+
+typedef enum {
+    EFI_PXE_BASE_CODE_TFTP_FIRST,
+    EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE,
+    EFI_PXE_BASE_CODE_TFTP_READ_FILE,
+    EFI_PXE_BASE_CODE_TFTP_WRITE_FILE,
+    EFI_PXE_BASE_CODE_TFTP_READ_DIRECTORY,
+    EFI_PXE_BASE_CODE_MTFTP_GET_FILE_SIZE,
+    EFI_PXE_BASE_CODE_MTFTP_READ_FILE,
+    EFI_PXE_BASE_CODE_MTFTP_READ_DIRECTORY,
+    EFI_PXE_BASE_CODE_MTFTP_LAST
+} EFI_PXE_BASE_CODE_TFTP_OPCODE;
+
+typedef struct {
+    EFI_IP_ADDRESS MCastIp;
+    EFI_PXE_BASE_CODE_UDP_PORT CPort;
+    EFI_PXE_BASE_CODE_UDP_PORT SPort;
+    UINT16 ListenTimeout;
+    UINT16 TransmitTimeout;
+} EFI_PXE_BASE_CODE_MTFTP_INFO;
+
+typedef struct _EFI_PXE_BASE_CODE_PROTOCOL EFI_PXE_BASE_CODE_PROTOCOL;
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_PXE_BASE_CODE_START) (
+    IN EFI_PXE_BASE_CODE_PROTOCOL *This,
+    IN BOOLEAN UseIpv6
+);
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_PXE_BASE_CODE_STOP) (
+    IN EFI_PXE_BASE_CODE_PROTOCOL *This
+);
+
+typedef
+EFI_STATUS
+(EFIAPI *EFI_PXE_BASE_CODE_MTFTP) (
+    IN EFI_PXE_BASE_CODE_PROTOCOL *This,
+    IN EFI_PXE_BASE_CODE_TFTP_OPCODE Operation,
+    IN OUT OPTIONAL VOID *BufferPtr,
+    IN BOOLEAN Overwrite,
+    IN OUT UINT64 *BufferSize,
+    IN OPTIONAL UINTN *BlockSize,
+    IN EFI_IP_ADDRESS *ServerIp,
+    IN OPTIONAL UINT8 *Filename,
+    IN OPTIONAL EFI_PXE_BASE_CODE_MTFTP_INFO *Info,
+    IN BOOLEAN DontUseBuffer
+);
+
+typedef struct _EFI_PXE_BASE_CODE_PROTOCOL {
+    UINT64 Revision;
+    EFI_PXE_BASE_CODE_START Start;
+    EFI_PXE_BASE_CODE_STOP Stop;
+    VOID *Dhcp;
+    VOID *Discover;
+    EFI_PXE_BASE_CODE_MTFTP Mtftp;
+    VOID *UdpWrite;
+    VOID *UdpRead;
+    VOID *SetIpFilter;
+    VOID *Arp;
+    VOID *SetParameters;
+    VOID *SetStationIp;
+    VOID *SetPackets;
+    EFI_PXE_BASE_CODE_MODE *Mode;
+} EFI_PXE_BASE_CODE_PROTOCOL;

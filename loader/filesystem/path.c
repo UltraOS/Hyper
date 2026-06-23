@@ -171,6 +171,42 @@ static bool path_consume_partition_identifier(struct string_view *path, struct f
     return false;
 }
 
+#define PXE_STR  SV("PXE")
+#define TFTP_STR SV("TFTP")
+
+/*
+ * Network (PXE) media has no disk/partition concept, so it's addressed by a
+ * dedicated "PXE::/" (or "TFTP::/") prefix that refers to the server the loader
+ * booted from.
+ */
+static bool path_consume_pxe_identifier(struct string_view *path,
+                                        struct full_path *out_path)
+{
+    struct string_view p = *path;
+
+    if (sv_starts_with(p, PXE_STR))
+        sv_offset_by(&p, PXE_STR.size);
+    else if (sv_starts_with(p, TFTP_STR))
+        sv_offset_by(&p, TFTP_STR.size);
+    else
+        return false;
+
+    if (!sv_starts_with(p, SV("::/")))
+        return false;
+
+    // Skip "::", keeping the leading '/' as part of the path
+    sv_offset_by(&p, 2);
+    if (p.size >= MAX_PATH_SIZE) {
+        oops("path \"%pSV\" is too big (%zu vs max %u)\n",
+             &p, p.size, MAX_PATH_SIZE);
+    }
+
+    out_path->disk_id_type = DISK_IDENTIFIER_PXE;
+    out_path->partition_id_type = PARTITION_IDENTIFIER_RAW;
+    out_path->path_within_partition = p;
+    return true;
+}
+
 bool path_parse(struct string_view path, struct full_path *out_path)
 {
     // path relative to config disk
@@ -182,6 +218,9 @@ bool path_parse(struct string_view path, struct full_path *out_path)
         out_path->path_within_partition = path;
         return true;
     }
+
+    if (path_consume_pxe_identifier(&path, out_path))
+        return true;
 
     if (!path_consume_disk_identifier(&path, out_path))
         return false;
@@ -208,6 +247,13 @@ bool path_parse(struct string_view path, struct full_path *out_path)
     struct dir_rec rec;
     struct string_view node;
     bool node_found = false, is_dir = true;
+
+    /*
+     * Filesystems without an iterator API (e.g. PXE) can only resolve a
+     * full path in one shot, so hand the whole thing over verbatim.
+     */
+    if (fs->open_file_direct)
+        return fs->open_file_direct(fs, path);
 
     fs->iter_ctx_init(fs, &ctx, NULL);
 

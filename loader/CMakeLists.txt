@@ -52,6 +52,7 @@ add_executable(
     memory_services.c
     services_impl.c
     virtual_memory.c
+    ip.c
 )
 
 set(STAGE2_BINARY ${LOADER_EXECUTABLE})

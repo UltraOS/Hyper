@@ -3,11 +3,13 @@
 #include "filesystem.h"
 #include "guid.h"
 #include "path.h"
+#include "ip.h"
 
 enum fse_type {
     FSE_TYPE_RAW,
     FSE_TYPE_MBR,
-    FSE_TYPE_GPT
+    FSE_TYPE_GPT,
+    FSE_TYPE_PXE,
 };
 
 struct fs_location {
@@ -16,7 +18,10 @@ struct fs_location {
     u32 partition_index;
     u16 entry_type;
     struct guid disk_guid;
-    struct guid partition_guid;
+    union {
+        struct guid partition_guid;
+        ip_addr ip;
+    };
 };
 
 struct fs_entry {
@@ -26,6 +31,8 @@ struct fs_entry {
 };
 
 void fst_init(void);
+
+void fst_add_pxe_fs_entry(struct filesystem*, ip_addr *ip);
 
 void fst_add_raw_fs_entry(const struct disk *d, struct filesystem*);
 

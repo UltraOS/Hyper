@@ -52,6 +52,10 @@ struct filesystem {
     bool (*next_dir_rec)(struct filesystem *fs, struct dir_iter_ctx *ctx, struct dir_rec *out_rec);
 
     struct file *(*open_file)(struct filesystem *fs, struct dir_rec *rec);
+
+    // mandatory if there's no iterator API
+    struct file *(*open_file_direct)(struct filesystem *fs, struct string_view path);
+
     void (*close_file)(struct file*);
     bool (*read_file)(struct file*, void *buffer, u64 offset, u32 bytes);
 
@@ -92,6 +96,7 @@ static inline u8 file_block_shift(struct file *f)
 
 void fs_check_read(struct file *f, u64 offset, u32 size);
 void fs_detect_all(struct disk *d, struct block_cache *bc);
+void fs_detect_pxe(void);
 
 struct filesystem *fs_try_detect(const struct disk *d, struct range lba_range,
                                  struct block_cache *bc);

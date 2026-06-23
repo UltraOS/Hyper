@@ -192,9 +192,113 @@ BITS 32
 
     ret
 
+section .real_code
+
+; The PXE API is reached through a real-mode far call (not an interrupt), with
+; the parameter buffer far pointer and the opcode pushed on the stack. The
+; entry point is discovered at runtime and stored in bios_pxe_entry.
+; -----------------------------------------------------------------------------
+; u16 bios_pxe_call(u16 opcode, u16 param_segment, u16 param_offset)
+; esp + 12 [param_offset]
+; esp + 8  [param_segment]
+; esp + 4  [opcode]
+; esp + 0  [ret]
+global bios_pxe_call
+bios_pxe_call:
+BITS 32
+    ; stash arguments where real mode can reach them
+    mov ax, [esp + 4]
+    mov [pxe_opcode], ax
+    mov ax, [esp + 8]
+    mov [pxe_param_segment], ax
+    mov ax, [esp + 12]
+    mov [pxe_param_offset], ax
+
+    ; save non-scratch
+    push ebx
+    push esi
+    push edi
+    push ebp
+    mov [pxe_saved_esp], esp
+
+    jmp REAL_MODE_CODE_SELECTOR:.real_mode_transition
+
+.real_mode_transition:
+BITS 16
+    mov ax, REAL_MODE_DATA_SELECTOR
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
+    mov eax, cr0
+    and eax, ~PROTECTED_MODE_BIT
+    mov cr0, eax
+
+    jmp 0x0:.real_mode_code
+
+.real_mode_code:
+    xor ax, ax
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov sp, [pxe_saved_esp]
+
+    sti
+
+    ; push the far pointer to the parameter buffer and the opcode, then call;
+    ; the entry returns the exit code in AX and the caller cleans up the stack
+    push word [pxe_param_segment]
+    push word [pxe_param_offset]
+    push word [pxe_opcode]
+    call far [g_bios_pxe_entry]
+    add sp, 6
+
+    cli
+
+    mov [pxe_ret], ax
+
+    ; switch back to protected mode
+    lgdt [ss:gdt_ptr]
+
+    mov eax, cr0
+    or  eax, PROTECTED_MODE_BIT
+    mov cr0, eax
+
+    jmp PROTECTED_MODE_CODE_SELECTOR:.protected_mode_code
+
+.protected_mode_code:
+BITS 32
+    mov ax, PROTECTED_MODE_DATA_SELECTOR
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+
+    mov esp, [pxe_saved_esp]
+    pop ebp
+    pop edi
+    pop esi
+    pop ebx
+
+    movzx eax, word [pxe_ret]
+    ret
+
 section .real_data
 align 4
 
 in_regs_ptr:  dd 0
 out_regs_ptr: dd 0
 initial_esp:  dd 0
+
+global g_bios_pxe_entry
+g_bios_pxe_entry:  dd 0
+pxe_saved_esp:     dd 0
+pxe_opcode:        dw 0
+pxe_param_segment: dw 0
+pxe_param_offset:  dw 0
+pxe_ret:           dw 0
