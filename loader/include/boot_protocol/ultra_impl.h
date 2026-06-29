@@ -50,5 +50,3 @@ u64 ultra_adjust_direct_map_min_size_for_lower_half(u64 direct_map_min_size,
 bool ultra_configure_pt_type(struct handover_info *hi, u8 pt_levels,
                              enum pt_constraint constraint,
                              enum pt_type *out_type);
-
-
