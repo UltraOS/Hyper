@@ -2,6 +2,7 @@
 
 #include "common/types.h"
 #include "filesystem/path.h"
+#include "filesystem/filesystem_table.h"
 #include "handover.h"
 #include "elf.h"
 #include "virtual_memory.h"
@@ -9,6 +10,12 @@
 struct binary_options {
     struct full_path path;
     struct filesystem *fs;
+    /*
+     * A copy (not a pointer) of the resolved entry's location: the fs table is
+     * freed by services_cleanup() before the kernel info attribute is written,
+     * so a pointer into it would dangle.
+     */
+    struct fs_location loc;
     bool allocate_anywhere;
 };
 

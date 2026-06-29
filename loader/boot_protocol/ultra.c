@@ -47,6 +47,7 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le,
         oops("no such disk/partition %pSV\n", &string_path);
 
     opts->fs = fse->fs;
+    opts->loc = fse->loc;
 }
 
 #define SIZE_KEY SV("size")
@@ -547,48 +548,24 @@ static void *write_platform_info(struct ultra_platform_info_attribute *pi,
     return ++pi;
 }
 
+/*
+ * The loader and protocol GUID type is deliberately kept layout-identical
+ * so the fs_entry fields can be copied into the attribute verbatim. Guard that
+ * assumption here instead of relying on it silently.
+ */
+BUILD_BUG_ON(sizeof(struct guid) != sizeof(struct ultra_guid));
+BUILD_BUG_ON(offsetof(struct guid, data1) != offsetof(struct ultra_guid, data1));
+BUILD_BUG_ON(offsetof(struct guid, data2) != offsetof(struct ultra_guid, data2));
+BUILD_BUG_ON(offsetof(struct guid, data3) != offsetof(struct ultra_guid, data3));
+BUILD_BUG_ON(offsetof(struct guid, data4) != offsetof(struct ultra_guid, data4));
+
 static void*
 write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
                             const struct kernel_info *ki)
 {
-    const struct full_path *fp = &ki->bin_opts.path;
-    struct string_view path_str = fp->path_within_partition;
-    u32 partition_type = fp->partition_id_type;
-
-    if (partition_type == PARTITION_IDENTIFIER_ORIGIN) {
-        const struct fs_entry *origin;
-
-        origin = fst_get_origin();
-
-        switch (origin->entry_type) {
-        case FSE_TYPE_RAW:
-            partition_type = ULTRA_PARTITION_TYPE_RAW;
-            break;
-        case FSE_TYPE_MBR:
-            partition_type = ULTRA_PARTITION_TYPE_MBR;
-            break;
-        case FSE_TYPE_GPT:
-            partition_type = ULTRA_PARTITION_TYPE_GPT;
-            break;
-        default:
-            BUG();
-        }
-
-        attr->disk_index = origin->disk_id;
-        attr->partition_index = origin->partition_index;
-
-        memcpy(&attr->disk_guid, &origin->disk_guid, sizeof(attr->disk_guid));
-        memcpy(&attr->partition_guid, &origin->partition_guid,
-               sizeof(attr->partition_guid));
-    } else {
-        attr->partition_index = fp->partition_index;
-        attr->disk_index = fp->disk_index;
-
-        BUILD_BUG_ON(sizeof(attr->disk_guid) != sizeof(fp->disk_guid));
-        memcpy(&attr->disk_guid, &fp->disk_guid, sizeof(attr->disk_guid));
-        memcpy(&attr->partition_guid, &fp->partition_guid,
-               sizeof(attr->partition_guid));
-    }
+    const struct binary_options *bo = &ki->bin_opts;
+    struct string_view path_str = bo->path.path_within_partition;
+    const struct fs_location *loc = &bo->loc;
 
     attr->header = (struct ultra_attribute_header) {
         .type = ULTRA_ATTRIBUTE_KERNEL_INFO,
@@ -597,7 +574,26 @@ write_kernel_info_attribute(struct ultra_kernel_info_attribute *attr,
     attr->physical_base = ki->bin_info.physical_base;
     attr->virtual_base = ki->bin_info.virtual_base;
     attr->size = ki->bin_info.physical_ceiling - ki->bin_info.physical_base;
-    attr->partition_type = partition_type;
+
+    attr->disk_index = loc->disk_id;
+    attr->partition_index = loc->partition_index;
+
+    switch (loc->entry_type) {
+    case FSE_TYPE_RAW:
+        attr->partition_type = ULTRA_PARTITION_TYPE_RAW;
+        break;
+    case FSE_TYPE_MBR:
+        attr->partition_type = ULTRA_PARTITION_TYPE_MBR;
+        break;
+    case FSE_TYPE_GPT:
+        attr->partition_type = ULTRA_PARTITION_TYPE_GPT;
+        memcpy(&attr->disk_guid, &loc->disk_guid, sizeof(attr->disk_guid));
+        memcpy(&attr->partition_guid, &loc->partition_guid,
+               sizeof(attr->partition_guid));
+        break;
+    default:
+        BUG();
+    }
 
     BUG_ON(path_str.size > (sizeof(attr->fs_path) - 1));
     memcpy(attr->fs_path, path_str.text, path_str.size);
