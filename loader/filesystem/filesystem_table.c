@@ -33,10 +33,12 @@ void fst_add_raw_fs_entry(const struct disk *d, struct filesystem *fs)
         return;
 
     *fse = (struct fs_entry) {
-        .disk_id = d->id,
         .disk_handle = d->handle,
-        .partition_index = 0,
-        .entry_type = FSE_TYPE_RAW,
+        .loc = {
+            .disk_id = d->id,
+            .partition_index = 0,
+            .entry_type = FSE_TYPE_RAW,
+        },
         .fs = fs
     };
 }
@@ -49,9 +51,11 @@ void fst_add_mbr_fs_entry(const struct disk *d, u32 partition_index, struct file
 
     *fse = (struct fs_entry) {
         .disk_handle = d->handle,
-        .disk_id = d->id,
-        .partition_index = partition_index,
-        .entry_type = FSE_TYPE_MBR,
+        .loc = {
+            .disk_id = d->id,
+            .partition_index = partition_index,
+            .entry_type = FSE_TYPE_MBR,
+        },
         .fs = fs
     };
 }
@@ -66,11 +70,13 @@ void fst_add_gpt_fs_entry(const struct disk *d, u32 partition_index,
 
     *fse = (struct fs_entry) {
         .disk_handle = d->handle,
-        .disk_id = d->id,
-        .partition_index = partition_index,
-        .entry_type = FSE_TYPE_GPT,
-        .disk_guid = *disk_guid,
-        .partition_guid = *partition_guid,
+        .loc = {
+            .disk_id = d->id,
+            .partition_index = partition_index,
+            .entry_type = FSE_TYPE_GPT,
+            .disk_guid = *disk_guid,
+            .partition_guid = *partition_guid,
+        },
         .fs = fs
     };
 }
@@ -90,7 +96,7 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
             path->partition_id_type == PARTITION_IDENTIFIER_RAW)
             return fst_get_origin();
 
-        disk_index = fst_get_origin()->disk_id;
+        disk_index = fst_get_origin()->loc.disk_id;
         by_disk_index = true;
     } else if (path->disk_id_type == DISK_IDENTIFIER_INDEX) {
         disk_index = path->disk_index;
@@ -108,19 +114,20 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
         struct fs_entry *entry = dynamic_buffer_get_slot(&entry_buf, i);
 
         if (by_disk_index) {
-            if (disk_index != entry->disk_id)
+            if (disk_index != entry->loc.disk_id)
                 continue;
-        } else if (guid_compare(&path->disk_guid, &entry->disk_guid)) {
+        } else if (guid_compare(&path->disk_guid, &entry->loc.disk_guid)) {
             continue;
         }
 
         if (raw_partition)
-            return (entry->entry_type == FSE_TYPE_RAW) ? entry : NULL;
+            return (entry->loc.entry_type == FSE_TYPE_RAW) ? entry : NULL;
 
         if (by_partition_index) {
-            if (partition_index != entry->partition_index)
+            if (partition_index != entry->loc.partition_index)
                 continue;
-        } else if (guid_compare(&path->partition_guid, &entry->partition_guid)) {
+        } else if (guid_compare(&path->partition_guid,
+                                &entry->loc.partition_guid)) {
             continue;
         }
 

@@ -20,20 +20,20 @@ enum partition_identifier {
     PARTITION_IDENTIFIER_ORIGIN
 };
 
+/*
+ * A parsed path selector: which disk/partition the user named and how. Only the
+ * member matching the corresponding *_id_type is meaningful. The identifiers are
+ * kept as plain fields (rather than a union) so the index and GUID can't alias
+ * each other.
+ */
 struct full_path {
     enum disk_identifier disk_id_type;
-
-    union {
-        struct guid disk_guid;
-        u32 disk_index;
-    };
+    struct guid disk_guid;
+    u32 disk_index;
 
     enum partition_identifier partition_id_type;
-
-    union {
-        struct guid partition_guid;
-        u32 partition_index;
-    };
+    struct guid partition_guid;
+    u32 partition_index;
 
     struct string_view path_within_partition;
 };

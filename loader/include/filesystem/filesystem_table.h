@@ -10,13 +10,18 @@ enum fse_type {
     FSE_TYPE_GPT
 };
 
-struct fs_entry {
-    void *disk_handle;
+struct fs_location {
+    // 0-based index within its kind (hdN / cdN)
     u32 disk_id;
     u32 partition_index;
     u16 entry_type;
     struct guid disk_guid;
     struct guid partition_guid;
+};
+
+struct fs_entry {
+    void *disk_handle;
+    struct fs_location loc;
     struct filesystem *fs;
 };
 
