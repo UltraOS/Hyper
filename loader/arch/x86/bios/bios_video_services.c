@@ -367,7 +367,7 @@ static void fetch_all_video_modes(void)
 
         memzero(&info, sizeof(info));
         if (!fetch_mode_info(mode_id, &info))
-            return;
+            continue;
 
         fb_format = mode_fb_format(&info, mode_id, vesa_detected_major >= 3);
         if (fb_format == FB_FORMAT_INVALID)
