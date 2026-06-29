@@ -36,6 +36,7 @@ target_sources(
     bios_handover.c
     bios_memory_services.c
     bios_video_services.c
+    scratch_buffer.c
 )
 
 add_subdirectory(boot_record)

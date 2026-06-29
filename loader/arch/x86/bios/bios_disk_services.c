@@ -7,6 +7,7 @@
 #include "arch/constants.h"
 #include "disk_services.h"
 #include "bios_call.h"
+#include "scratch_buffer.h"
 #include "services_impl.h"
 #include "filesystem/block_cache.h"
 
@@ -29,8 +30,6 @@ static u8 disk_count;
 static u8 next_buf_idx;
 static u8 next_enum_idx = DISK_BUFFER_CAPACITY;
 
-#define TRANSFER_BUFFER_CAPACITY PAGE_SIZE
-static u8 transfer_buffer[TRANSFER_BUFFER_CAPACITY];
 static struct block_cache tb_cache;
 static u8 cache_last_disk_id;
 
@@ -250,6 +249,11 @@ static bool check_read(const struct bios_disk *d, const struct real_mode_regs *r
     return true;
 }
 
+static void tb_cache_invalidate(void *bc)
+{
+    ((struct block_cache*)bc)->flags |= BC_EMPTY;
+}
+
 static bool bios_refill_blocks(void *dp, void *buffer, u64 block, size_t count)
 {
     struct bios_disk *d = dp;
@@ -264,6 +268,8 @@ static bool bios_refill_blocks(void *dp, void *buffer, u64 block, size_t count)
         .esi = (u32)&packet
     };
     struct real_mode_addr tb_addr;
+
+    scratch_buffer_borrow(SCRATCH_BUFFER_SIZE, tb_cache_invalidate, &tb_cache);
 
     as_real_mode_addr((u32)buffer, &tb_addr);
 
@@ -313,7 +319,7 @@ static void set_cache_to_disk(struct bios_disk *d)
     tb_cache.user_ptr = d;
     tb_cache.block_shift = d->block_shift;
     tb_cache.block_size = 1 << d->block_shift;
-    tb_cache.cache_block_cap = TRANSFER_BUFFER_CAPACITY >> tb_cache.block_shift;
+    tb_cache.cache_block_cap = SCRATCH_BUFFER_SIZE >> tb_cache.block_shift;
     tb_cache.flags |= BC_EMPTY;
 }
 
@@ -348,6 +354,12 @@ u32 ds_get_disk_count(void)
 
 void bios_disk_services_init(void)
 {
+    void *buf;
+
     fetch_all_disks();
-    block_cache_init(&tb_cache, bios_refill_blocks, NULL, 0, transfer_buffer, 0);
+
+    buf = scratch_buffer_borrow(
+        SCRATCH_BUFFER_SIZE, tb_cache_invalidate, &tb_cache
+    );
+    block_cache_init(&tb_cache, bios_refill_blocks, NULL, 0, buf, 0);
 }
