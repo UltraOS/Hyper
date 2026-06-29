@@ -1,0 +1,18 @@
+# Treat every file as text and store it with LF in the repository, normalizing
+# on commit so CRLF can never be committed, and check it out as LF on every
+# platform. git auto-detects and leaves genuinely binary files alone.
+* text=auto eol=lf
+
+# Be explicit about common binary types in case any are added later, so they're
+# never line-ending converted.
+*.bin binary
+*.img binary
+*.iso binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.gz  binary
+*.zip binary
