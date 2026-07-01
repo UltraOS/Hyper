@@ -164,7 +164,6 @@ video-mode:
     height=768
     bpp=32
     format=xrgb8888
-    constraint=at-least
 ```
 
 ## Building

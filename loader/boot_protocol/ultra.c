@@ -300,36 +300,25 @@ elf_error:
     loader_abort();
 }
 
-enum video_mode_constraint {
-    VIDEO_MODE_CONSTRAINT_EXACTLY,
-    VIDEO_MODE_CONSTRAINT_AT_LEAST,
-};
-
 struct requested_video_mode {
     u32 width, height, bpp;
     u16 format;
-    enum video_mode_constraint constraint;
+
+    // Whether the config pinned an exact resolution / bpp
+    bool has_resolution;
+    bool has_bpp;
+
+    // No framebuffer wanted at all
     bool none;
 };
-
-#define VM_EQUALS(l, r) ((l).width == (r).width && \
-                         (l).height == (r).height && \
-                         (l).bpp == (r).bpp)
-
-#define VM_GREATER_OR_EQUAL(l, r) ((l).width >= (r).width && \
-                                   (l).height >= (r).height && \
-                                   (l).bpp >= (r).bpp)
-
-#define VM_LESS_OR_EQUAL(l, r) ((l).width <= (r).width && \
-                                (l).height <= (r).height)
 
 #define VIDEO_MODE_KEY SV("video-mode")
 
 static void video_mode_from_value(struct config *cfg, struct value *val,
                                   struct requested_video_mode *mode)
 {
-    u64 cfg_width, cfg_height, cfg_bpp;
-    struct string_view constraint_str;
+    u64 cfg_width = 0, cfg_height = 0, cfg_bpp;
+    bool got_width, got_height;
     struct string_view format_str;
 
     if (value_is_null(val)) {
@@ -349,12 +338,21 @@ static void video_mode_from_value(struct config *cfg, struct value *val,
         return;
     }
 
-    if (cfg_get_unsigned(cfg, val, SV("width"), &cfg_width))
+    got_width = cfg_get_unsigned(cfg, val, SV("width"), &cfg_width);
+    got_height = cfg_get_unsigned(cfg, val, SV("height"), &cfg_height);
+    if (got_width != got_height)
+        oops("video-mode requires both width and height, or neither\n");
+
+    if (got_width) {
         mode->width = cfg_width;
-    if (cfg_get_unsigned(cfg, val, SV("height"), &cfg_height))
         mode->height = cfg_height;
-    if (cfg_get_unsigned(cfg, val, SV("bpp"), &cfg_bpp))
+        mode->has_resolution = true;
+    }
+
+    if (cfg_get_unsigned(cfg, val, SV("bpp"), &cfg_bpp)) {
         mode->bpp = cfg_bpp;
+        mode->has_bpp = true;
+    }
 
     if (cfg_get_string(cfg, val, SV("format"), &format_str)) {
         if (sv_equals_caseless(format_str, SV("rgb888")))
@@ -368,40 +366,124 @@ static void video_mode_from_value(struct config *cfg, struct value *val,
         else if (!sv_equals_caseless(format_str, SV("auto")))
             oops("Unsupported video-mode format '%pSV'\n", &format_str);
     }
-
-    if (cfg_get_string(cfg, val, SV("constraint"), &constraint_str)) {
-        if (sv_equals(constraint_str, SV("at-least")))
-            mode->constraint = VIDEO_MODE_CONSTRAINT_AT_LEAST;
-        else if (sv_equals(constraint_str, SV("exactly")))
-            mode->constraint = VIDEO_MODE_CONSTRAINT_EXACTLY;
-        else
-            oops("invalid video mode constraint %pSV\n", &constraint_str);
-    }
 }
 
-#define DEFAULT_WIDTH 1024
-#define DEFAULT_HEIGHT 768
 #define DEFAULT_BPP 32
+
+// Prefer the mode with the largest area, breaking ties by higher bpp.
+static bool vm_is_preferable(const struct video_mode *m,
+                             const struct video_mode *best)
+{
+    u64 m_area = (u64)m->width * m->height;
+    u64 best_area = (u64)best->width * best->height;
+
+    if (m_area != best_area)
+        return m_area > best_area;
+
+    return m->bpp > best->bpp;
+}
+
+/*
+ * Pick the "largest" available mode (by area, then bpp), optionally capped to a
+ * maximum resolution and/or filtered by an exact format or bpp. A zero cap or
+ * FB_FORMAT_INVALID format means no constraint.
+ */
+static bool pick_largest_mode(u32 max_width, u32 max_height, u16 want_format,
+                              u32 want_bpp, struct video_mode *out)
+{
+    size_t i, count = vs_get_mode_count();
+    struct video_mode best = { 0 };
+    bool found = false;
+
+    for (i = 0; i < count; ++i) {
+        struct video_mode m;
+        vs_query_mode(i, &m);
+
+        if (want_format != FB_FORMAT_INVALID && m.format != want_format)
+            continue;
+        if (want_bpp && m.bpp != want_bpp)
+            continue;
+        if (max_width && (m.width > max_width || m.height > max_height))
+            continue;
+
+        if (found && !vm_is_preferable(&m, &best))
+            continue;
+
+        best = m;
+        found = true;
+    }
+
+    *out = best;
+    return found;
+}
+
+static bool pick_exact_mode(const struct requested_video_mode *rm,
+                            struct video_mode *out)
+{
+    size_t i, count = vs_get_mode_count();
+    struct video_mode best = { 0 };
+    bool found = false;
+
+    for (i = 0; i < count; ++i) {
+        struct video_mode m;
+        vs_query_mode(i, &m);
+
+        if (m.width != rm->width || m.height != rm->height)
+            continue;
+        if (rm->format != FB_FORMAT_INVALID && m.format != rm->format)
+            continue;
+        if (rm->has_bpp && m.bpp != rm->bpp)
+            continue;
+
+        // Among modes of the requested resolution prefer the highest bpp
+        if (found && m.bpp <= best.bpp)
+            continue;
+
+        best = m;
+        found = true;
+    }
+
+    *out = best;
+    return found;
+}
+
+/*
+ * Auto mode policy, used when the config doesn't pin an exact resolution:
+ *   - if the display's native resolution is known (EDID), use the largest mode
+ *     that fits within it;
+ *   - otherwise, if the firmware already has an active framebuffer (e.g. the
+ *     UEFI GOP, usually already at native), keep it as is;
+ *   - otherwise (e.g. BIOS, which boots in text mode), pick the largest mode.
+ */
+static bool pick_auto_mode(const struct requested_video_mode *rm,
+                           struct video_mode *out)
+{
+    u32 want_bpp = rm->has_bpp ? rm->bpp : 0;
+    struct resolution native;
+
+    if (vs_query_native_resolution(&native) &&
+        pick_largest_mode(native.width, native.height, rm->format, want_bpp,
+                          out))
+        return true;
+
+    if (!rm->has_bpp && rm->format == FB_FORMAT_INVALID &&
+        vs_get_current_mode(out))
+        return true;
+
+    return pick_largest_mode(0, 0, rm->format, want_bpp, out);
+}
 
 static bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
                            struct ultra_framebuffer *out_fb)
 {
     struct value video_mode_val;
-    struct video_mode picked_vm = { 0 };
-    size_t mode_count, mode_idx;
-    bool did_pick = false;
-    struct resolution native_res = {
-        .width = DEFAULT_WIDTH,
-        .height = DEFAULT_HEIGHT
-    };
+    struct video_mode picked;
     struct requested_video_mode rm = {
-        .width = DEFAULT_WIDTH,
-        .height = DEFAULT_HEIGHT,
         .bpp = DEFAULT_BPP,
         .format = FB_FORMAT_INVALID,
-        .constraint = VIDEO_MODE_CONSTRAINT_AT_LEAST
     };
     struct framebuffer fb;
+    bool picked_ok;
 
     if (cfg_get_one_of(cfg, entry, VIDEO_MODE_KEY,
                        VALUE_OBJECT | VALUE_STRING | VALUE_NONE,
@@ -412,45 +494,21 @@ static bool set_video_mode(struct config *cfg, struct loadable_entry *entry,
     if (rm.none)
         return false;
 
-    vs_query_native_resolution(&native_res);
-    mode_count = vs_get_mode_count();
-
-    for (mode_idx = 0; mode_idx < mode_count; ++mode_idx) {
-        struct video_mode m;
-        vs_query_mode(mode_idx, &m);
-
-        if (rm.format != FB_FORMAT_INVALID && m.format != rm.format)
-            continue;
-
-        if (rm.constraint == VIDEO_MODE_CONSTRAINT_EXACTLY &&
-            VM_EQUALS(m, rm)) {
-            picked_vm = m;
-            did_pick = true;
-            break;
-        }
-
-        if (!VM_LESS_OR_EQUAL(m, native_res))
-            continue;
-
-        if (!VM_GREATER_OR_EQUAL(m, rm))
-            continue;
-
-        if (did_pick && !VM_GREATER_OR_EQUAL(m, picked_vm))
-            continue;
-
-        picked_vm = m;
-        did_pick = true;
-    }
-
-    if (!did_pick) {
-        oops("failed to pick a video mode according to constraints "
-             "(%ux%u %u bpp)\n", rm.width, rm.height, rm.bpp);
+    if (rm.has_resolution) {
+        picked_ok = pick_exact_mode(&rm, &picked);
+        if (!picked_ok)
+            oops("no video mode matching %ux%u available\n",
+                 rm.width, rm.height);
+    } else {
+        picked_ok = pick_auto_mode(&rm, &picked);
+        if (!picked_ok)
+            oops("no usable video mode available\n");
     }
 
     print_info("picked video mode %ux%u @ %u bpp\n",
-               picked_vm.width, picked_vm.height, picked_vm.bpp);
+               picked.width, picked.height, picked.bpp);
 
-    if (!vs_set_mode(picked_vm.id, &fb))
+    if (!vs_set_mode(picked.id, &fb))
         oops("failed to set picked video mode\n");
 
     BUILD_BUG_ON(sizeof(*out_fb) != sizeof(fb));
