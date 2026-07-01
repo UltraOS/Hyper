@@ -1,6 +1,5 @@
 #define MSG_FMT(msg) "ULTRA-PROT-X86: " msg
 
-#include "common/minmax.h"
 #include "virtual_memory.h"
 #include "handover.h"
 #include "memory_services.h"
@@ -59,9 +58,23 @@ u64 ultra_max_binary_address(u32 flags)
     return (4ull * GB) - I686_DIRECT_MAP_BASE;
 }
 
-bool ultra_should_map_high_memory(u32 flags)
+u64 ultra_direct_map_max_size(u32 flags)
 {
-    return flags & HO_X86_LME;
+    // The direct map spans the entire (huge) higher half on amd64
+    if (flags & HO_X86_LME)
+        return 0xFFFFFFFFFFFFFFFF;
+
+    // The i686 direct map lives in the higher half and only reaches this far
+    return (4ull * GB) - I686_DIRECT_MAP_BASE;
+}
+
+u64 ultra_identity_map_max_size(u32 flags)
+{
+    if (flags & HO_X86_LME)
+        return 0xFFFFFFFFFFFFFFFF;
+
+    // The i686 identity map covers the entire lower half
+    return I686_DIRECT_MAP_BASE;
 }
 
 u32 ultra_get_flags_for_binary_options(struct binary_options *bo,
@@ -117,24 +130,4 @@ bool ultra_configure_pt_type(struct handover_info *hi, u8 pt_levels,
 
     *out_type = type;
     return true;
-}
-
-u64 ultra_adjust_direct_map_min_size(u64 direct_map_min_size, u32 flags)
-{
-    if (!(flags & HO_X86_LME)) {
-        u64 ret = (4ull * GB) - I686_DIRECT_MAP_BASE;
-        BUG_ON(ret < direct_map_min_size);
-        return ret;
-    }
-
-    return MAX(direct_map_min_size, 4ull * GB);
-}
-
-u64 ultra_adjust_direct_map_min_size_for_lower_half(u64 direct_map_min_size,
-                                                    u32 flags)
-{
-    if (flags & HO_X86_LME)
-        return direct_map_min_size;
-
-    return I686_DIRECT_MAP_BASE;
 }

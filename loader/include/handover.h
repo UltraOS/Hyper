@@ -19,8 +19,11 @@
  * flags -> flags that describe the expected system state before 'entrypoint'
  *          is invoked, some are arch-specific.
  *
- * Page table is expected to contain at least two mappings, where both linearly
- * map physical ram from address zero:
+ * The page table is expected to map all usable RAM both at its physical address
+ * (identity) and at 'direct_map_base' + physical address. Reserved and device
+ * memory is intentionally left unmapped. At least the first
+ * 'handover_get_minimum_map_length()' worth of RAM must be present in both
+ * mappings, so the handover trampoline (which runs identity mapped) can operate:
  * 0x0000...0000 -> handover_get_minimum_map_length()
  * AND
  * direct_map_base -> handover_get_minimum_map_length()
