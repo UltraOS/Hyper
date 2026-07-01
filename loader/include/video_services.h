@@ -93,6 +93,15 @@ void vs_query_mode(size_t idx, struct video_mode *out_mode);
 bool vs_query_native_resolution(struct resolution *out_resolution);
 
 /*
+ * Retrieves the video mode the firmware is already displaying, if any.
+ * out_mode -> receives the current mode on success.
+ * Returns true if there's a usable active framebuffer mode (e.g. the UEFI GOP
+ * mode the firmware booted in), false otherwise (e.g. under BIOS, which starts
+ * in a text mode with no linear framebuffer).
+ */
+bool vs_get_current_mode(struct video_mode *out_mode);
+
+/*
  * Sets one of the modes returned from an earlier call to list_modes().
  * id -> id of the mode to be set.
  * out_framebuffer -> memory region and various data about the set mode.

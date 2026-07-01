@@ -41,6 +41,26 @@ bool vs_query_native_resolution(struct resolution *out_resolution)
     return true;
 }
 
+bool vs_get_current_mode(struct video_mode *out_mode)
+{
+    SERVICE_FUNCTION();
+
+    size_t i;
+
+    if (!gfx || !gfx->Mode)
+        return false;
+
+    // Return the entry for the mode the firmware is currently displaying
+    for (i = 0; i < mode_count; ++i) {
+        if (video_modes[i].id == gfx->Mode->Mode) {
+            *out_mode = video_modes[i];
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool vs_set_mode(u32 id, struct framebuffer *out_framebuffer)
 {
     SERVICE_FUNCTION();

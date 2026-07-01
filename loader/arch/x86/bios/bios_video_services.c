@@ -446,6 +446,15 @@ bool vs_query_native_resolution(struct resolution *out_resolution)
     return true;
 }
 
+bool vs_get_current_mode(struct video_mode *out_mode)
+{
+    SERVICE_FUNCTION();
+
+    // BIOS starts in a text mode, there's no linear framebuffer to inherit
+    UNUSED(out_mode);
+    return false;
+}
+
 #define LINEAR_FRAMEBUFFER_BIT (1 << 14)
 
 static bool do_set_mode(u16 id)
