@@ -1,4 +1,3 @@
-#include "common/minmax.h"
 #include "handover.h"
 #include "boot_protocol/ultra_impl.h"
 
@@ -41,23 +40,16 @@ u64 ultra_max_binary_address(u32 flags)
     return 0xFFFFFFFFFFFFFFFF;
 }
 
-bool ultra_should_map_high_memory(u32 flags)
+u64 ultra_direct_map_max_size(u32 flags)
 {
     UNUSED(flags);
-    return true;
+    return 0xFFFFFFFFFFFFFFFF;
 }
 
-u64 ultra_adjust_direct_map_min_size(u64 direct_map_min_size, u32 flags)
+u64 ultra_identity_map_max_size(u32 flags)
 {
     UNUSED(flags);
-    return MAX(direct_map_min_size, 4ull * GB);
-}
-
-u64 ultra_adjust_direct_map_min_size_for_lower_half(u64 direct_map_min_size,
-                                                    u32 flags)
-{
-    UNUSED(flags);
-    return direct_map_min_size;
+    return 0xFFFFFFFFFFFFFFFF;
 }
 
 bool ultra_configure_pt_type(struct handover_info *hi, u8 pt_levels,

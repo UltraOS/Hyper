@@ -41,11 +41,14 @@ u64 ultra_higher_half_base(u32 flags);
 u64 ultra_higher_half_size(u32 flags);
 u64 ultra_direct_map_base(u32 flags);
 u64 ultra_max_binary_address(u32 flags);
-bool ultra_should_map_high_memory(u32 flags);
 
-u64 ultra_adjust_direct_map_min_size(u64 direct_map_min_size, u32 flags);
-u64 ultra_adjust_direct_map_min_size_for_lower_half(u64 direct_map_min_size,
-                                                    u32 flags);
+/*
+ * 1 + the highest physical address the direct map (higher half) and identity
+ * map (lower half) respectively are able to cover. Unbounded on 64-bit, but the
+ * i686 direct map only reaches 1 GiB and its identity map 3 GiB.
+ */
+u64 ultra_direct_map_max_size(u32 flags);
+u64 ultra_identity_map_max_size(u32 flags);
 
 bool ultra_configure_pt_type(struct handover_info *hi, u8 pt_levels,
                              enum pt_constraint constraint,

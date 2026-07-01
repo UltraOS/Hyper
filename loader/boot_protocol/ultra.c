@@ -934,44 +934,154 @@ static bool get_cmdline(struct config *cfg, struct loadable_entry *le,
     return true;
 }
 
-struct page_mapper_ctx {
+/*
+ * Only conventional RAM is placed in the direct map. Reserved, device (MMIO)
+ * and other non-RAM ranges are deliberately left out so we never map them as
+ * writeback-cached; the kernel is expected to map such regions itself with the
+ * appropriate caching type.
+ */
+static bool mme_is_ram(u64 type)
+{
+    switch (type) {
+    case MEMORY_TYPE_FREE:
+    case MEMORY_TYPE_ACPI_RECLAIMABLE:
+    case MEMORY_TYPE_NVS:
+        return true;
+    default:
+        /*
+         * Loader-reclaimable memory and every protocol-specific type (modules,
+         * kernel stack/binary, ...) is backed by conventional RAM.
+         */
+        return type >= MEMORY_TYPE_LOADER_RECLAIMABLE;
+    }
+}
+
+struct direct_map_ctx {
     struct page_mapping_spec *spec;
-    u64 direct_map_min_size;
     u64 direct_map_base;
-    bool map_lower;
+
+    // Contiguous run of RAM entries accumulated so far, flushed on a gap
+    u64 ram_begin;
+    u64 ram_end;
+
+    /*
+     * 1 + the highest physical address each mapping is allowed to cover. The
+     * i686 direct map for example can only reach 1 GiB, and its identity map
+     * 3 GiB; on 64-bit these are effectively unbounded.
+     */
+    u64 higher_half_limit;
+    u64 lower_half_limit;
 };
 
-static bool do_map_high_memory(void *opaque, const struct memory_map_entry *me)
+/*
+ * Map a physical range into the direct map (and the identity map, if a
+ * lower-half limit is set) with the given page granularity.
+ */
+static void direct_map_one_range(struct direct_map_ctx *ctx, u64 begin,
+                                 u64 end, enum page_type type)
 {
-    struct page_mapper_ctx *ctx = opaque;
     struct page_mapping_spec *spec = ctx->spec;
-    u64 aligned_begin, aligned_end;
-    size_t page_count;
+    u8 shift = type == PAGE_TYPE_HUGE ? huge_page_shift(spec->pt) : PAGE_SHIFT;
 
-    aligned_end = me->physical_address + me->size_in_bytes;
-    aligned_end = HUGE_PAGE_ROUND_UP(spec->pt, aligned_end);
+    if (end <= begin)
+        return;
 
-    if (aligned_end <= ctx->direct_map_min_size)
+    spec->type = type;
+    spec->physical_base = begin;
+
+    if (begin < ctx->lower_half_limit) {
+        spec->virtual_base = begin;
+        spec->count = (MIN(end, ctx->lower_half_limit) - begin) >> shift;
+        map_pages(spec);
+    }
+
+    if (begin < ctx->higher_half_limit) {
+        spec->virtual_base = ctx->direct_map_base + begin;
+        spec->count = (MIN(end, ctx->higher_half_limit) - begin) >> shift;
+        map_pages(spec);
+    }
+}
+
+/*
+ * Map a single physical RAM range into the direct map (and the identity map,
+ * if a lower-half limit is set). Huge pages only cover the aligned interior;
+ * the unaligned edges fall back to small pages so the mapping never rounds
+ * out over adjacent non-RAM memory, which may be device memory or not backed
+ * at all. The first huge page is mapped separately with small pages, so
+ * ranges are clipped to start above it here.
+ */
+static void direct_map_ram_range(struct direct_map_ctx *ctx, u64 begin, u64 end)
+{
+    struct page_table *pt = ctx->spec->pt;
+    u64 huge_begin, huge_end;
+
+    begin = MAX(begin, huge_page_size(pt));
+    begin = PAGE_ROUND_DOWN(begin);
+    end = PAGE_ROUND_UP(end);
+    if (end <= begin)
+        return;
+
+    huge_begin = MIN(HUGE_PAGE_ROUND_UP(pt, begin), end);
+    huge_end = MAX(HUGE_PAGE_ROUND_DOWN(pt, end), huge_begin);
+
+    direct_map_one_range(ctx, begin, huge_begin, PAGE_TYPE_NORMAL);
+    direct_map_one_range(ctx, huge_begin, huge_end, PAGE_TYPE_HUGE);
+    direct_map_one_range(ctx, huge_end, end, PAGE_TYPE_NORMAL);
+}
+
+static bool direct_map_ram_entry(void *opaque, const struct memory_map_entry *me)
+{
+    struct direct_map_ctx *ctx = opaque;
+    u64 begin, end;
+
+    if (!mme_is_ram(me->type))
         return true;
 
-    aligned_begin = HUGE_PAGE_ROUND_DOWN(spec->pt, me->physical_address);
-    aligned_begin = MAX(ctx->direct_map_min_size, aligned_begin);
-    page_count = (aligned_end - aligned_begin) >> huge_page_shift(spec->pt);
+    begin = me->physical_address;
+    end = begin + me->size_in_bytes;
 
-    print_info("mapping high memory: 0x%016llX -> 0x%016llX (%zu pages)\n",
-               aligned_begin, aligned_end, page_count);
+    /*
+     * Coalesce contiguous RAM entries so that a type boundary inside a huge
+     * page doesn't force both of its neighbors down to small pages.
+     */
+    if (ctx->ram_end == begin) {
+        ctx->ram_end = end;
+        return true;
+    }
 
-    spec->virtual_base = aligned_begin;
-    spec->physical_base = aligned_begin;
-    spec->count = page_count;
+    direct_map_ram_range(ctx, ctx->ram_begin, ctx->ram_end);
+    ctx->ram_begin = begin;
+    ctx->ram_end = end;
+    return true;
+}
 
-    if (ctx->map_lower)
-        map_pages(spec);
+/*
+ * The first huge page worth of physical memory is always mapped with small
+ * pages: both to keep the NULL guard page small (so the kernel keeps access to
+ * all RAM above 4K) and to avoid a huge page straddling the fixed MTRR ranges
+ * in the low 1 MiB (see map_lower_huge_page's note below). It's mapped flat
+ * rather than filtered by type as the legacy low memory is writeback anyway.
+ */
+static void map_low_small_pages(struct page_mapping_spec *spec,
+                                u64 direct_map_base, bool map_lower,
+                                bool null_guard)
+{
+    u64 hp = huge_page_size(spec->pt);
 
-    spec->virtual_base += ctx->direct_map_base;
+    spec->type = PAGE_TYPE_NORMAL;
+
+    spec->physical_base = 0;
+    spec->virtual_base = direct_map_base;
+    spec->count = hp >> PAGE_SHIFT;
     map_pages(spec);
 
-    return true;
+    if (!map_lower)
+        return;
+
+    spec->physical_base = null_guard ? PAGE_SIZE : 0;
+    spec->virtual_base = spec->physical_base;
+    spec->count = (hp - spec->physical_base) >> PAGE_SHIFT;
+    map_pages(spec);
 }
 
 /*
@@ -1027,59 +1137,48 @@ static void do_build_page_table(struct kernel_info *ki, enum pt_type type,
 
     struct page_mapping_spec spec = {
         .pt = &hi->pt,
-        .type = PAGE_TYPE_HUGE,
         .critical = true,
     };
-    struct page_mapper_ctx ctx = {
+    struct direct_map_ctx ctx = {
         .spec = &spec,
         .direct_map_base = hi->direct_map_base,
-        .map_lower = !higher_half_exclusive,
+        .higher_half_limit = ultra_direct_map_max_size(hi->flags),
+        .lower_half_limit = higher_half_exclusive ?
+                                0 : ultra_identity_map_max_size(hi->flags),
     };
-    u8 hp_shift;
 
     hh_base = ultra_higher_half_base(hi->flags);
     page_table_init(
         spec.pt, type,
         handover_get_max_pt_address(ctx.direct_map_base, hi->flags)
     );
-    hp_shift = huge_page_shift(spec.pt);
 
-    ctx.direct_map_min_size =
-            handover_get_minimum_map_length(ctx.direct_map_base, hi->flags);
-    ctx.direct_map_min_size =
-            ultra_adjust_direct_map_min_size(ctx.direct_map_min_size,
-                                             hi->flags);
+    /*
+     * Map only the RAM regions from the memory map into the direct map (and,
+     * unless higher-half-exclusive, the identity map), so reserved and device
+     * memory never ends up writeback-cached in the direct map.
+     */
+    map_low_small_pages(&spec, ctx.direct_map_base, !higher_half_exclusive,
+                        null_guard);
+    mm_foreach_entry(direct_map_ram_entry, &ctx);
+    direct_map_ram_range(&ctx, ctx.ram_begin, ctx.ram_end);
 
-    // Direct map higher half
-    spec.virtual_base = ctx.direct_map_base;
-    spec.count = ctx.direct_map_min_size >> hp_shift;
+    if (higher_half_exclusive) {
+        u64 root_cov = pt_level_entry_virtual_coverage(spec.pt,
+                                                       spec.pt->levels - 1);
+        u64 off, tramp_len = handover_get_minimum_map_length(ctx.direct_map_base,
+                                                             hi->flags);
 
-    map_lower_huge_page(&spec, false);
-    map_pages(&spec);
-
-    if (ctx.map_lower) {
-        spec.virtual_base = 0x0000000000000000;
-        spec.count =
-            ultra_adjust_direct_map_min_size_for_lower_half(
-                ctx.direct_map_min_size, hi->flags
-            ) >> hp_shift;
-
-        map_lower_huge_page(&spec, null_guard);
-        map_pages(&spec);
-    } else {
-        u64 root_cov, off;
-        root_cov = pt_level_entry_virtual_coverage(spec.pt,
-                                                   spec.pt->levels - 1);
-
-        // Steal the direct mapping from higher half, we're gonna unmap it later
-        for (off = 0; off < ctx.direct_map_min_size; off += root_cov) {
+        /*
+         * The handover trampoline runs identity mapped, so temporarily expose
+         * the direct map's RAM at address zero by copying the root entries that
+         * cover it. These are unmapped again right after control is handed off.
+         */
+        for (off = 0; off < tramp_len; off += root_cov) {
             map_copy_root_entry(spec.pt, ctx.direct_map_base + off,
                                          0x0000000000000000  + off);
         }
     }
-
-    if (ultra_should_map_high_memory(hi->flags))
-        mm_foreach_entry(do_map_high_memory, &ctx);
 
     /*
      * If kernel had allocate-anywhere set to on, map virtual base to physical
