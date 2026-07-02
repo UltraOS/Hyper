@@ -113,7 +113,7 @@ def run_qemu_x86(
 
 
 def run_qemu_aarch64(disk_image: ultra.DiskImage, config: str) -> bytes:
-    qemu_args = ["-M", "virt", "-cpu", "max",
+    qemu_args = ["-M", "virt", "-cpu", "cortex-a72",
                  "-bios", config.getoption(options.AA64_UEFI_FIRMWARE_OPT)]
     return do_run_qemu("aarch64", qemu_args, disk_image, config, 30)
 
