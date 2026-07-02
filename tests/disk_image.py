@@ -157,9 +157,6 @@ binary:
 
 higher-half-exclusive = true
 
-# UEFI implementations on QEMU don't provide consistent GOP
-video-mode = unset
-
 {extra_cfg_entries}
 
 [aarch64_lower_half_5lvl]
@@ -176,9 +173,6 @@ page-table:
     # packages currently support 52 bit input addresses, most notably
     # the 'ubuntu-latest' version of QEMU on github actions doesn't. 
     constraint = maximum
-
-# UEFI implementations on QEMU don't provide consistent GOP
-video-mode = unset
 
 {extra_cfg_entries}
 
@@ -198,9 +192,6 @@ page-table:
     constraint = maximum
 
 higher-half-exclusive = true
-
-# UEFI implementations on QEMU don't provide consistent GOP
-video-mode = unset
 
 {extra_cfg_entries}
 """
