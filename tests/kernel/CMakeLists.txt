@@ -136,6 +136,7 @@ function(add_kernel KERNEL_NAME TARGET_ARCH LINK_SCRIPT)
         fb_tty.c
         gcc_builtins.c
         kernel.c
+        mmio.c
         ultra_helpers.c
         common/log.c
         test_ctl_generic.c
@@ -172,4 +173,3 @@ add_kernel(kernel_amd64_lower_half amd64 link_1mb_generic.ld)
 add_kernel(kernel_amd64_higher_half amd64 link_generic_64bit_higher_half.ld -mcmodel=kernel)
 add_kernel(kernel_aarch64_lower_half aarch64 link_1gb_generic.ld)
 add_kernel(kernel_aarch64_higher_half aarch64 link_generic_64bit_higher_half.ld)
-

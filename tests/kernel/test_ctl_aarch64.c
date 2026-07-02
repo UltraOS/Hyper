@@ -1,19 +1,21 @@
 #include "common/helpers.h"
 #include "common/types.h"
+#include "arch/constants.h"
+#include "mmio.h"
 #include "ultra_helpers.h"
 #include "test_ctl_impl.h"
 #include "test_ctl.h"
 #include "fb_tty.h"
 
-volatile u8 *g_qemu_uart = (u8*)0x9000000;
+#define QEMU_UART_PHYS 0x9000000
+
+volatile u8 *g_qemu_uart;
 bool g_uart_rebased = false;
 
 void arch_test_ctl_init(struct ultra_boot_context *bctx)
 {
-    typedef struct ultra_platform_info_attribute upia;
-    upia *pia = (upia*)find_attr(bctx, ULTRA_ATTRIBUTE_PLATFORM_INFO);
-
-    g_qemu_uart += pia->higher_half_base;
+    /* The loader only direct-maps RAM, so map the UART (device memory) here */
+    g_qemu_uart = mmio_map(bctx, QEMU_UART_PHYS, PAGE_SIZE);
     g_uart_rebased = true;
 }
 
