@@ -110,7 +110,7 @@ static void path_skip_dash(struct string_view *path)
         sv_offset_by(path, 1);
 }
 
-#define DISKUUID_STR SV("DISKUUID")
+#define DISKUUID_STR SV("DISKUUID-")
 #define HD_STR       SV("HD")
 #define CD_STR       SV("CD")
 
