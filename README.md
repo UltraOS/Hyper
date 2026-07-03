@@ -121,14 +121,15 @@ loaded from.
 
 Paths can optionally start with a prefix, such as:
 - `::/` - same as `/`
-- `HD0::/` - first hard disk, treated as unpartitioned media
-- `CD0::/` - first optical disc (the disc the loader booted from, under BIOS)
-- `HD0-PART0::/` - first hard disk, partition 0
-- `HD0-PARTUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A::/` - first hard disk, partition with this GPT UUID
-- `DISKUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A-PART0::/` - disk with this GPT disk UUID, partition 0
-- `PXE::/` (or `TFTP::/`) - the PXE/TFTP server the loader booted from (network boot)
+- `hd0::/` - first hard disk, treated as unpartitioned media
+- `cd0::/` - first optical disc (the disc the loader booted from, under BIOS)
+- `hd0-part0::/` - first hard disk, partition 0
+- `hd0-partuuid-e0e0d5fb-48fa-4428-b73d-43d3f7e49a8a::/` - first hard disk, partition with this GPT UUID
+- `diskuuid-e0e0d5fb-48fa-4428-b73d-43d3f7e49a8a-part0::/` - disk with this GPT disk UUID, partition 0
+- `pxe::/` (or `tftp::/`) - the PXE/TFTP server the loader booted from (network boot)
 
-Note that all numbers are specified in hexadecimal.
+All prefixes are case-insensitive; the lowercase form shown here is the
+canonical one. All numbers are specified in hexadecimal.
 
 Disks are addressed by kind plus a 0-based index within that kind: `hdN` for
 hard disks and `cdN` for optical drives, in the order the loader enumerates
@@ -156,7 +157,7 @@ binary:
 
 module:
     name = "kmap"
-    path = "HD0-PART0::/boot/symbols.bin"
+    path = "hd0-part0::/boot/symbols.bin"
 
 module:
     type = "memory"

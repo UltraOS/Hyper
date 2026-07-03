@@ -118,7 +118,7 @@ static bool path_consume_disk_identifier(struct string_view *path, struct full_p
 {
     bool is_cd = false;
 
-    if (sv_starts_with(*path, DISKUUID_STR)) {
+    if (sv_starts_with_caseless(*path, DISKUUID_STR)) {
         sv_offset_by(path, DISKUUID_STR.size);
 
         if (!consume_guid(path, &out_path->disk_guid))
@@ -129,8 +129,8 @@ static bool path_consume_disk_identifier(struct string_view *path, struct full_p
         return true;
     }
 
-    if (sv_starts_with(*path, HD_STR) ||
-        (is_cd = sv_starts_with(*path, CD_STR))) {
+    if (sv_starts_with_caseless(*path, HD_STR) ||
+        (is_cd = sv_starts_with_caseless(*path, CD_STR))) {
         sv_offset_by(path, HD_STR.size);
 
         if (!path_consume_numeric_sequence(path, &out_path->disk_index))
@@ -150,14 +150,14 @@ static bool path_consume_disk_identifier(struct string_view *path, struct full_p
 
 static bool path_consume_partition_identifier(struct string_view *path, struct full_path *out_path)
 {
-    if (sv_starts_with(*path, PARTUUID_STR)) {
+    if (sv_starts_with_caseless(*path, PARTUUID_STR)) {
         sv_offset_by(path, PARTUUID_STR.size);
 
         out_path->partition_id_type = PARTITION_IDENTIFIER_UUID;
         return consume_guid(path, &out_path->partition_guid);
     }
 
-    if (sv_starts_with(*path, PART_STR)) {
+    if (sv_starts_with_caseless(*path, PART_STR)) {
         sv_offset_by(path, PART_STR.size);
 
         out_path->partition_id_type = PARTITION_IDENTIFIER_INDEX;
@@ -193,9 +193,9 @@ static bool path_consume_pxe_identifier(struct string_view *path,
 {
     struct string_view p = *path;
 
-    if (sv_starts_with(p, PXE_STR))
+    if (sv_starts_with_caseless(p, PXE_STR))
         sv_offset_by(&p, PXE_STR.size);
-    else if (sv_starts_with(p, TFTP_STR))
+    else if (sv_starts_with_caseless(p, TFTP_STR))
         sv_offset_by(&p, TFTP_STR.size);
     else
         return false;
