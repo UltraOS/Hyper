@@ -3,6 +3,7 @@
 #include "common/align.h"
 #include "common/range.h"
 #include "common/string_ex.h"
+#include "common/string_view.h"
 #include "common/conversions.h"
 #include "test_ctl.h"
 #include "fb_tty.h"
@@ -374,6 +375,164 @@ invalid_hh_base:
               pi->higher_half_base);
 }
 
+static const char *partition_type_to_string(uint64_t type)
+{
+    switch (type) {
+    case ULTRA_PARTITION_TYPE_RAW:
+        return "raw";
+    case ULTRA_PARTITION_TYPE_MBR:
+        return "mbr";
+    case ULTRA_PARTITION_TYPE_GPT:
+        return "gpt";
+    case ULTRA_PARTITION_TYPE_PXE_V4:
+        return "pxe-v4";
+    case ULTRA_PARTITION_TYPE_PXE_V6:
+        return "pxe-v6";
+    default:
+        return "<invalid>";
+    }
+}
+
+/*
+ * Parse a canonical GUID string ("XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX") into
+ * an ultra_guid, matching the on-disk (and loader) byte layout so it can be
+ * compared verbatim against what the loader reports.
+ */
+static bool parse_guid(struct string_view s, struct ultra_guid *g)
+{
+    static const u8 data4_off[8] = { 19, 21, 24, 26, 28, 30, 32, 34 };
+    size_t i;
+
+    if (s.size != 36)
+        return false;
+    if (s.text[8] != '-' || s.text[13] != '-' ||
+        s.text[18] != '-' || s.text[23] != '-')
+        return false;
+
+    if (!str_to_u32_with_base((struct string_view) { s.text, 8 },
+                              &g->data1, 16))
+        return false;
+    if (!str_to_u16_with_base((struct string_view) { s.text + 9, 4 },
+                              &g->data2, 16))
+        return false;
+    if (!str_to_u16_with_base((struct string_view) { s.text + 14, 4 },
+                              &g->data3, 16))
+        return false;
+
+    for (i = 0; i < 8; ++i) {
+        if (!str_to_u8_with_base(
+                (struct string_view) { s.text + data4_off[i], 2 },
+                &g->data4[i], 16))
+            return false;
+    }
+
+    return true;
+}
+
+static bool cmdline_next_token(struct string_view *rest, struct string_view *tok)
+{
+    ssize_t space;
+
+    while (rest->size && rest->text[0] == ' ')
+        sv_offset_by(rest, 1);
+
+    if (sv_empty(*rest))
+        return false;
+
+    space = sv_find(*rest, SV(" "), 0);
+    if (space < 0) {
+        *tok = *rest;
+        sv_clear(rest);
+    } else {
+        *tok = (struct string_view) { rest->text, (size_t)space };
+        sv_offset_by(rest, space + 1);
+    }
+
+    return true;
+}
+
+static bool cmdline_split_kv(struct string_view tok, struct string_view *key,
+                             struct string_view *val)
+{
+    ssize_t eq = sv_find(tok, SV("="), 0);
+
+    if (eq < 0)
+        return false;
+
+    *key = (struct string_view) { tok.text, (size_t)eq };
+    *val = (struct string_view) { tok.text + eq + 1, tok.size - eq - 1 };
+    return true;
+}
+
+/*
+ * The test harness passes the expected origin of the kernel binary through the
+ * command line as "key=value" tokens (see test_loader.py). Validate whatever
+ * the loader reported in the kernel info attribute against them; unknown tokens
+ * are ignored so ordinary command lines still work.
+ */
+static void validate_ki_expectations(struct ultra_kernel_info_attribute *ki,
+                                     struct ultra_command_line_attribute *cl)
+{
+    struct string_view rest, tok, key, val;
+    bool checked = false;
+
+    if (!cl)
+        return;
+
+    rest = (struct string_view) { cl->text, strlen(cl->text) };
+
+    while (cmdline_next_token(&rest, &tok)) {
+        if (!cmdline_split_kv(tok, &key, &val))
+            continue;
+
+        if (sv_equals(key, SV("part-type"))) {
+            const char *got = partition_type_to_string(ki->partition_type);
+
+            if (!sv_equals(val, SV(got)))
+                test_fail("partition type mismatch: got '%s', expected '%pSV'\n",
+                          got, &val);
+            checked = true;
+        } else if (sv_equals(key, SV("disk-index"))) {
+            u32 want;
+
+            if (!str_to_u32_with_base(val, &want, 16))
+                test_fail("bad disk-index value '%pSV'\n", &val);
+            if (ki->disk_index != want)
+                test_fail("disk index mismatch: got %u, expected %u\n",
+                          ki->disk_index, want);
+            checked = true;
+        } else if (sv_equals(key, SV("part-index"))) {
+            u32 want;
+
+            if (!str_to_u32_with_base(val, &want, 16))
+                test_fail("bad part-index value '%pSV'\n", &val);
+            if (ki->partition_index != want)
+                test_fail("partition index mismatch: got %u, expected %u\n",
+                          ki->partition_index, want);
+            checked = true;
+        } else if (sv_equals(key, SV("disk-guid"))) {
+            struct ultra_guid want;
+
+            if (!parse_guid(val, &want))
+                test_fail("bad disk-guid value '%pSV'\n", &val);
+            if (memcmp(&ki->disk_guid, &want, sizeof(want)))
+                test_fail("disk GUID mismatch (expected '%pSV')\n", &val);
+            checked = true;
+        } else if (sv_equals(key, SV("part-guid"))) {
+            struct ultra_guid want;
+
+            if (!parse_guid(val, &want))
+                test_fail("bad part-guid value '%pSV'\n", &val);
+            if (memcmp(&ki->partition_guid, &want, sizeof(want)))
+                test_fail("partition GUID mismatch (expected '%pSV')\n", &val);
+            checked = true;
+        }
+    }
+
+    if (checked)
+        print("kernel info expectations OK\n");
+}
+
 static void attribute_array_verify(struct ultra_boot_context *bctx)
 {
     struct ultra_platform_info_attribute *pi = NULL;
@@ -475,6 +634,7 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
     print("attribute array OK\n");
 
     validate_platform_info(pi, ki);
+    validate_ki_expectations(ki, cl);
     validate_modules(modules_begin, module_count, mm, pi);
 
     if (apm_info)

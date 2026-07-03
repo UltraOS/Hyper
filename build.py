@@ -27,6 +27,7 @@ BASE_DEPS = {
 TEST_DEPS = {
     "apt": [
         "parted",
+        "gdisk",
         "python3-pytest",
         "clang",
         "lld",
@@ -37,6 +38,7 @@ TEST_DEPS = {
     ],
     "pacman": [
         "parted",
+        "gptfdisk",
         "python-pytest",
         "clang",
         "lld",
@@ -51,6 +53,7 @@ TEST_DEPS = {
         "xorriso",
         "mtools",
         "gdisk",
+        "gptfdisk",
         "qemu",
     ],
 }
