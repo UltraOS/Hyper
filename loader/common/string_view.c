@@ -48,6 +48,23 @@ bool sv_starts_with(struct string_view str, struct string_view prefix)
     return true;
 }
 
+bool sv_starts_with_caseless(struct string_view str, struct string_view prefix)
+{
+    size_t i;
+
+    if (prefix.size > str.size)
+        return false;
+    if (prefix.size == 0)
+        return true;
+
+    for (i = 0; i < prefix.size; ++i) {
+        if (tolower(str.text[i]) != tolower(prefix.text[i]))
+            return false;
+    }
+
+    return true;
+}
+
 ssize_t sv_find(struct string_view str, struct string_view needle, size_t starting_at)
 {
     size_t i, j, k;
