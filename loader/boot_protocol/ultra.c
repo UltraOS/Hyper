@@ -969,24 +969,36 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le,
                                  &module_value, true));
 }
 
-#define MAX_CMDLINE_LEN 256
+/*
+ * The protocol itself imposes no limit on the command line length, but we still
+ * cap it at something sane to avoid a runaway allocation and to keep the aligned
+ * length (and therefore the attribute header size) comfortably within uint32_t.
+ */
+#define MAX_CMDLINE_LEN (128 * MB)
 
 static bool get_cmdline(struct config *cfg, struct loadable_entry *le,
-                        char *storage, struct string_view *out_str)
+                        struct string_view *out_str)
 {
+    char *storage;
+
     if (!cfg_get_string(cfg, le, SV("cmdline"), out_str))
         return false;
 
     if (out_str->size > MAX_CMDLINE_LEN)
-        oops("command line is too big %zu vs max 256\n", out_str->size);
-
-    memcpy(storage, out_str->text, out_str->size);
+        oops("command line is too big %zu vs max %zu\n",
+             out_str->size, (size_t)MAX_CMDLINE_LEN);
 
     /*
-     * Repoint the view to internal storage as we don't want to keep a
-     * reference to a string inside the configuration file here as we
-     * free it later on before building the attribute array.
+     * Copy the command line into a dynamically allocated buffer as we don't want
+     * to keep a reference to a string inside the configuration file here since
+     * it is freed before we build the attribute array. The storage is
+     * loader-reclaimable, so the kernel gets it back once it has consumed the
+     * command line attribute.
      */
+    storage = allocate_critical_bytes(out_str->size + 1);
+    memcpy(storage, out_str->text, out_str->size);
+    storage[out_str->size] = '\0';
+
     out_str->text = storage;
 
     return true;
@@ -1323,7 +1335,6 @@ out_failed_constraint:
 NORETURN
 static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
 {
-    char cmdline_buf[MAX_CMDLINE_LEN];
     struct attribute_array_spec spec = { 0 };
     struct kernel_info *ki = &spec.kern_info;
     struct handover_info *hi = &ki->hi;
@@ -1335,7 +1346,7 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     load_kernel(cfg, le, ki);
     build_page_table(cfg, le, &spec);
 
-    spec.cmdline_present = get_cmdline(cfg, le, cmdline_buf, &spec.cmdline);
+    spec.cmdline_present = get_cmdline(cfg, le, &spec.cmdline);
 
     load_kernel_as_module(cfg, le, &spec);
     load_all_modules(cfg, le, &spec);

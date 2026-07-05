@@ -457,3 +457,54 @@ def test_partition_addressing(scenario, is_uefi, pytestconfig):
                        pytestconfig)
     finally:
         shutil.rmtree(tmp)
+
+
+#
+# Huge command line test.
+#
+# The ultra protocol places no limit on the command line length and the loader
+# allocates the storage dynamically, so make sure a command line far larger than
+# any fixed-size buffer survives the trip to the kernel intact. The command line
+# is "cmdline-check=<len> <filler>", where <filler> is a deterministic 'A'..'Z'
+# pattern; the kernel validates both the total length and every filler byte (see
+# validate_ki_expectations in tests/kernel/kernel.c).
+#
+# UEFI gets the truly huge (multi-MiB) case; BIOS uses a smaller-but-still-large
+# size, as reading a multi-MiB config over slow INT13 disk I/O blows the tight
+# BIOS boot timeout. Both are orders of magnitude past the old fixed 256-byte
+# buffer and span multiple pages.
+#
+HUGE_CMDLINE_KERNEL = "amd64_higher_half"
+BIOS_CMDLINE_LEN = 64 * 1024        # 64 KiB
+UEFI_CMDLINE_LEN = 4 * 1024 * 1024  # 4 MiB
+
+
+def _make_huge_cmdline(total_len: int) -> str:
+    prefix = f"cmdline-check={total_len} "
+    filler = bytes(ord('A') + (j % 26)
+                   for j in range(total_len - len(prefix))).decode("ascii")
+    cmdline = prefix + filler
+    assert len(cmdline) == total_len
+    return cmdline
+
+
+def _huge_cmdline_image(br_type: str, fs_type: str, cmdline_len: int):
+    cfg = di.make_single_entry_config(f"/boot/kernel_{HUGE_CMDLINE_KERNEL}",
+                                      _make_huge_cmdline(cmdline_len))
+    return (br_type, fs_type, cfg)
+
+
+@pytest.mark.parametrize(
+    "feature_image,firmware",
+    (
+        pytest.param(_huge_cmdline_image("CD", "ISO9660", BIOS_CMDLINE_LEN),
+                     "bios", marks=[pytest.mark.bios, pytest.mark.iso],
+                     id=f"CD-ISO9660-{BIOS_CMDLINE_LEN}"),
+        pytest.param(_huge_cmdline_image("GPT", "FAT32", UEFI_CMDLINE_LEN),
+                     "uefi_x64", marks=_UEFI_MARKS,
+                     id=f"GPT-FAT32-{UEFI_CMDLINE_LEN}"),
+    ),
+    indirect=["feature_image"],
+)
+def test_huge_cmdline(feature_image: ultra.DiskImage, firmware, pytestconfig):
+    boot_and_check(feature_image, firmware, pytestconfig)
