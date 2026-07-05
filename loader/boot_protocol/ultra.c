@@ -50,6 +50,26 @@ static void get_binary_options(struct config *cfg, struct loadable_entry *le,
     opts->loc = fse->loc;
 }
 
+/*
+ * A module is emitted as a fixed ultra_module_info_attribute optionally followed
+ * by a variable length, NUL-terminated description. The modules are collected
+ * into a scratch buffer before the final attribute array is sized, so keep the
+ * (already copied out) description alongside each attribute until then.
+ */
+struct pending_module {
+    struct string_view description;
+
+    // Keep last: its trailing description[] flexible array stays unused here.
+    struct ultra_module_info_attribute attr;
+};
+
+/*
+ * Like the command line, the protocol imposes no limit on the description, but
+ * cap it at something sane so the aligned attribute size stays well within the
+ * uint32_t header.size field.
+ */
+#define MAX_MODULE_DESCRIPTION_LEN (128 * MB)
+
 #define SIZE_KEY SV("size")
 
 static uint32_t module_get_size(struct config *cfg, struct value *module_value)
@@ -163,9 +183,36 @@ static void *module_data_alloc(u64 addr, u64 ceiling, size_t size,
     return ret;
 }
 
-static void module_load(struct config *cfg, struct value *module_value,
-                        struct ultra_module_info_attribute *attrs, u64 ceiling)
+/*
+ * The description outlives cfg_release(), so copy it into loader-reclaimable
+ * storage now (like the command line does) instead of holding a reference into
+ * the soon-to-be-freed configuration. An absent or empty description yields a
+ * zeroed string_view, which makes the module emit no description at all.
+ */
+static struct string_view module_get_description(struct config *cfg,
+                                                 struct value *module_value)
 {
+    struct string_view desc;
+    char *storage;
+
+    if (!cfg_get_string(cfg, module_value, SV("description"), &desc) ||
+        sv_empty(desc))
+        return (struct string_view) { 0 };
+
+    if (desc.size > MAX_MODULE_DESCRIPTION_LEN)
+        oops("module description is too big %zu vs max %zu\n",
+             desc.size, (size_t)MAX_MODULE_DESCRIPTION_LEN);
+
+    storage = allocate_critical_bytes(desc.size);
+    memcpy(storage, desc.text, desc.size);
+
+    return (struct string_view) { storage, desc.size };
+}
+
+static void module_load(struct config *cfg, struct value *module_value,
+                        struct pending_module *pm, u64 ceiling)
+{
+    struct ultra_module_info_attribute *attrs = &pm->attr;
     bool has_path, has_load_address = false;
     struct string_view str_path, module_name = { 0 };
     size_t module_size = 0;
@@ -183,6 +230,7 @@ static void module_load(struct config *cfg, struct value *module_value,
         module_type = module_get_type(cfg, module_value);
         load_address = module_get_load_address(cfg, module_value,
                                                &has_load_address);
+        pm->description = module_get_description(cfg, module_value);
     } else {
         str_path = module_value->as_string;
         has_path = true;
@@ -726,11 +774,48 @@ static void *write_command_line_attribute(void *attr_ptr,
     return attr_ptr + aligned_len;
 }
 
+static struct pending_module *module_at(const struct attribute_array_spec *spec,
+                                        size_t i)
+{
+    return dynamic_buffer_get_slot(&spec->module_buf, i);
+}
+
+/*
+ * On-array size of a single module attribute: the fixed struct plus, if a
+ * description is present, its bytes and a terminating NUL, aligned up to 8 so
+ * the next attribute stays aligned. A module without a description keeps the
+ * bare struct size so ULTRA_MODULE_HAS_DESCRIPTION() reports false for it.
+ */
+static u32 module_attr_size(const struct pending_module *pm)
+{
+    size_t size = sizeof(struct ultra_module_info_attribute);
+
+    if (pm->description.size)
+        size += pm->description.size + 1;
+
+    return ALIGN_UP(size, 8);
+}
+
+static void *write_module_info(void *attr_ptr, const struct pending_module *pm)
+{
+    struct ultra_module_info_attribute *attr = attr_ptr;
+    u32 size = module_attr_size(pm);
+
+    *attr = pm->attr;
+    attr->header.size = size;
+
+    // The array is pre-zeroed, so the alignment padding past the NUL stays zero.
+    if (pm->description.size)
+        sv_terminated_copy(attr->description, pm->description);
+
+    return attr_ptr + size;
+}
+
 static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
                                    u64 array_ceiling)
 {
     u32 cmdline_aligned_length = 0;
-    size_t mm_entry_count, pages_needed, bytes_needed = 0;
+    size_t i, mm_entry_count, pages_needed, bytes_needed = 0;
     void *attr_ptr;
     uint32_t *attr_count;
     ptr_t ret;
@@ -744,8 +829,8 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
     bytes_needed += sizeof(struct ultra_boot_context);
     bytes_needed += sizeof(struct ultra_platform_info_attribute);
     bytes_needed += sizeof(struct ultra_kernel_info_attribute);
-    bytes_needed += spec->module_buf.size *
-                        sizeof(struct ultra_module_info_attribute);
+    for (i = 0; i < spec->module_buf.size; i++)
+        bytes_needed += module_attr_size(module_at(spec, i));
     bytes_needed += cmdline_aligned_length;
     bytes_needed += spec->fb_present *
                         sizeof(struct ultra_framebuffer_attribute);
@@ -806,12 +891,9 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
     attr_ptr = write_kernel_info_attribute(attr_ptr, &spec->kern_info);
     *attr_count += 1;
 
-    if (spec->module_buf.size) {
-        size_t bytes_for_modules = spec->module_buf.size *
-                        sizeof(struct ultra_module_info_attribute);
-        memcpy(attr_ptr, spec->module_buf.buf, bytes_for_modules);
-        attr_ptr += bytes_for_modules;
-        *attr_count += spec->module_buf.size;
+    for (i = 0; i < spec->module_buf.size; i++) {
+        attr_ptr = write_module_info(attr_ptr, module_at(spec, i));
+        *attr_count += 1;
     }
 
     if (spec->cmdline_present) {
@@ -894,28 +976,27 @@ static void allocate_stack(struct config *cfg, struct loadable_entry *le,
     hi->stack = allocate_pages_ex(&as);
 }
 
-static struct ultra_module_info_attribute*
-module_alloc(struct dynamic_buffer *buf)
+static struct pending_module *module_alloc(struct dynamic_buffer *buf)
 {
-    struct ultra_module_info_attribute *attr;
+    struct pending_module *pm;
 
-    attr = dynamic_buffer_slot_alloc(buf);
-    DIE_ON(!attr);
+    pm = dynamic_buffer_slot_alloc(buf);
+    DIE_ON(!pm);
 
-    *attr = (struct ultra_module_info_attribute) {
-        .header = {
+    *pm = (struct pending_module) {
+        .attr.header = {
             ULTRA_ATTRIBUTE_MODULE_INFO,
             sizeof(struct ultra_module_info_attribute)
         },
     };
-    return attr;
+    return pm;
 }
 
 static void load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
                                   struct attribute_array_spec *spec)
 {
     bool kernel_as_module = false;
-    struct ultra_module_info_attribute *mi;
+    struct pending_module *mi;
     struct kernel_info *ki = &spec->kern_info;
     struct handover_info *hi = &ki->hi;
     struct file *binary = ki->binary;
@@ -934,13 +1015,13 @@ static void load_kernel_as_module(struct config *cfg, struct loadable_entry *le,
         oops("failed to read kernel binary\n");
 
     mi = module_alloc(&spec->module_buf);
-    mi->type = ULTRA_MODULE_TYPE_FILE;
-    mi->address = (ptr_t)data;
-    mi->size = size;
-    sv_terminated_copy(mi->name, SV("__KERNEL__"));
+    mi->attr.type = ULTRA_MODULE_TYPE_FILE;
+    mi->attr.address = (ptr_t)data;
+    mi->attr.size = size;
+    sv_terminated_copy(mi->attr.name, SV("__KERNEL__"));
 
     if (spec->higher_half_pointers)
-        mi->address += hi->direct_map_base;
+        mi->attr.address += hi->direct_map_base;
 
 out:
     ki->binary = NULL;
@@ -958,13 +1039,13 @@ static void load_all_modules(struct config *cfg, struct loadable_entry *le,
         return;
 
     do {
-        struct ultra_module_info_attribute *mi;
+        struct pending_module *mi;
 
         mi = module_alloc(&spec->module_buf);
         module_load(cfg, &module_value, mi, ultra_max_binary_address(hi->flags));
 
         if (spec->higher_half_pointers)
-            mi->address += hi->direct_map_base;
+            mi->attr.address += hi->direct_map_base;
     } while (cfg_get_next_one_of(cfg, VALUE_STRING | VALUE_OBJECT,
                                  &module_value, true));
 }
@@ -1341,7 +1422,7 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     u64 attr_arr_addr;
 
     dynamic_buffer_init(&spec.module_buf,
-                        sizeof(struct ultra_module_info_attribute), true);
+                        sizeof(struct pending_module), true);
 
     load_kernel(cfg, le, ki);
     build_page_table(cfg, le, &spec);

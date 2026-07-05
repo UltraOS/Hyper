@@ -186,13 +186,24 @@ static const char *module_type_to_string(uint32_t type)
     }
 }
 
+/*
+ * Module attributes are no longer a fixed stride: a trailing description makes
+ * each one a different size, so advance by header.size instead of by sizeof.
+ */
+static struct ultra_module_info_attribute *
+next_module(struct ultra_module_info_attribute *mi)
+{
+    return (struct ultra_module_info_attribute *)
+        ULTRA_NEXT_ATTRIBUTE(&mi->header);
+}
+
 static void dump_modules(struct ultra_module_info_attribute *mi, size_t module_count)
 {
     size_t i;
 
     print("\n=================== MODULE DUMP ==================\n");
 
-    for (i = 0; i < module_count; ++i, ++mi) {
+    for (i = 0; i < module_count; ++i, mi = next_module(mi)) {
         print("MODULE[%zu] \"%s\" (%s) @ 0x%016llX %zu bytes\n",
               i, mi->name, module_type_to_string(mi->type), mi->address,
               mi->size);
@@ -233,13 +244,45 @@ static ssize_t find_containing_range(struct range *ranges, size_t count,
     return -1;
 }
 
+static bool cmdline_get_u32(struct ultra_command_line_attribute *cl,
+                            struct string_view key, u32 *out);
+
+/*
+ * The optional module description is emitted right after the fixed attribute as
+ * a NUL-terminated string; header.size can't be used to recover its length (it's
+ * padded for alignment), so ULTRA_MODULE_HAS_DESCRIPTION() + strlen() are the
+ * only way to read it. The test harness sets every described module's text to
+ * "desc: <name>", so validate exactly that here (see test_loader.py).
+ */
+static bool validate_module_description(struct ultra_module_info_attribute *mi,
+                                        size_t i)
+{
+    static const char prefix[] = "desc: ";
+    size_t prefix_len = sizeof(prefix) - 1;
+    const char *desc = mi->description;
+
+    if (!ULTRA_MODULE_HAS_DESCRIPTION(mi->header))
+        return false;
+
+    if (strlen(desc) < prefix_len || memcmp(desc, prefix, prefix_len) != 0 ||
+        strcmp(desc + prefix_len, mi->name) != 0) {
+        test_fail("module %zu description mismatch: got \"%s\", "
+                  "expected \"desc: %s\"\n", i, desc, mi->name);
+    }
+
+    print("module %zu - description \"%s\" OK\n", i, desc);
+    return true;
+}
+
 static void validate_modules(struct ultra_module_info_attribute *mi,
                              size_t module_count,
                              struct ultra_memory_map_attribute *mm,
-                             struct ultra_platform_info_attribute *pi)
+                             struct ultra_platform_info_attribute *pi,
+                             struct ultra_command_line_attribute *cl)
 {
     static struct range seen_ranges[MAX_MODULES];
-    size_t i;
+    size_t i, described = 0;
+    u32 want_described;
 
     if (module_count == 0)
         return;
@@ -248,7 +291,7 @@ static void validate_modules(struct ultra_module_info_attribute *mi,
 
     dump_modules(mi, module_count);
 
-    for (i = 0; i < module_count; ++i, ++mi) {
+    for (i = 0; i < module_count; ++i, mi = next_module(mi)) {
         size_t j, aligned_len = PAGE_ROUND_UP(mi->size);
         bool check_fill = false;
         uint8_t expect_fill;
@@ -302,6 +345,19 @@ static void validate_modules(struct ultra_module_info_attribute *mi,
             validate_fill(ADDR_TO_PTR(mi->address), mi->size, aligned_len, 0);
             print("module %zu - padding zero fill OK (%zu bytes)\n", i, fill_len);
         }
+
+        described += validate_module_description(mi, i);
+    }
+
+    /*
+     * If the test declared how many modules should carry a description, make
+     * sure exactly that many did, so a silently dropped description is caught
+     * rather than passing as an absent one.
+     */
+    if (cmdline_get_u32(cl, SV("described-modules"), &want_described) &&
+        described != want_described) {
+        test_fail("expected %u modules with a description, got %zu\n",
+                  want_described, described);
     }
 
     print("modules OK\n");
@@ -462,6 +518,27 @@ static bool cmdline_split_kv(struct string_view tok, struct string_view *key,
     *key = (struct string_view) { tok.text, (size_t)eq };
     *val = (struct string_view) { tok.text + eq + 1, tok.size - eq - 1 };
     return true;
+}
+
+// Look up a decimal "key=value" token in the command line, if one is present.
+static bool cmdline_get_u32(struct ultra_command_line_attribute *cl,
+                            struct string_view key, u32 *out)
+{
+    struct string_view rest, tok, k, v;
+
+    if (!cl)
+        return false;
+
+    rest = (struct string_view) { cl->text, strlen(cl->text) };
+
+    while (cmdline_next_token(&rest, &tok)) {
+        if (!cmdline_split_kv(tok, &k, &v))
+            continue;
+        if (sv_equals(k, key))
+            return str_to_u32_with_base(v, out, 10);
+    }
+
+    return false;
 }
 
 /*
@@ -665,7 +742,7 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
 
     validate_platform_info(pi, ki);
     validate_ki_expectations(ki, cl);
-    validate_modules(modules_begin, module_count, mm, pi);
+    validate_modules(modules_begin, module_count, mm, pi, cl);
 
     if (apm_info)
         validate_apm_info(apm_info);
