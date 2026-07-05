@@ -526,6 +526,36 @@ static void validate_ki_expectations(struct ultra_kernel_info_attribute *ki,
             if (memcmp(&ki->partition_guid, &want, sizeof(want)))
                 test_fail("partition GUID mismatch (expected '%pSV')\n", &val);
             checked = true;
+        } else if (sv_equals(key, SV("cmdline-check"))) {
+            /*
+             * Stress the loader's dynamically sized command line: the value is
+             * the expected total length, and everything past the first space is
+             * a deterministic 'A'..'Z' filler. Validate both so truncation and
+             * corruption anywhere in a huge command line are caught.
+             */
+            struct string_view full = { cl->text, strlen(cl->text) };
+            ssize_t sp = sv_find(full, SV(" "), 0);
+            const char *filler;
+            u32 want;
+            size_t j;
+
+            if (!str_to_u32_with_base(val, &want, 10))
+                test_fail("bad cmdline-check value '%pSV'\n", &val);
+            if (full.size != want)
+                test_fail("command line length mismatch: got %zu, "
+                          "expected %u\n", full.size, want);
+            if (sp < 0)
+                test_fail("malformed cmdline-check command line\n");
+
+            filler = cl->text + sp + 1;
+            for (j = 0; filler[j]; ++j) {
+                char expect = 'A' + (j % 26);
+
+                if (filler[j] != expect)
+                    test_fail("command line corrupted at filler offset "
+                              "%zu\n", j);
+            }
+            checked = true;
         }
     }
 
