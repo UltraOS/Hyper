@@ -1,7 +1,6 @@
 #include "common/log.h"
 #include "services.h"
 #include "uefi/structures.h"
-#include "uefi_memory_services.h"
 #include "uefi_video_services.h"
 #include "uefi_disk_services.h"
 
@@ -46,7 +45,6 @@ EFI_STATUS EFIAPI EfiMain(
     g_img = ImageHandle;
     g_st = SystemTable;
 
-    uefi_memory_services_init();
     uefi_video_services_init();
     uefi_disk_services_init();
 
