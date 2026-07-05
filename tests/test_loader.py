@@ -508,3 +508,65 @@ def _huge_cmdline_image(br_type: str, fs_type: str, cmdline_len: int):
 )
 def test_huge_cmdline(feature_image: ultra.DiskImage, firmware, pytestconfig):
     boot_and_check(feature_image, firmware, pytestconfig)
+
+
+#
+# Module description test.
+#
+# The ultra_module_info_attribute carries an optional variable-length,
+# NUL-terminated description after the fixed struct. Boot an image whose config
+# gives some modules a description (and leaves one without), then let the kernel
+# validate that each described module carries "desc: <name>" and that exactly the
+# expected number of modules are described (see validate_modules in
+# tests/kernel/kernel.c). This covers both the "has description" and the "no
+# description" (header.size == sizeof(attr)) encodings in one go.
+#
+
+
+# Two described modules and one plain one, to exercise both the "has
+# description" and the "no description" attribute encodings in one boot.
+_MODULE_DESC_BLOCKS = (
+    "module:\n"
+    '    name = "described-a"\n'
+    '    type = "memory"\n'
+    "    size = 0x1000\n"
+    '    description = "desc: described-a"\n'
+    "module:\n"
+    '    name = "plain"\n'
+    '    type = "memory"\n'
+    "    size = 0x1000\n"
+    "module:\n"
+    '    name = "described-b"\n'
+    '    type = "memory"\n'
+    "    size = 0x2000\n"
+    '    description = "desc: described-b"\n'
+)
+
+
+def _module_desc_image(br_type: str, fs_type: str, kernel_type: str):
+    # 'described-modules=2' tells the kernel how many modules must carry a
+    # description, so a dropped description is caught instead of passing as an
+    # absent one.
+    cfg = di.make_single_entry_config(f"/boot/kernel_{kernel_type}",
+                                      "described-modules=2",
+                                      extra=_MODULE_DESC_BLOCKS)
+    return (br_type, fs_type, cfg)
+
+
+@pytest.mark.parametrize(
+    "feature_image,firmware",
+    (
+        pytest.param(_module_desc_image("MBR", "FAT32", "amd64_higher_half"),
+                     "bios", marks=_BIOS_MARKS, id="MBR-FAT32-amd64_higher_half"),
+        pytest.param(_module_desc_image("GPT", "FAT32", "amd64_higher_half"),
+                     "uefi_x64", marks=_UEFI_MARKS,
+                     id="GPT-FAT32-amd64_higher_half"),
+        pytest.param(_module_desc_image("MBR", "FAT32", "aarch64_higher_half"),
+                     "uefi_aarch64", marks=_AA64_MARKS,
+                     id="MBR-FAT32-aarch64_higher_half"),
+    ),
+    indirect=["feature_image"],
+)
+def test_module_description(feature_image: ultra.DiskImage, firmware,
+                            pytestconfig):
+    boot_and_check(feature_image, firmware, pytestconfig)
