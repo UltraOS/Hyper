@@ -107,7 +107,8 @@ void fst_add_gpt_fs_entry(const struct disk *d, u32 partition_index,
 
 const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
 {
-    bool by_disk_index = false, by_partition_index = false, raw_partition = false;
+    bool by_disk_index = false, by_disk_guid = false;
+    bool by_partition_index = false, raw_partition = false;
     u32 disk_index = 0, partition_index = 0;
     u8 disk_kind = 0;
     size_t i;
@@ -135,7 +136,10 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
         disk_kind = path->disk_id_type == DISK_IDENTIFIER_CD ? DISK_KIND_CD
                                                              : DISK_KIND_HD;
         by_disk_index = true;
+    } else if (path->disk_id_type == DISK_IDENTIFIER_UUID) {
+        by_disk_guid = true;
     }
+    // DISK_IDENTIFIER_ANY leaves both flags clear: match a partition on any disk.
 
     if (path->partition_id_type == PARTITION_IDENTIFIER_INDEX) {
         partition_index = path->partition_index;
@@ -154,7 +158,8 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
             if (disk_index != entry->loc.disk_id ||
                 disk_kind != entry->loc.disk_kind)
                 continue;
-        } else if (guid_compare(&path->disk_guid, &entry->loc.disk_guid)) {
+        } else if (by_disk_guid &&
+                   guid_compare(&path->disk_guid, &entry->loc.disk_guid)) {
             continue;
         }
 

@@ -416,6 +416,14 @@ _GPT_PARTUUID = dict(
     cmdline=(f"part-type=gpt disk-index=0 part-index=1 "
              f"disk-guid={GPT_DISK_GUID} part-guid={GPT_PART_GUIDS[1]}"),
 )
+# A partition GUID is globally unique, so it can be addressed on its own with no
+# disk prefix at all.
+_GPT_PARTUUID_BARE = dict(
+    layout="gpt",
+    binary=_kernel_at(f"partuuid-{GPT_PART_GUIDS[1]}"),
+    cmdline=(f"part-type=gpt disk-index=0 part-index=1 "
+             f"disk-guid={GPT_DISK_GUID} part-guid={GPT_PART_GUIDS[1]}"),
+)
 _GPT_DISKUUID = dict(
     layout="gpt",
     binary=_kernel_at(f"diskuuid-{GPT_DISK_GUID}-part0"),
@@ -444,6 +452,8 @@ _PARTITION_PARAMS = [
     # UEFI-only.
     pytest.param(_GPT_INDEX, True, marks=_UEFI_MARKS, id="gpt-index-uefi"),
     pytest.param(_GPT_PARTUUID, True, marks=_UEFI_MARKS, id="gpt-partuuid-uefi"),
+    pytest.param(_GPT_PARTUUID_BARE, True, marks=_UEFI_MARKS,
+                 id="gpt-partuuid-bare-uefi"),
     pytest.param(_GPT_DISKUUID, True, marks=_UEFI_MARKS, id="gpt-diskuuid-uefi"),
     pytest.param(_GPT_CASELESS, True, marks=_UEFI_MARKS, id="gpt-caseless-uefi"),
 ]

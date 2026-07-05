@@ -218,6 +218,8 @@ static bool path_consume_pxe_identifier(struct string_view *path,
 
 bool path_parse(struct string_view path, struct full_path *out_path)
 {
+    struct string_view disk_path;
+
     // path relative to config disk
     if (sv_starts_with(path, SV("/")) || sv_starts_with(path, SV("::/"))) {
         out_path->disk_id_type = DISK_IDENTIFIER_ORIGIN;
@@ -231,11 +233,31 @@ bool path_parse(struct string_view path, struct full_path *out_path)
     if (path_consume_pxe_identifier(&path, out_path))
         return true;
 
-    if (!path_consume_disk_identifier(&path, out_path))
-        return false;
+    /*
+     * Parse the disk selector off a copy: on failure it may have partially
+     * consumed the path, so the disk-less fallback below has to start from the
+     * original.
+     */
+    disk_path = path;
+    if (path_consume_disk_identifier(&disk_path, out_path)) {
+        path = disk_path;
 
-    if (!path_consume_partition_identifier(&path, out_path))
-        return false;
+        if (!path_consume_partition_identifier(&path, out_path))
+            return false;
+    } else {
+        /*
+         * No disk was named. A partition GUID is globally unique, so it can be
+         * addressed on its own (PARTUUID-<guid>); a bare index or raw selector
+         * has no disk to resolve against and is rejected.
+         */
+        out_path->disk_id_type = DISK_IDENTIFIER_ANY;
+
+        if (!path_consume_partition_identifier(&path, out_path))
+            return false;
+
+        if (out_path->partition_id_type != PARTITION_IDENTIFIER_UUID)
+            return false;
+    }
 
     if (!sv_starts_with(path, SV("::/")))
         return false;

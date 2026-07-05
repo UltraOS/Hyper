@@ -125,6 +125,7 @@ Paths can optionally start with a prefix, such as:
 - `cd0::/` - first optical disc (the disc the loader booted from, under BIOS)
 - `hd0-part0::/` - first hard disk, partition 0
 - `hd0-partuuid-e0e0d5fb-48fa-4428-b73d-43d3f7e49a8a::/` - first hard disk, partition with this GPT UUID
+- `partuuid-e0e0d5fb-48fa-4428-b73d-43d3f7e49a8a::/` - partition with this GPT UUID on any disk
 - `diskuuid-e0e0d5fb-48fa-4428-b73d-43d3f7e49a8a-part0::/` - disk with this GPT disk UUID, partition 0
 - `pxe::/` (or `tftp::/`) - the PXE/TFTP server the loader booted from (network boot)
 
@@ -135,6 +136,10 @@ Disks are addressed by kind plus a 0-based index within that kind: `hdN` for
 hard disks and `cdN` for optical drives, in the order the loader enumerates
 them. `DISKUUID-<guid>` addresses a disk by its GPT disk GUID, regardless of
 kind.
+
+A GPT partition GUID is globally unique, so a partition can be addressed by
+`PARTUUID-<guid>` on its own, without naming a disk. A partition index or the
+raw selector, on the other hand, always needs a disk to resolve against.
 
 Under UEFI, disks are classified by their device paths (like GRUB), so any
 optical drive is exposed as `cdN`. Under BIOS the only disc that can be reliably
