@@ -10,7 +10,6 @@
 
 #define UEFI_MS_DEBUG 1
 
-static bool has_efi_memops = false;
 static void *memory_map_buf = NULL;
 static size_t buf_byte_capacity = 0;
 static size_t buf_entry_count = 0;
@@ -320,61 +319,4 @@ void mm_foreach_entry(mme_foreach_t func, void *user)
         if (!func(user, mm_entry_at(i)))
             break;
     }
-}
-
-void uefi_memory_services_init(void)
-{
-    has_efi_memops = g_st->BootServices->Hdr.Revision >= EFI_1_10_SYSTEM_TABLE_REVISION;
-}
-
-static bool can_use_efi_memops(void)
-{
-    return has_efi_memops && !services_offline;
-}
-
-static bool efi_copy_mem(void *dest, void *src, size_t count)
-{
-    if (!can_use_efi_memops())
-        return false;
-
-    g_st->BootServices->CopyMem(dest, src, count);
-    return true;
-}
-
-#ifdef memset
-#undef memset
-#endif
-
-void *memset(void *dest, int val, size_t count)
-{
-    if (can_use_efi_memops())
-        g_st->BootServices->SetMem(dest, count, val);
-    else
-        memset_generic(dest, val, count);
-
-    return dest;
-}
-
-#ifdef memcpy
-#undef memcpy
-#endif
-
-void *memcpy(void *dest, void *src, size_t count)
-{
-    if (!efi_copy_mem(dest, src, count))
-        memcpy_generic(dest, src, count);
-
-    return dest;
-}
-
-#ifdef memmove
-#undef memmove
-#endif
-
-void *memmove(void *dest, void *src, size_t count)
-{
-    if (!efi_copy_mem(dest, src, count))
-        memmove_generic(dest, src, count);
-
-    return dest;
 }
