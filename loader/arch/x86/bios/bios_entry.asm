@@ -9,8 +9,16 @@ section .entry
 
 stage2_magic: db "HyperST2"
 
+; Boot partition index (0-based) baked in by the installer, or the sentinel
+; below when left unspecified, in which case stage2 falls back to scanning.
+; Sits at a fixed offset (8) in the stage2 image so the installer can patch it
+; in place. Must match BOOT_PARTITION_UNSPECIFIED in bios_disk_services.c.
+BOOT_PARTITION_UNSPECIFIED: equ 0xFFFFFFFF
+global g_boot_partition
+g_boot_partition: dd BOOT_PARTITION_UNSPECIFIED
+
 ; pad to 16
-dq 0
+dd 0
 
 main:
 BITS 16

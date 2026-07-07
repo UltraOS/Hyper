@@ -7,6 +7,7 @@
 # The boot blobs are baked in at build time as deflate-compressed base64 by
 # installer/embed_blobs.py, so the produced script is fully portable and needs
 # nothing but a Python 3 interpreter to run on any platform.
+import argparse
 import base64
 import struct
 import sys
@@ -23,9 +24,18 @@ OFFSET_TO_MBR_PARTITION_LIST = 0x01BE
 
 MBR_PARTITION_COUNT = 4
 MBR_PARTITION_ENTRY_SIZE = 16
+# Offset of the type byte within a partition entry (0 == empty slot).
+MBR_PARTITION_TYPE_OFF = 4
 # Offset of the 32-bit first-block field within a partition entry.
 MBR_PARTITION_FIRST_BLOCK_OFF = 8
 MBR_PARTITION_LIST_SIZE = MBR_PARTITION_COUNT * MBR_PARTITION_ENTRY_SIZE
+
+# The stage2 header (see bios_entry.asm): an 8-byte magic followed by the
+# 32-bit boot partition index we patch in below. When left at the sentinel the
+# loader scans partitions to find the config instead of pinning a specific one.
+STAGE2_MAGIC = b"HyperST2"
+STAGE2_BOOT_PARTITION_OFF = len(STAGE2_MAGIC)
+BOOT_PARTITION_UNSPECIFIED = 0xFFFFFFFF
 
 ISO9660_LOGICAL_SECTOR_SIZE = 2048
 ISO9660_SYSTEM_AREA_BLOCKS = 16
@@ -39,6 +49,10 @@ GPT_SIGNATURE = b"EFI PART"
 def panic(msg):
     sys.stderr.write(msg if msg.endswith("\n") else msg + "\n")
     sys.exit(1)
+
+
+def warn(msg):
+    sys.stderr.write("warning: " + (msg if msg.endswith("\n") else msg + "\n"))
 
 
 def read_at(f, offset, size):
@@ -82,6 +96,37 @@ def ensure_stage2_fits(partitions):
               f"Need at least {len(STAGE2_DATA)}, have {gap_size}")
 
 
+def warn_if_primary_partition_absent(partitions, partition_index):
+    # Only primary partitions (0-3) live in the MBR table; logical ones don't,
+    # so an out-of-range index is assumed to be a logical partition and left be.
+    if partition_index >= MBR_PARTITION_COUNT:
+        return
+
+    off = partition_index * MBR_PARTITION_ENTRY_SIZE + MBR_PARTITION_TYPE_OFF
+    if partitions[off] == 0:
+        warn(f"partition {partition_index} is empty in the MBR partition table, "
+             "double-check the index")
+
+
+def stage2_with_boot_partition(partitions, partition_index):
+    if STAGE2_DATA[:len(STAGE2_MAGIC)] != STAGE2_MAGIC:
+        panic("stage2 loader is missing its magic, the installer is corrupt")
+
+    # No explicit partition: leave the sentinel so the loader falls back to
+    # scanning, exactly as the blob ships.
+    if partition_index is None:
+        warn("no boot partition specified, the loader will fall back to "
+             "scanning and '/' may resolve to an arbitrary partition on the "
+             "boot disk; pass --boot-partition for deterministic behavior")
+        return STAGE2_DATA
+
+    warn_if_primary_partition_absent(partitions, partition_index)
+
+    data = bytearray(STAGE2_DATA)
+    struct.pack_into("<I", data, STAGE2_BOOT_PARTITION_OFF, partition_index)
+    return bytes(data)
+
+
 def is_iso_disk(img):
     return read_at(img, ISO9660_PVD_OFF, len(ISO9660_IDENTIFIER)) == ISO9660_IDENTIFIER
 
@@ -92,31 +137,59 @@ def ensure_no_gpt(img):
             panic("Installing to GPT images is currently not supported")
 
 
-def write_hyper(img, partitions, is_iso):
+def write_hyper(img, partitions, is_iso, stage2):
     # Lay down our boot record, then restore the original partition table it may
     # have overwritten.
     write_at(img, 0, ISO_MBR_DATA if is_iso else MBR_DATA)
     write_at(img, OFFSET_TO_MBR_PARTITION_LIST, partitions)
 
     if not is_iso:
-        write_at(img, MBR_BLOCK_SIZE, STAGE2_DATA)
+        write_at(img, MBR_BLOCK_SIZE, stage2)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Install the Hyper bootloader to a disk image or device."
+    )
+    parser.add_argument("image", help="path where to install Hyper")
+    parser.add_argument(
+        "-p", "--boot-partition", type=int, default=None, metavar="INDEX",
+        help="0-based index of the partition Hyper is installed to; makes '/' "
+             "and the disk/partition reported to the kernel resolve to it "
+             "deterministically. MBR (non-ISO) images only; omit to let the "
+             "loader scan for the config."
+    )
+
+    args = parser.parse_args()
+
+    if args.boot_partition is not None and args.boot_partition < 0:
+        parser.error("--boot-partition must not be negative")
+    # It has to fit the 32-bit field and stay clear of the unspecified sentinel.
+    if args.boot_partition is not None and \
+       args.boot_partition >= BOOT_PARTITION_UNSPECIFIED:
+        parser.error("--boot-partition is too large")
+
+    return args
 
 
 def main():
-    if len(sys.argv) < 2:
-        sys.stderr.write(f"Usage: {sys.argv[0]} <path-where-to-install>\n")
-        return 1
+    args = parse_args()
 
-    with open(sys.argv[1], "r+b") as img:
+    with open(args.image, "r+b") as img:
         partitions = read_mbr_partition_list(img)
         is_iso = is_iso_disk(img)
 
-        if not is_iso:
-            # Currently unsupported.
+        if is_iso:
+            if args.boot_partition is not None:
+                warn("--boot-partition is ignored for ISO images")
+            stage2 = STAGE2_DATA
+        else:
+            # GPT is currently unsupported.
             ensure_no_gpt(img)
             ensure_stage2_fits(partitions)
+            stage2 = stage2_with_boot_partition(partitions, args.boot_partition)
 
-        write_hyper(img, partitions, is_iso)
+        write_hyper(img, partitions, is_iso, stage2)
 
     return 0
 

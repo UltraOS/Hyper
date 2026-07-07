@@ -12,6 +12,10 @@ ISO9660_VOLUME_DESCRIPTOR0_LBA: equ 16
 
 MBR_LOAD_BASE:          equ 0x7C00
 MBR_SIZE_IN_BYTES:      equ 512
+
+; Synthetic, non-enumerable drive number handed to stage2 on a PXE boot so it
+; can tell it was network-booted (must match BIOS_PXE_BOOT_DRIVE in the loader).
+PXE_BOOT_DRIVE:         equ 0xFF
 STAGE2_LOAD_BASE:       equ (MBR_LOAD_BASE + MBR_SIZE_IN_BYTES)
 STAGE2_BASE_SECTOR:     equ 1
 BYTES_PER_BATCH:        equ (SECTORS_PER_BATCH * BYTES_PER_SECTOR)
@@ -153,6 +157,12 @@ skip_bpb:
         add ebx, BYTES_PER_BATCH
         sub cx, SECTORS_PER_BATCH
         jnz load_stage2
+%endif
+
+%ifdef HYPER_PXE_BOOT_RECORD
+    ; Booted over the network: hand stage2 a synthetic, non-disk drive number so
+    ; it can tell this was a PXE boot rather than a disk boot.
+    mov dl, PXE_BOOT_DRIVE
 %endif
 
     STAGE2_MAGIC_LOWER: equ 'Hype'

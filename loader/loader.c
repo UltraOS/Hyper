@@ -1,4 +1,5 @@
 #include "services.h"
+#include "disk_services.h"
 #include "common/log.h"
 #include "common/string_view.h"
 #include "allocator.h"
@@ -86,6 +87,13 @@ void init_all_disks(void)
     free_pages(buf, 1);
 
     fs_detect_pxe();
+
+    /*
+     * Now that all existing filesystems are detected, attempt to find our boot
+     * partition, it will take priority when we scan for the bootloader config
+     * file later on
+     */
+    fst_resolve_boot_entry();
 }
 
 static struct string_view search_paths[] = {
@@ -94,21 +102,105 @@ static struct string_view search_paths[] = {
     SV_CONSTEXPR("/boot/hyper/hyper.cfg"),
 };
 
+static struct file *config_from_entry(struct fs_entry *entry)
+{
+    size_t j;
+
+    for (j = 0; j < ARRAY_SIZE(search_paths); ++j) {
+        struct file *f = path_open(entry->fs, search_paths[j]);
+        if (f)
+            return f;
+    }
+
+    return NULL;
+}
+
+static void print_boot_device(const struct boot_device_info *bd,
+                              const struct fs_entry *boot_entry)
+{
+    const char *kind;
+
+    if (bd == NULL) {
+        print_warn("Unable to determine boot device, will scan all disks\n");
+        return;
+    }
+
+    if (bd->type == BOOT_DEVICE_TYPE_PXE) {
+        print_info("Booted via network (PXE)\n");
+        return;
+    }
+
+    kind = bd->disk_kind == DISK_KIND_CD ? "cd" : "hd";
+    if (boot_entry == NULL || boot_entry->loc.entry_type == FSE_TYPE_RAW) {
+        print_info("Boot device is %s%u\n", kind, bd->disk_id);
+        return;
+    }
+
+    print_info("Boot device is %s%u, partition %u\n", kind, bd->disk_id,
+               boot_entry->loc.partition_index);
+}
+
 struct file *find_config_file(struct fs_entry **out_entry)
 {
-    struct fs_entry *entries;
-    size_t i, j, entry_count;
+    struct fs_entry *entries, *boot_entry;
+    const struct boot_device_info *bdi;
+    size_t i, entry_count;
+    struct file *f;
+
     entries = fst_list(&entry_count);
+    bdi = fst_boot_device_info();
+    boot_entry = fst_boot_entry();
 
-    for (i = 0; i < entry_count; ++i) {
-        for (j = 0; j < ARRAY_SIZE(search_paths); ++j) {
-            struct filesystem *fs = entries[i].fs;
-            struct file *f;
+    print_boot_device(bdi, boot_entry);
 
-            f = path_open(fs, search_paths[j]);
-            if (!f)
+    /*
+     * If we were able to resolve the exact partition we have booted from,
+     * it obviously takes the priority and we attempt to find a configuration
+     * file on there first.
+     */
+    if (boot_entry) {
+        f = config_from_entry(boot_entry);
+        if (f) {
+            *out_entry = boot_entry;
+            return f;
+        }
+    }
+
+    /*
+     * Otherwise prefer any filesystem on the device we booted from, still ahead
+     * of whichever one happened to be enumerated first.
+     */
+    if (bdi != NULL) {
+        bool searched_boot_device = boot_entry != NULL;
+
+        for (i = 0; i < entry_count; ++i) {
+            // Already probed above
+            if (&entries[i] == boot_entry)
+                continue;
+            if (!fst_entry_on_boot_device(&entries[i]))
                 continue;
 
+            searched_boot_device = true;
+
+            f = config_from_entry(&entries[i]);
+            if (f) {
+                *out_entry = &entries[i];
+                return f;
+            }
+        }
+
+        if (searched_boot_device) {
+            print_warn(
+                "No hyper.cfg on the boot device, "
+                "doing a full filesystem scan!\n"
+            );
+        }
+    }
+
+    // No luck so far, scan every filesystem we were able to detect
+    for (i = 0; i < entry_count; ++i) {
+        f = config_from_entry(&entries[i]);
+        if (f) {
             *out_entry = &entries[i];
             return f;
         }

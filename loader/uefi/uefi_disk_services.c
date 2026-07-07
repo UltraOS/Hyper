@@ -56,6 +56,27 @@ static UINTN dp_prefix_size(EFI_DEVICE_PATH_PROTOCOL *dp)
     return (u8*)dp - start;
 }
 
+// A network (PXE) boot device path carries a MAC/IP messaging node
+static bool dp_is_network(EFI_DEVICE_PATH_PROTOCOL *dp)
+{
+    while (dp->Type != EFI_DEVICE_PATH_TYPE_END) {
+        UINTN len = dp_node_length(dp);
+
+        if (len < sizeof(*dp))
+            break;
+
+        if (dp->Type == EFI_DEVICE_PATH_TYPE_MESSAGING &&
+            (dp->SubType == EFI_DEVICE_PATH_SUBTYPE_MAC ||
+             dp->SubType == EFI_DEVICE_PATH_SUBTYPE_IPV4 ||
+             dp->SubType == EFI_DEVICE_PATH_SUBTYPE_IPV6))
+            return true;
+
+        dp = (EFI_DEVICE_PATH_PROTOCOL*)((u8*)dp + len);
+    }
+
+    return false;
+}
+
 static EFI_DEVICE_PATH_PROTOCOL *handle_device_path(EFI_HANDLE handle)
 {
     EFI_GUID dp_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
@@ -111,6 +132,47 @@ static bool dp_subtype_is_partition(int subtype)
            subtype == EFI_DEVICE_PATH_SUBTYPE_CDROM;
 }
 
+// The last node of a device path (the one before the terminating END), or NULL
+static EFI_DEVICE_PATH_PROTOCOL *dp_last_node(EFI_DEVICE_PATH_PROTOCOL *dp)
+{
+    EFI_DEVICE_PATH_PROTOCOL *last = NULL;
+
+    while (dp->Type != EFI_DEVICE_PATH_TYPE_END) {
+        UINTN len = dp_node_length(dp);
+
+        if (len < sizeof(*dp))
+            break;
+
+        last = dp;
+        dp = (EFI_DEVICE_PATH_PROTOCOL*)((u8*)dp + len);
+    }
+
+    return last;
+}
+
+/*
+ * The absolute start LBA of the partition a boot device path points at, taken
+ * from its trailing HARD_DRIVE node. Returns false if the path doesn't end in
+ * one. CDROM nodes are intentionally rejected: an El Torito CD is enumerated as
+ * a single raw filesystem, so the disk-level match already resolves it.
+ */
+static bool dp_boot_partition_lba(EFI_DEVICE_PATH_PROTOCOL *dp, u64 *out_lba)
+{
+    EFI_DEVICE_PATH_PROTOCOL *last = dp_last_node(dp);
+    EFI_HARD_DRIVE_DEVICE_PATH *hd;
+
+    if (!last || last->Type != EFI_DEVICE_PATH_TYPE_MEDIA ||
+        last->SubType != EFI_DEVICE_PATH_SUBTYPE_HARD_DRIVE)
+        return false;
+
+    if (dp_node_length(last) < sizeof(EFI_HARD_DRIVE_DEVICE_PATH))
+        return false;
+
+    hd = (EFI_HARD_DRIVE_DEVICE_PATH*)last;
+    *out_lba = hd->PartitionStart;
+    return true;
+}
+
 /*
  * Classify each whole disk as hd/cd: for every handle that's a partition
  * (its device path ends in a HARD_DRIVE/CDROM media node), find its parent
@@ -154,6 +216,78 @@ static void classify_disks(EFI_HANDLE *handles, UINTN handle_count)
                                 DISK_KIND_CD : DISK_KIND_HD;
         }
     }
+}
+
+bool ds_query_boot_device(struct boot_device_info *out_info)
+{
+    SERVICE_FUNCTION();
+
+    EFI_STATUS st;
+    EFI_GUID li_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
+    EFI_LOADED_IMAGE_PROTOCOL *li = NULL;
+    EFI_DEVICE_PATH_PROTOCOL *boot_dp;
+    UINTN boot_prefix;
+    size_t i;
+
+    st = g_st->BootServices->HandleProtocol(g_img, &li_guid, (void**)&li);
+    if (unlikely_efi_error(st) || !li->DeviceHandle)
+        return false;
+
+    boot_dp = handle_device_path(li->DeviceHandle);
+    if (!boot_dp)
+        return false;
+
+    /*
+     * The boot device is usually a partition; find the enumerated disk whose
+     * device path is a prefix of it (or equals it, when we booted from an
+     * unpartitioned disk).
+     */
+    boot_prefix = dp_prefix_size(boot_dp);
+    for (i = 0; i < disk_count; ++i) {
+        EFI_DEVICE_PATH_PROTOCOL *disk_dp;
+        UINTN disk_prefix;
+        u64 part_lba;
+
+        disk_dp = handle_device_path(disks[i].handle);
+        if (!disk_dp)
+            continue;
+
+        disk_prefix = dp_prefix_size(disk_dp);
+        if (disk_prefix > boot_prefix)
+            continue;
+        if (memcmp(disk_dp, boot_dp, disk_prefix) != 0)
+            continue;
+
+        out_info->type = BOOT_DEVICE_TYPE_DISK;
+        out_info->disk_id = disks[i].id;
+        out_info->disk_kind = disks[i].kind;
+        out_info->partition_id = BOOT_PARTITION_ID_TYPE_NONE;
+
+        if (dp_boot_partition_lba(boot_dp, &part_lba)) {
+            out_info->partition_id = BOOT_PARTITION_ID_TYPE_LBA;
+            out_info->partition_lba = part_lba;
+        }
+
+        return true;
+    }
+
+    /*
+     * Only sniff for a network boot once no enumerated disk is an ancestor of
+     * the boot path: a SAN-attached disk (e.g. iSCSI) also carries MAC/IP
+     * nodes in its path, but it's a regular disk and is matched above. A NIC
+     * path can never falsely match a disk since any disk hanging off of it
+     * has a strictly longer path.
+     */
+    if (dp_is_network(boot_dp)) {
+        *out_info = (struct boot_device_info) {
+            .type = BOOT_DEVICE_TYPE_PXE,
+            .partition_id = BOOT_PARTITION_ID_TYPE_NONE,
+        };
+
+        return true;
+    }
+
+    return false;
 }
 
 void ds_query_disk(size_t idx, struct disk *out_disk)
