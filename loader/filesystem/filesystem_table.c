@@ -1,15 +1,21 @@
 #include "common/dynamic_buffer.h"
+#include "disk_services.h"
 #include "services_impl.h"
 #include "filesystem/filesystem_table.h"
 
 static struct fs_entry origin_fs;
 static struct dynamic_buffer entry_buf;
 
+static bool has_boot_dev;
+static struct boot_device_info boot_dev;
+static struct fs_entry *boot_entry;
 static struct fs_entry *pxe_entry;
 
 void fst_init(void)
 {
     dynamic_buffer_init(&entry_buf, sizeof(struct fs_entry), true);
+    has_boot_dev = false;
+    boot_entry = NULL;
 }
 
 static void fst_fini(void)
@@ -194,4 +200,78 @@ struct fs_entry *fst_list(size_t *count)
 {
     *count = entry_buf.size;
     return entry_buf.buf;
+}
+
+void fst_resolve_boot_entry(void)
+{
+    size_t i;
+
+    has_boot_dev = ds_query_boot_device(&boot_dev);
+    boot_entry = NULL;
+
+    if (!has_boot_dev)
+        return;
+
+    if (boot_dev.type == BOOT_DEVICE_TYPE_PXE) {
+        boot_entry = pxe_entry;
+        return;
+    }
+
+    if (boot_dev.partition_id == BOOT_PARTITION_ID_TYPE_NONE)
+        return;
+
+    for (i = 0; i < entry_buf.size; ++i) {
+        struct fs_entry *e = dynamic_buffer_get_slot(&entry_buf, i);
+
+        if (e->loc.entry_type == FSE_TYPE_PXE)
+            continue;
+        if (e->loc.disk_id != boot_dev.disk_id ||
+            e->loc.disk_kind != boot_dev.disk_kind)
+            continue;
+
+        switch (boot_dev.partition_id) {
+        case BOOT_PARTITION_ID_TYPE_INDEX:
+            if (e->loc.partition_index != boot_dev.partition_index)
+                continue;
+            break;
+
+        case BOOT_PARTITION_ID_TYPE_LBA:
+            if (e->fs->lba_range.begin != boot_dev.partition_lba)
+                continue;
+            break;
+
+        case BOOT_PARTITION_ID_TYPE_NONE:
+        default:
+            BUG();
+        }
+
+        boot_entry = e;
+        return;
+    }
+}
+
+const struct boot_device_info *fst_boot_device_info(void)
+{
+    return has_boot_dev ? &boot_dev : NULL;
+}
+
+struct fs_entry *fst_boot_entry(void)
+{
+    return boot_entry;
+}
+
+bool fst_entry_on_boot_device(const struct fs_entry *entry)
+{
+    if (!has_boot_dev)
+        // We don't really know
+        return false;
+
+    if (entry->loc.entry_type == FSE_TYPE_PXE)
+        return boot_dev.type == BOOT_DEVICE_TYPE_PXE;
+    if (boot_dev.type != BOOT_DEVICE_TYPE_DISK)
+        return false;
+
+    // For a disk boot, anything on that disk qualifies
+    return entry->loc.disk_id == boot_dev.disk_id &&
+           entry->loc.disk_kind == boot_dev.disk_kind;
 }

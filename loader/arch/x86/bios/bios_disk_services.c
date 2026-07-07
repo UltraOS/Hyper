@@ -369,6 +369,64 @@ u32 ds_get_disk_count(void)
 // Captured from dl by the entry stub (bios_entry.asm)
 extern u8 g_boot_drive;
 
+/*
+ * Boot partition index baked into the stage2 header by the installer, or the
+ * unspecified sentinel below when no partition was pinned at install time.
+ * See bios_entry.asm.
+ */
+extern u32 g_boot_partition;
+#define BOOT_PARTITION_UNSPECIFIED 0xFFFFFFFFu
+
+// Synthetic drive number set by the PXE boot record (see boot_record.asm)
+#define BIOS_PXE_BOOT_DRIVE 0xFF
+
+bool ds_query_boot_device(struct boot_device_info *out_info)
+{
+    SERVICE_FUNCTION();
+
+    /*
+     * The PXE boot record hands us a sentinel drive so a network boot is
+     * unambiguous rather than looking like an unknown disk.
+     */
+    if (g_boot_drive == BIOS_PXE_BOOT_DRIVE) {
+        *out_info = (struct boot_device_info) {
+            .type = BOOT_DEVICE_TYPE_PXE,
+            .partition_id = BOOT_PARTITION_ID_TYPE_NONE,
+        };
+        return true;
+    }
+
+    /*
+     * If the boot drive maps to a disk we actually enumerated, that's where we
+     * booted from; otherwise we can't name a boot device and the caller falls
+     * back to a full scan.
+     */
+    if (g_boot_drive >= FIRST_DRIVE_INDEX && g_boot_drive <= LAST_DRIVE_INDEX &&
+        disks_buffer[g_boot_drive - FIRST_DRIVE_INDEX].drive == g_boot_drive) {
+        struct bios_disk *d;
+
+        out_info->type = BOOT_DEVICE_TYPE_DISK;
+
+        d = &disks_buffer[g_boot_drive - FIRST_DRIVE_INDEX];
+        out_info->disk_id = disk_kind_id(d, &out_info->disk_kind);
+
+        /*
+         * The installer pins a partition by index, but it is optionally omitted
+         * by the user, so check for that case.
+         */
+        if (g_boot_partition != BOOT_PARTITION_UNSPECIFIED) {
+            out_info->partition_id = BOOT_PARTITION_ID_TYPE_INDEX;
+            out_info->partition_index = g_boot_partition;
+        } else {
+            out_info->partition_id = BOOT_PARTITION_ID_TYPE_NONE;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 // El Torito specification packet returned by INT 13h, AX=4B01h
 struct PACKED el_torito_spec_packet {
     u8 size;

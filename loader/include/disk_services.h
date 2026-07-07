@@ -26,6 +26,45 @@ static inline u32 disk_block_size(const struct disk *d)
     return 1 << d->block_shift;
 }
 
+enum boot_device_type {
+    // Booted from a disk; 'disk_id' identifies it
+    BOOT_DEVICE_TYPE_DISK,
+    // Booted over the network (PXE)
+    BOOT_DEVICE_TYPE_PXE,
+};
+
+enum boot_partition_id_type {
+    // Couldn't determine it (whole-disk boot, or no partition info at all)
+    BOOT_PARTITION_ID_TYPE_NONE,
+    // A 0-based fs partition index (BIOS: baked into stage2 by the installer)
+    BOOT_PARTITION_ID_TYPE_INDEX,
+    // An absolute start LBA (UEFI: read from the loaded image device path)
+    BOOT_PARTITION_ID_TYPE_LBA,
+};
+
+struct boot_device_info {
+    enum boot_device_type type;
+
+    // The kind and id (matching struct disk) if BOOT_DEVICE_TYPE_DISK
+    u32 disk_id;
+    u8 disk_kind;
+
+    /*
+     * How to locate the boot partition, and its locator; only meaningful when
+     * type == BOOT_DEVICE_TYPE_DISK.
+     */
+    enum boot_partition_id_type partition_id;
+    union {
+        u32 partition_index;
+        u64 partition_lba;
+    };
+};
+
+/*
+ * Retrieves information about the device the loader was booted from.
+ */
+bool ds_query_boot_device(struct boot_device_info *out_info);
+
 /*
  * Number of disks that can be queried.
  */

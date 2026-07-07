@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/types.h"
+#include "common/attributes.h"
 
 #define IN
 #define OUT
@@ -531,6 +532,37 @@ typedef struct {
 #define EFI_DEVICE_PATH_SUBTYPE_IPV6       0x0D
 #define EFI_DEVICE_PATH_SUBTYPE_HARD_DRIVE 0x01
 #define EFI_DEVICE_PATH_SUBTYPE_CDROM      0x02
+
+// A MEDIA/HARD_DRIVE node; PartitionNumber is 1-based (1 == the first partition)
+typedef struct PACKED {
+    EFI_DEVICE_PATH_PROTOCOL Header;
+    UINT32 PartitionNumber;
+    UINT64 PartitionStart;
+    UINT64 PartitionSize;
+    UINT8 Signature[16];
+    UINT8 MBRType;
+    UINT8 SignatureType;
+} EFI_HARD_DRIVE_DEVICE_PATH;
+
+#define EFI_LOADED_IMAGE_PROTOCOL_GUID \
+    { 0x5B1B31A1, 0x9562, 0x11d2, \
+      { 0x8E, 0x3F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } }
+
+typedef struct {
+    UINT32 Revision;
+    EFI_HANDLE ParentHandle;
+    VOID *SystemTable;
+    EFI_HANDLE DeviceHandle;
+    EFI_DEVICE_PATH_PROTOCOL *FilePath;
+    VOID *Reserved;
+    UINT32 LoadOptionsSize;
+    VOID *LoadOptions;
+    VOID *ImageBase;
+    UINT64 ImageSize;
+    EFI_MEMORY_TYPE ImageCodeType;
+    EFI_MEMORY_TYPE ImageDataType;
+    VOID *Unload;
+} EFI_LOADED_IMAGE_PROTOCOL;
 
 typedef
 EFI_STATUS

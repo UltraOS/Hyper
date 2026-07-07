@@ -34,6 +34,10 @@ depending on your target.
 ### BIOS boot with MBR/EBR
 1. Create an MBR partitioned image with at least one file system.
 2. Run `./hyper_install ./my-image`.
+    - Optionally pass `--boot-partition <index>` (0-based) to record which
+      partition you put the loader on, so `/` resolves to it deterministically
+      rather than to whichever partition the config is found on first. Under
+      UEFI this is detected automatically and needs no such flag.
 
 ### UEFI boot with MBR/EBR/GPT
 1. Create an MBR/GPT partitioned image.
@@ -77,11 +81,30 @@ following paths:
 - `/boot/hyper.cfg`
 - `/boot/hyper/hyper.cfg`
 
-The loader uses the first configuration file it finds, searching in the order
-listed above. Configuration files cannot currently be chained, but it's a
-planned feature.
+The loader first looks on the **boot disk**:
+- under BIOS, the boot drive the firmware handed us;
+- under UEFI, the disk the loader image was loaded from (resolved from its
+  `EFI_LOADED_IMAGE_PROTOCOL` device path);
+- under PXE, the network/TFTP server.
 
-The file can reside on any disk & partition supported by the loader.
+It searches the paths above, in order, and prefers the exact **partition** the
+loader was booted from when it can identify it:
+- under UEFI the boot partition is read from the loaded image's device path;
+- under BIOS it's the index baked into the loader by the installer's
+  `--boot-partition` flag (BIOS firmware only reports the boot *drive*, not the
+  partition, so it can't be discovered at runtime).
+
+Failing that, it searches the rest of the boot disk's partitions, and finally
+falls back to scanning every other disk & partition it can see. Whichever
+filesystem the config is found on becomes the "origin" that a leading `/` (and
+the disk/partition reported to the kernel) refers to.
+
+If the boot partition can't be determined (a BIOS install without
+`--boot-partition`, or firmware that doesn't hand us a usable device path), `/`
+resolves to whichever partition the config happened to be found on first.
+
+The file can reside on any disk & partition supported by the loader, though
+keeping it on the boot disk is recommended for deterministic behavior.
 
 ### Format & Syntax
 
@@ -116,8 +139,8 @@ Every configuration file consists of the following:
 
 Paths use a special format that combines POSIX with hyper-specific extensions,
 and must always be absolute.  
-A leading `/` refers to the disk & partition the current configuration file was
-loaded from.
+A leading `/` refers to the disk & partition the configuration
+file was loaded from (normally the boot device, see above).
 
 Paths can optionally start with a prefix, such as:
 - `::/` - same as `/`
