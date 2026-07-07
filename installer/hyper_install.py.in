@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+# This file was generated from hyper_install.py.in - do not edit directly.
+#
+# Self-contained Hyper installer: writes the (MBR or ISO) boot record and, for
+# non-ISO images, the stage2 loader into the gap before the first partition.
+#
+# The boot blobs are baked in at build time as deflate-compressed base64 by
+# installer/embed_blobs.py, so the produced script is fully portable and needs
+# nothing but a Python 3 interpreter to run on any platform.
+import base64
+import struct
+import sys
+import zlib
+
+MBR_DATA = zlib.decompress(base64.b64decode("@MBR_B64@"))
+ISO_MBR_DATA = zlib.decompress(base64.b64decode("@ISO_MBR_B64@"))
+STAGE2_DATA = zlib.decompress(base64.b64decode("@STAGE2_B64@"))
+
+MBR_BLOCK_SIZE = 512
+MBR_MAGIC = 0xAA55
+OFFSET_TO_MBR_MAGIC = 510
+OFFSET_TO_MBR_PARTITION_LIST = 0x01BE
+
+MBR_PARTITION_COUNT = 4
+MBR_PARTITION_ENTRY_SIZE = 16
+# Offset of the 32-bit first-block field within a partition entry.
+MBR_PARTITION_FIRST_BLOCK_OFF = 8
+MBR_PARTITION_LIST_SIZE = MBR_PARTITION_COUNT * MBR_PARTITION_ENTRY_SIZE
+
+ISO9660_LOGICAL_SECTOR_SIZE = 2048
+ISO9660_SYSTEM_AREA_BLOCKS = 16
+ISO9660_PVD_OFF = ISO9660_LOGICAL_SECTOR_SIZE * ISO9660_SYSTEM_AREA_BLOCKS + 1
+ISO9660_IDENTIFIER = b"CD001"
+
+# "EFI PART", the GPT header signature.
+GPT_SIGNATURE = b"EFI PART"
+
+
+def panic(msg):
+    sys.stderr.write(msg if msg.endswith("\n") else msg + "\n")
+    sys.exit(1)
+
+
+def read_at(f, offset, size):
+    f.seek(offset)
+    data = f.read(size)
+    if len(data) != size:
+        panic(f"Failed to read {size} bytes at {offset}")
+    return data
+
+
+def write_at(f, offset, data):
+    f.seek(offset)
+    f.write(data)
+
+
+def read_mbr_partition_list(img):
+    (magic,) = struct.unpack("<H", read_at(img, OFFSET_TO_MBR_MAGIC, 2))
+    if magic != MBR_MAGIC:
+        panic(f"Invalid MBR magic, expected 0x{MBR_MAGIC:04X} got 0x{magic:04X}")
+
+    return read_at(img, OFFSET_TO_MBR_PARTITION_LIST, MBR_PARTITION_LIST_SIZE)
+
+
+def ensure_stage2_fits(partitions):
+    lowest_block = None
+
+    for i in range(MBR_PARTITION_COUNT):
+        off = i * MBR_PARTITION_ENTRY_SIZE + MBR_PARTITION_FIRST_BLOCK_OFF
+        (first_block,) = struct.unpack_from("<I", partitions, off)
+
+        if first_block and (lowest_block is None or first_block < lowest_block):
+            lowest_block = first_block
+
+    if lowest_block is None:
+        panic("Please create at least one partition before attempting to install")
+
+    gap_size = (lowest_block - 1) * MBR_BLOCK_SIZE
+
+    if gap_size < len(STAGE2_DATA):
+        panic("Not enough space between MBR and the first partition to fit stage2!\n"
+              f"Need at least {len(STAGE2_DATA)}, have {gap_size}")
+
+
+def is_iso_disk(img):
+    return read_at(img, ISO9660_PVD_OFF, len(ISO9660_IDENTIFIER)) == ISO9660_IDENTIFIER
+
+
+def ensure_no_gpt(img):
+    for off in (512, 4096):
+        if read_at(img, off, len(GPT_SIGNATURE)) == GPT_SIGNATURE:
+            panic("Installing to GPT images is currently not supported")
+
+
+def write_hyper(img, partitions, is_iso):
+    # Lay down our boot record, then restore the original partition table it may
+    # have overwritten.
+    write_at(img, 0, ISO_MBR_DATA if is_iso else MBR_DATA)
+    write_at(img, OFFSET_TO_MBR_PARTITION_LIST, partitions)
+
+    if not is_iso:
+        write_at(img, MBR_BLOCK_SIZE, STAGE2_DATA)
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write(f"Usage: {sys.argv[0]} <path-where-to-install>\n")
+        return 1
+
+    with open(sys.argv[1], "r+b") as img:
+        partitions = read_mbr_partition_list(img)
+        is_iso = is_iso_disk(img)
+
+        if not is_iso:
+            # Currently unsupported.
+            ensure_no_gpt(img)
+            ensure_stage2_fits(partitions)
+
+        write_hyper(img, partitions, is_iso)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

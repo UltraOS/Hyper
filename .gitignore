@@ -5,14 +5,8 @@ toolchain/*
 !toolchain/toolchain_gcc.cmake
 !toolchain/toolchain_clang.cmake
 !toolchain/toolchain_dummy.cmake
-installer/build
-installer/tmp
-installer/src
-installer/mbr_embedded.c
-installer/iso_mbr_embedded.c
-installer/stage2_embedded.c
+# The installer is generated from hyper_install.py.in at build time.
 installer/hyper_install
-installer/hyper_install.exe
 *.pyc
 tests/kernel/build
 tests/kernel/ultra_protocol.h
