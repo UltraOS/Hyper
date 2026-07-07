@@ -470,6 +470,95 @@ def test_partition_addressing(scenario, is_uefi, pytestconfig):
 
 
 #
+# Boot partition auto-selection.
+#
+# Unlike test_partition_addressing (which loads the kernel via an explicit
+# hdN-partN prefix), these verify that when several partitions each carry a
+# config the loader picks the one it was *booted* from as the origin. The config
+# is byte-for-byte identical on every partition and loads the kernel through a
+# leading '/' (origin-relative), so the partition the kernel reports being
+# loaded from is whichever one the loader chose as the origin. Every config pins
+# the same expected index on the command line, so a loader that fell back to the
+# lowest-indexed partition instead would load the kernel from the wrong place
+# and the kernel's own validation would fail.
+#
+# BIOS learns the index from the installer (--boot-partition), which bakes it
+# into stage2; UEFI detects it from the loaded image device path, so there the
+# loader lives only on the pinned partition and nothing else is bootable.
+#
+def _build_boot_partition_image(getopt, layout: str, boot_index: int,
+                                is_uefi: bool):
+    kernel_src = os.path.join(getopt(options.KERNEL_DIR_OPT),
+                              f"kernel_{PART_KERNEL}")
+    kernel_arc = f"boot/kernel_{PART_KERNEL}"
+
+    if layout == "gpt":
+        extra = (f" disk-guid={GPT_DISK_GUID} "
+                 f"part-guid={GPT_PART_GUIDS[boot_index]}")
+        part_type = "gpt"
+    else:
+        extra = ""
+        part_type = "mbr"
+
+    tmp = tempfile.mkdtemp()
+    cfg_path = os.path.join(tmp, "hyper.cfg")
+    with open(cfg_path, "w") as f:
+        f.write(di.make_single_entry_config(
+            f"/boot/kernel_{PART_KERNEL}",
+            f"part-type={part_type} disk-index=0 part-index={boot_index}{extra}"))
+
+    common = {"hyper.cfg": cfg_path, kernel_arc: kernel_src}
+
+    def files_for(idx: int):
+        files = dict(common)
+        # The loader only goes on the pinned partition so the firmware has no
+        # choice but to boot from it.
+        if is_uefi and idx == boot_index:
+            files["EFI/BOOT/BOOTX64.EFI"] = getopt(options.X64_HYPER_UEFI_OPT)
+        return files
+
+    img = os.path.join(tmp, "disk.img")
+    installer = None if is_uefi else getopt(options.INSTALLER_OPT)
+
+    if layout == "primaries":
+        mp.build_mbr_image(
+            img, [mp.Partition(files=files_for(i)) for i in range(3)],
+            installer_path=installer,
+            boot_partition=None if is_uefi else boot_index)
+    elif layout == "gpt":
+        mp.build_gpt_image(img, [
+            mp.Partition(files=files_for(i), esp=(i == boot_index),
+                         unique_guid=GPT_PART_GUIDS[i])
+            for i in range(2)
+        ], GPT_DISK_GUID)
+    else:
+        raise RuntimeError(f"unknown layout {layout}")
+
+    return tmp, img
+
+
+_BOOT_PART_PARAMS = [
+    # (layout, boot_index, is_uefi)
+    pytest.param("primaries", 1, False, marks=_BIOS_MARKS,
+                 id="boot-part-mbr-bios"),
+    pytest.param("primaries", 1, True, marks=_UEFI_MARKS,
+                 id="boot-part-mbr-uefi"),
+    pytest.param("gpt", 1, True, marks=_UEFI_MARKS, id="boot-part-gpt-uefi"),
+]
+
+
+@pytest.mark.parametrize("layout,boot_index,is_uefi", _BOOT_PART_PARAMS)
+def test_boot_partition_selection(layout, boot_index, is_uefi, pytestconfig):
+    tmp, img = _build_boot_partition_image(pytestconfig.getoption, layout,
+                                           boot_index, is_uefi)
+    try:
+        boot_and_check(_RawImage(img), "uefi_x64" if is_uefi else "bios",
+                       pytestconfig)
+    finally:
+        shutil.rmtree(tmp)
+
+
+#
 # Huge command line test.
 #
 # The ultra protocol places no limit on the command line length and the loader
