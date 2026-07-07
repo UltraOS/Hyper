@@ -57,6 +57,7 @@ void fst_add_raw_fs_entry(const struct disk *d, struct filesystem *fs)
         .disk_handle = d->handle,
         .loc = {
             .disk_id = d->id,
+            .disk_kind = d->kind,
             .partition_index = 0,
             .entry_type = FSE_TYPE_RAW,
         },
@@ -74,6 +75,7 @@ void fst_add_mbr_fs_entry(const struct disk *d, u32 partition_index, struct file
         .disk_handle = d->handle,
         .loc = {
             .disk_id = d->id,
+            .disk_kind = d->kind,
             .partition_index = partition_index,
             .entry_type = FSE_TYPE_MBR,
         },
@@ -93,6 +95,7 @@ void fst_add_gpt_fs_entry(const struct disk *d, u32 partition_index,
         .disk_handle = d->handle,
         .loc = {
             .disk_id = d->id,
+            .disk_kind = d->kind,
             .partition_index = partition_index,
             .entry_type = FSE_TYPE_GPT,
             .disk_guid = *disk_guid,
@@ -106,6 +109,7 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
 {
     bool by_disk_index = false, by_partition_index = false, raw_partition = false;
     u32 disk_index = 0, partition_index = 0;
+    u8 disk_kind = 0;
     size_t i;
 
     if (path->disk_id_type == DISK_IDENTIFIER_INVALID ||
@@ -116,14 +120,20 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
         return pxe_entry;
 
     if (path->disk_id_type == DISK_IDENTIFIER_ORIGIN) {
+        const struct fs_entry *origin = fst_get_origin();
+
         if (path->partition_id_type == PARTITION_IDENTIFIER_ORIGIN ||
             path->partition_id_type == PARTITION_IDENTIFIER_RAW)
-            return fst_get_origin();
+            return origin;
 
-        disk_index = fst_get_origin()->loc.disk_id;
+        disk_index = origin->loc.disk_id;
+        disk_kind = origin->loc.disk_kind;
         by_disk_index = true;
-    } else if (path->disk_id_type == DISK_IDENTIFIER_INDEX) {
+    } else if (path->disk_id_type == DISK_IDENTIFIER_HD ||
+               path->disk_id_type == DISK_IDENTIFIER_CD) {
         disk_index = path->disk_index;
+        disk_kind = path->disk_id_type == DISK_IDENTIFIER_CD ? DISK_KIND_CD
+                                                             : DISK_KIND_HD;
         by_disk_index = true;
     }
 
@@ -141,7 +151,8 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
             continue;
 
         if (by_disk_index) {
-            if (disk_index != entry->loc.disk_id)
+            if (disk_index != entry->loc.disk_id ||
+                disk_kind != entry->loc.disk_kind)
                 continue;
         } else if (guid_compare(&path->disk_guid, &entry->loc.disk_guid)) {
             continue;

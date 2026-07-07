@@ -15,20 +15,31 @@
 
 struct bios_disk {
     u64 sectors;
+    // BIOS drive number (0x80+), used for INT 13h
+    u8 drive;
+    // Index of this drive based on its type
     u8 id;
     u8 block_shift;
     u8 status;
 };
 
+// Indexed by (drive - FIRST_DRIVE_INDEX); empty slots have a zero drive
 static struct bios_disk disks_buffer[DISK_BUFFER_CAPACITY];
 static u8 disk_count;
 
 /*
- * Since disks are stored with id -> disk and not contiguously,
- * we record this info here to help speed up disk_query()
+ * The one optical drive BIOS can positively identify (via El Torito); it
+ * becomes cd0. There's no reliable way to classify any others, so everything
+ * else is treated as a hard disk. See detect_boot_cd().
  */
-static u8 next_buf_idx;
-static u8 next_enum_idx = DISK_BUFFER_CAPACITY;
+static struct bios_disk *g_boot_cd;
+
+// The kind + 0-based per-kind (hdN / cdN) index of an enumerated disk
+static u32 disk_kind_id(const struct bios_disk *d, u8 *kind)
+{
+    *kind = d == g_boot_cd ? DISK_KIND_CD : DISK_KIND_HD;
+    return d->id;
+}
 
 static struct block_cache tb_cache;
 static u8 cache_last_disk_id;
@@ -220,7 +231,7 @@ static void fetch_all_disks(void)
 
         disks_buffer[drive_index - FIRST_DRIVE_INDEX] = (struct bios_disk) {
             .sectors = drive_params.total_sector_count,
-            .id = drive_index,
+            .drive = drive_index,
             .block_shift = __builtin_ctz(drive_params.bytes_per_sector),
             .status = is_removable ? DISK_STS_REMOVABLE : 0
         };
@@ -241,7 +252,7 @@ static bool check_read(const struct bios_disk *d, const struct real_mode_regs *r
     if (is_carry_set(regs) || ((regs->eax & 0xFF00) != 0x0000)) {
         // Don't print a warning for removable drives, it's expected
         if (!(d->status & DISK_STS_REMOVABLE))
-            print_warn("disk 0x%02X read failed, (ret=%u)\n", d->id, regs->eax);
+            print_warn("disk 0x%02X read failed, (ret=%u)\n", d->drive, regs->eax);
 
         return false;
     }
@@ -264,7 +275,7 @@ static bool bios_refill_blocks(void *dp, void *buffer, u64 block, size_t count)
     };
 
     struct real_mode_regs regs = {
-        .edx = d->id,
+        .edx = d->drive,
         .esi = (u32)&packet
     };
     struct real_mode_addr tb_addr;
@@ -288,23 +299,26 @@ void ds_query_disk(size_t idx, struct disk *out_disk)
     SERVICE_FUNCTION();
     BUG_ON(idx >= disk_count);
 
-    struct bios_disk *d;
-    u8 i = idx == next_enum_idx ? next_buf_idx : 0;
+    struct bios_disk *d = NULL;
+    size_t seen = 0;
+    u8 i, kind;
 
-    for (; i < DISK_BUFFER_CAPACITY; ++i) {
-        if (disks_buffer[i].id)
+    for (i = 0; i < DISK_BUFFER_CAPACITY; ++i) {
+        if (!disks_buffer[i].drive)
+            continue;
+        if (seen++ == idx) {
+            d = &disks_buffer[i];
             break;
+        }
     }
 
-    BUG_ON(i == DISK_BUFFER_CAPACITY);
-    next_enum_idx = idx + 1;
-    next_buf_idx = i + 1;
-    d = &disks_buffer[i];
+    BUG_ON(!d);
 
     *out_disk = (struct disk) {
         .sectors = d->sectors,
-        .handle = (void*)((ptr_t)d->id),
-        .id = d->id,
+        .handle = (void*)((ptr_t)d->drive),
+        .id = disk_kind_id(d, &kind),
+        .kind = kind,
         .block_shift = d->block_shift,
         .status = d->status
     };
@@ -312,10 +326,10 @@ void ds_query_disk(size_t idx, struct disk *out_disk)
 
 static void set_cache_to_disk(struct bios_disk *d)
 {
-    if (cache_last_disk_id == d->id)
+    if (cache_last_disk_id == d->drive)
         return;
 
-    cache_last_disk_id = d->id;
+    cache_last_disk_id = d->drive;
     tb_cache.user_ptr = d;
     tb_cache.block_shift = d->block_shift;
     tb_cache.block_size = 1 << d->block_shift;
@@ -352,11 +366,92 @@ u32 ds_get_disk_count(void)
     return disk_count;
 }
 
+// Captured from dl by the entry stub (bios_entry.asm)
+extern u8 g_boot_drive;
+
+// El Torito specification packet returned by INT 13h, AX=4B01h
+struct PACKED el_torito_spec_packet {
+    u8 size;
+    u8 media_type;
+    u8 drive_no;
+    u8 controller_no;
+    u32 image_lba;
+    u16 device_spec;
+    u16 cache_seg;
+    u16 load_seg;
+    u16 length_sec512;
+    u8 cylinders;
+    u8 sectors;
+    u8 heads;
+    u8 dummy[16];
+};
+
+// El Torito media type mask & the "no emulation" value (as in GRUB's biosdisk)
+#define EL_TORITO_MEDIA_TYPE_MASK 0x0F
+#define EL_TORITO_NO_EMULATION    0x00
+
+/*
+ * Ask the BIOS (INT 13h, AX=4B01h) for the El Torito status of the boot drive.
+ * On success for a no-emulation CD it reports the CD's *own* drive number in the
+ * packet (which may differ from the queried drive), which is how we learn the
+ * optical drive's number even when we booted off a hard disk.
+ */
+static u16 query_cd_drive(void)
+{
+    struct el_torito_spec_packet packet = {
+        .size = sizeof(packet),
+        .media_type = 0xFF,
+    };
+    struct real_mode_regs regs = {
+        .eax = 0x4B01,
+        .edx = g_boot_drive,
+        .esi = (u32)&packet,
+    };
+
+    // INT 13h, AX=4B01h: get El Torito emulation status
+    bios_call(0x13, &regs, &regs);
+    if (is_carry_set(&regs))
+        return 0;
+
+    if ((packet.media_type & EL_TORITO_MEDIA_TYPE_MASK) != EL_TORITO_NO_EMULATION)
+        return 0;
+
+    return packet.drive_no;
+}
+
+static void detect_boot_cd(void)
+{
+    u16 cd_drive = query_cd_drive();
+
+    if (cd_drive < FIRST_DRIVE_INDEX || cd_drive > LAST_DRIVE_INDEX)
+        return;
+
+    // Only mark it if we actually enumerated that drive
+    if (disks_buffer[cd_drive - FIRST_DRIVE_INDEX].drive == cd_drive)
+        g_boot_cd = &disks_buffer[cd_drive - FIRST_DRIVE_INDEX];
+}
+
+static void assign_disk_ids(void)
+{
+    struct bios_disk *d;
+    u8 hd_count = 0;
+
+    for (d = disks_buffer; d < disks_buffer + DISK_BUFFER_CAPACITY; ++d) {
+        if (!d->drive)
+            continue;
+
+        // cd is always cd0, as we only support one
+        d->id = (d == g_boot_cd) ? 0 : hd_count++;
+    }
+}
+
 void bios_disk_services_init(void)
 {
     void *buf;
 
     fetch_all_disks();
+    detect_boot_cd();
+    assign_disk_ids();
 
     buf = scratch_buffer_borrow(
         SCRATCH_BUFFER_SIZE, tb_cache_invalidate, &tb_cache

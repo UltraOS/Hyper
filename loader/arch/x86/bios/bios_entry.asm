@@ -14,6 +14,10 @@ dq 0
 
 main:
 BITS 16
+    ; The boot record hands us the BIOS boot drive in dl (with DS already 0),
+    ; save it before anything can clobber it.
+    mov [g_boot_drive], dl
+
     mov sp, STAGE2_LOAD_BASE
     cld
 
@@ -121,3 +125,7 @@ gdt_struct_end:
 
 global a20_enabled
 a20_enabled: db 0
+
+; BIOS boot drive number (dl) captured at entry
+global g_boot_drive
+g_boot_drive: db 0
