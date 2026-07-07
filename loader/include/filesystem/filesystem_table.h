@@ -17,6 +17,8 @@ struct fs_location {
     u32 disk_id;
     u32 partition_index;
     u16 entry_type;
+    // one of enum disk_kind
+    u8 disk_kind;
     struct guid disk_guid;
     union {
         struct guid partition_guid;

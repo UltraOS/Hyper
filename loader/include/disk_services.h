@@ -4,10 +4,18 @@
 
 #define DISK_STS_REMOVABLE (1 << 0)
 
+enum disk_kind {
+    DISK_KIND_HD,
+    DISK_KIND_CD,
+};
+
 struct disk {
     u64 sectors;
     void *handle;
+
+    // 0-based index within its kind (i.e. hdN / cdN)
     u32 id;
+    u8 kind;
 
     u8 block_shift;
     u8 status;

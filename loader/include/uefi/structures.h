@@ -522,6 +522,16 @@ typedef struct {
     UINT8 Length[2];
 } EFI_DEVICE_PATH_PROTOCOL;
 
+// Device path node types & subtypes we care about
+#define EFI_DEVICE_PATH_TYPE_END           0x7F
+#define EFI_DEVICE_PATH_TYPE_MESSAGING     0x03
+#define EFI_DEVICE_PATH_TYPE_MEDIA         0x04
+#define EFI_DEVICE_PATH_SUBTYPE_MAC        0x0B
+#define EFI_DEVICE_PATH_SUBTYPE_IPV4       0x0C
+#define EFI_DEVICE_PATH_SUBTYPE_IPV6       0x0D
+#define EFI_DEVICE_PATH_SUBTYPE_HARD_DRIVE 0x01
+#define EFI_DEVICE_PATH_SUBTYPE_CDROM      0x02
+
 typedef
 EFI_STATUS
 (EFIAPI *EFI_LOCATE_DEVICE_PATH) (

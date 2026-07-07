@@ -103,20 +103,21 @@ static bool consume_guid(struct string_view *str, struct guid *guid)
     return true;
 }
 
-static bool path_skip_dash(struct string_view *path)
+// Skip the optional '-' separating the disk from the partition identifier
+static void path_skip_dash(struct string_view *path)
 {
-    if (sv_empty(*path))
-        return false;
-
-    sv_offset_by(path, 1);
-    return true;
+    if (sv_starts_with(*path, SV("-")))
+        sv_offset_by(path, 1);
 }
 
 #define DISKUUID_STR SV("DISKUUID")
-#define DISK_STR     SV("DISK")
+#define HD_STR       SV("HD")
+#define CD_STR       SV("CD")
 
 static bool path_consume_disk_identifier(struct string_view *path, struct full_path *out_path)
 {
+    bool is_cd = false;
+
     if (sv_starts_with(*path, DISKUUID_STR)) {
         sv_offset_by(path, DISKUUID_STR.size);
 
@@ -124,17 +125,21 @@ static bool path_consume_disk_identifier(struct string_view *path, struct full_p
             return false;
 
         out_path->disk_id_type = DISK_IDENTIFIER_UUID;
-        return path_skip_dash(path);
+        path_skip_dash(path);
+        return true;
     }
 
-    if (sv_starts_with(*path, DISK_STR)) {
-        sv_offset_by(path, DISK_STR.size);
+    if (sv_starts_with(*path, HD_STR) ||
+        (is_cd = sv_starts_with(*path, CD_STR))) {
+        sv_offset_by(path, HD_STR.size);
 
         if (!path_consume_numeric_sequence(path, &out_path->disk_index))
             return false;
 
-        out_path->disk_id_type = DISK_IDENTIFIER_INDEX;
-        return path_skip_dash(path);
+        out_path->disk_id_type = is_cd ? DISK_IDENTIFIER_CD
+                                       : DISK_IDENTIFIER_HD;
+        path_skip_dash(path);
+        return true;
     }
 
     return false;
@@ -160,8 +165,12 @@ static bool path_consume_partition_identifier(struct string_view *path, struct f
     }
 
     if (sv_starts_with(*path, SV("::/"))) {
-        // GPT disks cannot be treated as unpartitioned media
-        if (out_path->disk_id_type != DISK_IDENTIFIER_INDEX)
+        /*
+         * Only a disk addressed by index (hdN/cdN) can be treated as
+         * unpartitioned media; a disk addressed by GUID is inherently GPT.
+         */
+        if (out_path->disk_id_type != DISK_IDENTIFIER_HD &&
+            out_path->disk_id_type != DISK_IDENTIFIER_CD)
             return false;
 
         out_path->partition_id_type = PARTITION_IDENTIFIER_RAW;

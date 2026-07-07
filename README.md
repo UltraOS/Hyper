@@ -121,18 +121,24 @@ loaded from.
 
 Paths can optionally start with a prefix, such as:
 - `::/` - same as `/`
-- `DISK0::/` - disk 0 treated as unpartitioned media
-- `DISK80-PART0::/` - disk 0x80, partition 0
-- `DISK3-GPTUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A::/` - disk 3, GPT partition with this UUID
-- `DISKUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A-GPT2::/` - disk with this UUID, GPT partition 2
-- `DISKUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A-PARTUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A::/` - disk with this UUID, partition with this UUID
+- `HD0::/` - first hard disk, treated as unpartitioned media
+- `CD0::/` - first optical disc (the disc the loader booted from, under BIOS)
+- `HD0-PART0::/` - first hard disk, partition 0
+- `HD0-PARTUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A::/` - first hard disk, partition with this GPT UUID
+- `DISKUUID-E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A-PART0::/` - disk with this GPT disk UUID, partition 0
 - `PXE::/` (or `TFTP::/`) - the PXE/TFTP server the loader booted from (network boot)
 
 Note that all numbers are specified in hexadecimal.
 
-Disk numbers are assigned as follows:
-- for BIOS, the index of a disk queried via `INT 13h, AH=48h`;
-- for UEFI, the index of the handle returned by querying `EFI_BLOCK_IO_PROTOCOL_GUID`.
+Disks are addressed by kind plus a 0-based index within that kind: `hdN` for
+hard disks and `cdN` for optical drives, in the order the loader enumerates
+them. `DISKUUID-<guid>` addresses a disk by its GPT disk GUID, regardless of
+kind.
+
+Under UEFI, disks are classified by their device paths (like GRUB), so any
+optical drive is exposed as `cdN`. Under BIOS the only disc that can be reliably
+recognized as optical is the one the loader booted from (it becomes `cd0`); all
+other drives are treated as hard disks.
 
 An example of a configuration file using the `Ultra` protocol:
 ```py
@@ -150,7 +156,7 @@ binary:
 
 module:
     name = "kmap"
-    path = "DISK80-PART0::/boot/symbols.bin"
+    path = "HD0-PART0::/boot/symbols.bin"
 
 module:
     type = "memory"
