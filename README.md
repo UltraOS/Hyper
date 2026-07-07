@@ -33,7 +33,7 @@ depending on your target.
 
 ### BIOS boot with MBR/EBR
 1. Create an MBR partitioned image with at least one file system.
-2. Run `./hyper_install-<myplatform> ./my-image`.
+2. Run `./hyper_install ./my-image`.
 
 ### UEFI boot with MBR/EBR/GPT
 1. Create an MBR/GPT partitioned image.
@@ -49,7 +49,7 @@ depending on your target.
 4. Create an ISO image with the following parameters:
     - `hyper_iso_boot` as the El Torito boot record, with 4 sectors preloaded and the boot information table enabled, without emulation.
     - (optionally) `<my-fat-esp-image>` as the EFI El Torito boot option.
-5. (optionally) Run `./hyper_install-<myplatform> ./my-image.iso` to make the image bootable as an HDD under BIOS.
+5. (optionally) Run `./hyper_install ./my-image.iso` to make the image bootable as an HDD under BIOS.
 
 An example of such a command using the `xorriso` utility:
 ```

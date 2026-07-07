@@ -76,30 +76,29 @@ add_custom_command(
 )
 add_custom_target(hyper_pxe ALL DEPENDS ${PXE_STAGE2_FULL_PATH})
 
-include(ExternalProject)
-ExternalProject_Add(
-    installer
-    SOURCE_DIR
-    ${PROJECT_SOURCE_DIR}/installer
-    BUILD_COMMAND
-    "${CMAKE_MAKE_PROGRAM}"
-    CMAKE_ARGS
-    -DMBR_PATH=${MBR_FULL_PATH}
-    -DISO_MBR_PATH=${ISO_MBR_FULL_PATH}
-    -DSTAGE2_PATH=${STAGE2_FULL_PATH}
-    -DCMAKE_MAKE_PROGRAM="${CMAKE_MAKE_PROGRAM}"
-    # Don't inherit C compiler which may be tied to target rather than host.
-    # There should ideally be a way to pass this through or otherwise request
-    # A toolchain from the subproject.
-    #-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-    -DCMAKE_C_COMPILER_WORKS=1
-    INSTALL_COMMAND
-    cmake -E echo "Skipping install step"
+# The installer is a self-contained Python script rather than a compiled binary:
+# a template (installer/hyper_install.py.in) populated with the boot blobs as
+# base64 at build time. This drops the host-toolchain build entirely and lets the
+# resulting hyper_install ship to any platform as-is, needing only a Python 3
+# interpreter.
+set(INSTALLER_DIR "${PROJECT_SOURCE_DIR}/installer")
+set(INSTALLER_OUTPUT "${INSTALLER_DIR}/hyper_install")
+
+add_custom_command(
+    OUTPUT
+    ${INSTALLER_OUTPUT}
+    COMMAND
+    python3 ${INSTALLER_DIR}/embed_blobs.py
+            --template ${INSTALLER_DIR}/hyper_install.py.in
+            --output ${INSTALLER_OUTPUT}
+            --mbr ${MBR_FULL_PATH}
+            --iso-mbr ${ISO_MBR_FULL_PATH}
+            --stage2 ${STAGE2_FULL_PATH}
+    DEPENDS
+    ${MBR_BINARY} ${ISO_MBR_BINARY} ${STAGE2_BINARY}
+    ${INSTALLER_DIR}/embed_blobs.py
+    ${INSTALLER_DIR}/hyper_install.py.in
+    COMMENT
+    "Generating hyper_install Python installer"
 )
-ExternalProject_Add_StepDependencies(
-    installer
-    build
-    ${MBR_BINARY}
-    ${ISO_MBR_BINARY}
-    ${STAGE2_BINARY}
-)
+add_custom_target(installer ALL DEPENDS ${INSTALLER_OUTPUT})
