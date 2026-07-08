@@ -79,6 +79,15 @@ static void load_e820(void)
         print_info("range: 0x%016llX -> 0x%016llX, type: 0x%02X\n", entry.address,
                    entry.address + entry.size_in_bytes, entry.type);
 
+
+        if (unlikely(entry.type > MEMORY_TYPE_MAX)) {
+            print_warn(
+                "unrecognized type 0x%08X, treating as reserved\n",
+                entry.type
+            );
+            entry.type = MEMORY_TYPE_RESERVED;
+        }
+
         me = (struct memory_map_entry) {
             .physical_address = entry.address,
             .size_in_bytes = entry.size_in_bytes,

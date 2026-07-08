@@ -68,19 +68,16 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
         return MEMORY_TYPE_ACPI_RECLAIMABLE;
     case EfiACPIMemoryNVS:
         return MEMORY_TYPE_ACPI_NVS;
-    case EfiMemoryMappedIO:
-    case EfiMemoryMappedIOPortSpace:
-    case EfiPalCode:
-        return MEMORY_TYPE_RESERVED;
     case EfiPersistentMemory:
         return MEMORY_TYPE_PERSISTENT;
     case EfiUnacceptedMemoryType:
         return MEMORY_TYPE_UNACCEPTED;
+    case EfiMemoryMappedIO:
+    case EfiMemoryMappedIOPortSpace:
+    case EfiPalCode:
     default:
-        break;
+        return MEMORY_TYPE_RESERVED;
     }
-
-    panic("don't know how to convert efi memory type 0x%08X into native\n", type);
 }
 
 static inline void account_allocation(u64 address, size_t count, u32 type)
