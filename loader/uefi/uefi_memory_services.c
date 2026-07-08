@@ -1,5 +1,6 @@
 #define MSG_FMT(msg) "UEFI-MEMORY: " msg
 
+#include "common/attributes.h"
 #include "common/align.h"
 #include "common/log.h"
 #include "uefi/globals.h"
@@ -48,20 +49,17 @@ static size_t protocol_allocations_capacity = 0;
 
 static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
 {
+    u32 out_type = MEMORY_TYPE_FREE;
+
     switch (type) {
-    case EfiReservedMemoryType:
-        return MEMORY_TYPE_RESERVED;
     case EfiLoaderCode:
     case EfiLoaderData:
-        return MEMORY_TYPE_LOADER_RECLAIMABLE;
+        out_type = MEMORY_TYPE_LOADER_RECLAIMABLE;
+        FALLTHROUGH;
     case EfiBootServicesCode:
     case EfiBootServicesData:
-        return MEMORY_TYPE_FREE;
-    case EfiRuntimeServicesCode:
-    case EfiRuntimeServicesData:
-        return MEMORY_TYPE_RESERVED;
     case EfiConventionalMemory:
-        return MEMORY_TYPE_FREE;
+        return out_type;
     case EfiUnusableMemory:
         return MEMORY_TYPE_UNUSABLE;
     case EfiACPIReclaimMemory:
@@ -72,6 +70,9 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
         return MEMORY_TYPE_PERSISTENT;
     case EfiUnacceptedMemoryType:
         return MEMORY_TYPE_UNACCEPTED;
+    case EfiReservedMemoryType:
+    case EfiRuntimeServicesCode:
+    case EfiRuntimeServicesData:
     case EfiMemoryMappedIO:
     case EfiMemoryMappedIOPortSpace:
     case EfiPalCode:
