@@ -31,13 +31,20 @@ Support for ELF binaries targeting i386, amd64 and aarch64.
 Grab all the files from the latest release and proceed to the steps below
 depending on your target.
 
-### BIOS boot with MBR/EBR
-1. Create an MBR partitioned image with at least one file system.
+### BIOS boot with MBR/EBR/GPT
+1. Create an MBR or GPT partitioned image with at least one file system.
 2. Run `./hyper_install ./my-image`.
     - Optionally pass `--boot-partition <index>` (0-based) to record which
       partition you put the loader on, so `/` resolves to it deterministically
       rather than to whichever partition the config is found on first. Under
       UEFI this is detected automatically and needs no such flag.
+    - On MBR the loader (stage2) goes into the gap before the first partition.
+      GPT has no such gap, so the installer instead houses stage2 in a dedicated
+      [BIOS boot partition](https://en.wikipedia.org/wiki/BIOS_boot_partition),
+      synthesizing one in free space by default. Pass `--stage2-partition
+      <index>` to point it at an existing partition instead (it must be at least
+      128 KiB and its contents are overwritten). GPT images must use 512-byte
+      logical sectors.
 
 ### UEFI boot with MBR/EBR/GPT
 1. Create an MBR/GPT partitioned image.
