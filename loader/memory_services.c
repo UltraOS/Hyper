@@ -497,6 +497,8 @@ inline const char *mme_type_to_str(struct memory_map_entry *me)
         return "disabled";
     case MEMORY_TYPE_PERSISTENT:
         return "persistent";
+    case MEMORY_TYPE_UNACCEPTED:
+        return "unaccepted";
     case MEMORY_TYPE_LOADER_RECLAIMABLE:
         return "loader-reclaim";
     default:

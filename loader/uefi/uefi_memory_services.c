@@ -64,7 +64,7 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
     case EfiPersistentMemory:
         return MEMORY_TYPE_PERSISTENT;
     case EfiUnacceptedMemoryType:
-        return MEMORY_TYPE_DISABLED;
+        return MEMORY_TYPE_UNACCEPTED;
     default:
         break;
     }
