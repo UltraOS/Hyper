@@ -1,0 +1,57 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build the release for"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm cmake clang lld python3
+
+      # clang cross-compiles every target natively, so no toolchain is built
+      # and one runner produces every artifact.
+      - name: Build BIOS loader & installer (i686)
+        run: ./build.py --arch i686 --platform bios --toolchain clang --skip-base-dependencies --strip-info-log=on
+
+      - name: Build UEFI loader (amd64)
+        run: ./build.py --arch amd64 --platform uefi --toolchain clang --skip-base-dependencies --strip-info-log=on
+
+      - name: Build UEFI loader (aarch64)
+        run: ./build.py --arch aarch64 --platform uefi --toolchain clang --skip-base-dependencies --strip-info-log=on
+
+      # hyper_install is the generated, self-contained Python installer (one
+      # file for every OS, replacing the old per-platform compiled binaries).
+      - name: Collect release artifacts
+        run: |
+          mkdir -p release
+          cp build-clang-amd64-uefi/loader/hyper_uefi    release/BOOTX64.EFI
+          cp build-clang-aarch64-uefi/loader/hyper_uefi  release/BOOTAA64.EFI
+          cp build-clang-i686-bios/loader/hyper_iso_boot release/hyper_iso_boot
+          cp build-clang-i686-bios/loader/hyper_pxe      release/hyper_pxe
+          cp installer/hyper_install                     release/hyper_install
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: release/*
