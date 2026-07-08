@@ -61,7 +61,9 @@ static u32 efi_md_to_native_type(EFI_MEMORY_DESCRIPTOR *md)
     case EfiConventionalMemory:
         if (md->Attribute & EFI_MEMORY_SP)
             return MEMORY_TYPE_SOFT_RESERVED;
-        return out_type;
+        if (md->Attribute & EFI_MEMORY_WB)
+            return out_type;
+        return MEMORY_TYPE_RESERVED;
     case EfiUnusableMemory:
         return MEMORY_TYPE_UNUSABLE;
     case EfiACPIReclaimMemory:
