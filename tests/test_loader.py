@@ -381,7 +381,7 @@ def _build_partition_image(getopt, scenario: dict, is_uefi: bool):
             mp.Partition(files=boot_files, esp=True,
                          unique_guid=GPT_PART_GUIDS[0]),
             mp.Partition(files=other_files, unique_guid=GPT_PART_GUIDS[1]),
-        ], GPT_DISK_GUID)
+        ], GPT_DISK_GUID, installer_path=installer)
     else:
         raise RuntimeError(f"unknown layout {layout}")
 
@@ -448,12 +448,17 @@ _PARTITION_PARAMS = [
     pytest.param(_MBR_INDEX, True, marks=_UEFI_MARKS, id="mbr-index-uefi"),
     pytest.param(_EBR_LOGICAL, False, marks=_BIOS_MARKS, id="ebr-logical-bios"),
     pytest.param(_EBR_LOGICAL, True, marks=_UEFI_MARKS, id="ebr-logical-uefi"),
-    # GPT can't be installed under BIOS (no gap in the protective MBR), so it's
-    # UEFI-only.
+    # GPT works under both firmwares now that the installer can house stage2 in
+    # a synthesized BIOS boot partition. BIOS exercises the core addressing
+    # modes (index, partuuid, diskuuid); the path-parsing variants (bare,
+    # caseless) are firmware-independent and stay UEFI-only.
+    pytest.param(_GPT_INDEX, False, marks=_BIOS_MARKS, id="gpt-index-bios"),
     pytest.param(_GPT_INDEX, True, marks=_UEFI_MARKS, id="gpt-index-uefi"),
+    pytest.param(_GPT_PARTUUID, False, marks=_BIOS_MARKS, id="gpt-partuuid-bios"),
     pytest.param(_GPT_PARTUUID, True, marks=_UEFI_MARKS, id="gpt-partuuid-uefi"),
     pytest.param(_GPT_PARTUUID_BARE, True, marks=_UEFI_MARKS,
                  id="gpt-partuuid-bare-uefi"),
+    pytest.param(_GPT_DISKUUID, False, marks=_BIOS_MARKS, id="gpt-diskuuid-bios"),
     pytest.param(_GPT_DISKUUID, True, marks=_UEFI_MARKS, id="gpt-diskuuid-uefi"),
     pytest.param(_GPT_CASELESS, True, marks=_UEFI_MARKS, id="gpt-caseless-uefi"),
 ]
@@ -530,7 +535,8 @@ def _build_boot_partition_image(getopt, layout: str, boot_index: int,
             mp.Partition(files=files_for(i), esp=(i == boot_index),
                          unique_guid=GPT_PART_GUIDS[i])
             for i in range(2)
-        ], GPT_DISK_GUID)
+        ], GPT_DISK_GUID, installer_path=installer,
+           boot_partition=None if is_uefi else boot_index)
     else:
         raise RuntimeError(f"unknown layout {layout}")
 
@@ -543,6 +549,7 @@ _BOOT_PART_PARAMS = [
                  id="boot-part-mbr-bios"),
     pytest.param("primaries", 1, True, marks=_UEFI_MARKS,
                  id="boot-part-mbr-uefi"),
+    pytest.param("gpt", 1, False, marks=_BIOS_MARKS, id="boot-part-gpt-bios"),
     pytest.param("gpt", 1, True, marks=_UEFI_MARKS, id="boot-part-gpt-uefi"),
 ]
 
