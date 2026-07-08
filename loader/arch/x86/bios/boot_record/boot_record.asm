@@ -18,6 +18,13 @@ MBR_SIZE_IN_BYTES:      equ 512
 PXE_BOOT_DRIVE:         equ 0xFF
 STAGE2_LOAD_BASE:       equ (MBR_LOAD_BASE + MBR_SIZE_IN_BYTES)
 STAGE2_BASE_SECTOR:     equ 1
+
+; The LBA stage2 starts at lives as a patchable dword at this fixed offset,
+; right below the NT disk signature (0x1B8) and clear of the BPB area, which
+; some firmware treats as its own (validating it, or even writing into the
+; in-memory copy of this sector). Keep in sync with STAGE1_STAGE2_LBA_OFF in
+; the installer.
+STAGE2_LBA_PATCH_OFF:   equ 0x1B0
 BYTES_PER_BATCH:        equ (SECTORS_PER_BATCH * BYTES_PER_SECTOR)
 STAGE2_BYTES_TO_LOAD:   equ 131072
 STAGE2_SECTORS_TO_LOAD: equ (STAGE2_BYTES_TO_LOAD / BYTES_PER_SECTOR) ; must be a multiple of SECTORS_PER_BATCH
@@ -139,6 +146,15 @@ skip_bpb:
 ; (this boot record + stage2) at MBR_LOAD_BASE, so stage2 is sitting right after
 ; us at STAGE2_LOAD_BASE and there is nothing to read from disk.
 %ifndef HYPER_PXE_BOOT_RECORD
+; A plain MBR reads stage2 from the installer-patched LBA (the MBR gap by
+; default, or a GPT partition). The ISO variants set the DAP themselves above,
+; so leave theirs alone.
+%ifndef HYPER_ISO_MBR
+%ifndef HYPER_ISO_BOOT_RECORD
+    mov eax, [stage2_lba]
+    mov [DAP.sector_begin_low], eax
+%endif
+%endif
     mov ebx, STAGE2_LOAD_BASE
     mov cx, STAGE2_SECTORS_TO_LOAD
 
@@ -266,7 +282,14 @@ boot_info_table_invalid: db "Boot information table is invalid!", CR, LF
 
 times BYTES_PER_SECTOR - ($ - $$) db 0
 %else
-; padding before partition list
+; The LBA stage2 begins at. It defaults to the sector right after us (the MBR
+; gap), but the installer overwrites it when stage2 lives elsewhere, e.g.
+; inside a GPT partition where there is no usable gap before the first
+; partition.
+times STAGE2_LBA_PATCH_OFF - ($ - $$) db 0
+stage2_lba: dd STAGE2_BASE_SECTOR
+
+; padding before partition list (0x1B8 is the NT disk signature, keep zero)
 times 446 - ($ - $$) db 0
 
 ; 4 empty partitions by default
