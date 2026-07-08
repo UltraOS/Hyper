@@ -47,11 +47,11 @@ static size_t protocol_allocations_capacity = 0;
 
 #define PROTOCOL_ALLOCATIONS_BUFFER_INCREMENT 64
 
-static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
+static u32 efi_md_to_native_type(EFI_MEMORY_DESCRIPTOR *md)
 {
     u32 out_type = MEMORY_TYPE_FREE;
 
-    switch (type) {
+    switch (md->Type) {
     case EfiLoaderCode:
     case EfiLoaderData:
         out_type = MEMORY_TYPE_LOADER_RECLAIMABLE;
@@ -59,6 +59,8 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
     case EfiBootServicesCode:
     case EfiBootServicesData:
     case EfiConventionalMemory:
+        if (md->Attribute & EFI_MEMORY_SP)
+            return MEMORY_TYPE_SOFT_RESERVED;
         return out_type;
     case EfiUnusableMemory:
         return MEMORY_TYPE_UNUSABLE;
@@ -209,7 +211,7 @@ static void efi_memory_map_fixup(void)
         struct memory_map_entry me = {
             .physical_address = md->PhysicalStart,
             .size_in_bytes = md->NumberOfPages << PAGE_SHIFT,
-            .type = efi_memory_type_to_native(md->Type)
+            .type = efi_md_to_native_type(md)
         };
         mme_align_if_needed(&me);
 

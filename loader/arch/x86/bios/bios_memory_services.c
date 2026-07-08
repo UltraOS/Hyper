@@ -79,6 +79,8 @@ static void load_e820(void)
         print_info("range: 0x%016llX -> 0x%016llX, type: 0x%02X\n", entry.address,
                    entry.address + entry.size_in_bytes, entry.type);
 
+        if (entry.type == 0xEFFFFFFF)
+            entry.type = MEMORY_TYPE_SOFT_RESERVED;
 
         if (unlikely(entry.type > MEMORY_TYPE_MAX)) {
             print_warn(
