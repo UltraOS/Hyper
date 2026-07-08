@@ -13,7 +13,8 @@
 #define MEMORY_TYPE_UNUSABLE           0x00000005
 #define MEMORY_TYPE_DISABLED           0x00000006
 #define MEMORY_TYPE_PERSISTENT         0x00000007
-#define MEMORY_TYPE_MAX                MEMORY_TYPE_PERSISTENT
+#define MEMORY_TYPE_UNACCEPTED         0x00000008
+#define MEMORY_TYPE_MAX                MEMORY_TYPE_UNACCEPTED
 
 /*
  * All memory allocated by the loader is marked with this by default,
