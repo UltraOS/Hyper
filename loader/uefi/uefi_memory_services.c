@@ -56,7 +56,7 @@ static u32 efi_memory_type_to_native(EFI_MEMORY_TYPE type)
     case EfiACPIReclaimMemory:
         return MEMORY_TYPE_ACPI_RECLAIMABLE;
     case EfiACPIMemoryNVS:
-        return MEMORY_TYPE_NVS;
+        return MEMORY_TYPE_ACPI_NVS;
     case EfiMemoryMappedIO:
     case EfiMemoryMappedIOPortSpace:
     case EfiPalCode:
