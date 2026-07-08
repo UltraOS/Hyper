@@ -381,6 +381,78 @@ static void validate_apm_info(struct ultra_apm_attribute *apm)
     print("APM info OK\n");
 }
 
+/*
+ * The test kernel has no UEFI headers of its own, so mirror just the pieces of
+ * the firmware ABI needed to sanity-check the passed-through UEFI info: the
+ * leading fields of EFI_MEMORY_DESCRIPTOR and the runtime attribute bit.
+ */
+#define EFI_MEMORY_DESCRIPTOR_VERSION 1
+#define EFI_MEMORY_RUNTIME            0x8000000000000000ull
+
+struct efi_memory_descriptor {
+    u32 type;
+    u32 pad;
+    u64 physical_start;
+    u64 virtual_start;
+    u64 number_of_pages;
+    u64 attribute;
+};
+
+static void validate_uefi_info(struct ultra_uefi_info_attribute *ui,
+                               struct ultra_platform_info_attribute *pi)
+{
+    size_t i, count = ULTRA_UEFI_INFO_MEM_DESC_COUNT(*ui);
+    bool st_is_runtime = false;
+
+    if (pi->platform_type != ULTRA_PLATFORM_UEFI)
+        test_fail("UEFI info present on a non-UEFI platform\n");
+
+    if (ui->descriptor_version != EFI_MEMORY_DESCRIPTOR_VERSION)
+        test_fail("unexpected EFI memory descriptor version %u\n",
+                  ui->descriptor_version);
+
+    if (ui->descriptor_size < sizeof(struct efi_memory_descriptor))
+        test_fail("EFI descriptor size %u is too small\n", ui->descriptor_size);
+
+    // Hyper's UEFI loader is 64-bit only, so the firmware must be too.
+    if (ui->firmware_width != 64)
+        test_fail("unexpected UEFI firmware width %u\n", ui->firmware_width);
+
+    // NOTE: 1 <-> 4096 is an arbitrary sanity range
+    if (count < 1 || count > 4096)
+        test_fail("invalid EFI memory map entry count %zu\n", count);
+
+    if (!ui->system_table_address)
+        test_fail("UEFI system table address is NULL\n");
+
+    /*
+     * The system table itself sits in firmware runtime memory, which Hyper
+     * leaves unmapped, so it can't be dereferenced here. Instead confirm the
+     * memory map is coherent and that the descriptor covering the system table
+     * is flagged as runtime memory (where the system table is expected to live
+     * so it can be relocated with SetVirtualAddressMap()).
+     */
+    for (i = 0; i < count; ++i) {
+        struct efi_memory_descriptor *md =
+            (void*)(ui->memory_descriptors + i * ui->descriptor_size);
+        u64 end;
+
+        if (!md->number_of_pages)
+            test_fail("empty EFI memory descriptor %zu\n", i);
+
+        end = md->physical_start + (md->number_of_pages << PAGE_SHIFT);
+        if (ui->system_table_address >= md->physical_start &&
+            ui->system_table_address < end)
+            st_is_runtime = md->attribute & EFI_MEMORY_RUNTIME;
+    }
+
+    if (!st_is_runtime)
+        test_fail("system table not in a runtime EFI memory region\n");
+
+    print("UEFI info OK (%zu EFI memory descriptors, %u bytes each)\n",
+          count, ui->descriptor_size);
+}
+
 static void validate_platform_info(struct ultra_platform_info_attribute *pi,
                                    struct ultra_kernel_info_attribute *ki)
 {
@@ -648,6 +720,7 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
     struct ultra_framebuffer_attribute *fb = NULL;
     struct ultra_memory_map_attribute *mm = NULL;
     struct ultra_apm_attribute *apm_info = NULL;
+    struct ultra_uefi_info_attribute *uefi_info = NULL;
     struct ultra_module_info_attribute *modules_begin = NULL;
     size_t i, module_count = 0;
     bool modules_eof = false;
@@ -724,6 +797,13 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
             apm_info = cursor;
             break;
 
+        case ULTRA_ATTRIBUTE_UEFI_INFO:
+            if (uefi_info)
+                test_fail_on_non_unique("UEFI info attributes");
+
+            uefi_info = cursor;
+            break;
+
         default:
             test_fail("invalid attribute type %u\n", hdr->type);
         }
@@ -746,6 +826,24 @@ static void attribute_array_verify(struct ultra_boot_context *bctx)
 
     if (apm_info)
         validate_apm_info(apm_info);
+
+    /*
+     * The harness tells us via the command line whether it asked the loader to
+     * pass UEFI info, so a silently dropped (or spuriously emitted) attribute
+     * is caught rather than going unnoticed.
+     */
+    {
+        u32 want_uefi_info;
+
+        if (cmdline_get_u32(cl, SV("expect-uefi-info"), &want_uefi_info) &&
+            want_uefi_info != (uefi_info != NULL)) {
+            test_fail("expected UEFI info present=%u, got %u\n",
+                      want_uefi_info, uefi_info != NULL);
+        }
+    }
+
+    if (uefi_info)
+        validate_uefi_info(uefi_info, pi);
 
     print("\nLoader info: %s (version %d.%d) on %s\n",
           pi->loader_name, pi->loader_major, pi->loader_minor,
@@ -776,4 +874,3 @@ int main(struct ultra_boot_context *bctx, uint32_t magic)
 
     test_pass();
 }
-

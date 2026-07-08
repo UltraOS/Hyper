@@ -755,3 +755,44 @@ def _module_desc_image(br_type: str, fs_type: str, kernel_type: str):
 def test_module_description(feature_image: ultra.DiskImage, firmware,
                             pytestconfig):
     boot_and_check(feature_image, firmware, pytestconfig)
+
+
+#
+# UEFI info pass-through test.
+#
+# With `pass-uefi-info = true` the loader hands the kernel the EFI system table
+# plus the raw firmware memory map (as returned by GetMemoryMap()) in a single
+# ultra_uefi_info_attribute, captured right before ExitBootServices(). The kernel
+# validates the attribute (descriptor version/size, a coherent map, the system
+# table living in a runtime region) and cross-checks its presence against the
+# `expect-uefi-info` command line token (see validate_uefi_info in
+# tests/kernel/kernel.c). The BIOS case asks for it too, to confirm the loader
+# quietly ignores the option on a platform that has no such info to pass.
+#
+
+
+def _uefi_info_image(br_type: str, fs_type: str, kernel_type: str, expect: int):
+    cfg = di.make_single_entry_config(f"/boot/kernel_{kernel_type}",
+                                      f"expect-uefi-info={expect}",
+                                      extra="pass-uefi-info = true\n")
+    return (br_type, fs_type, cfg)
+
+
+@pytest.mark.parametrize(
+    "feature_image,firmware",
+    (
+        pytest.param(_uefi_info_image("GPT", "FAT32", "amd64_higher_half", 1),
+                     "uefi_x64", marks=_UEFI_MARKS,
+                     id="GPT-FAT32-amd64_higher_half"),
+        pytest.param(_uefi_info_image("MBR", "FAT32", "aarch64_higher_half", 1),
+                     "uefi_aarch64", marks=_AA64_MARKS,
+                     id="MBR-FAT32-aarch64_higher_half"),
+        # BIOS asks for it too, to confirm the loader quietly ignores the option
+        # on a platform that has no such info to pass.
+        pytest.param(_uefi_info_image("MBR", "FAT32", "amd64_higher_half", 0),
+                     "bios", marks=_BIOS_MARKS, id="MBR-FAT32-amd64_higher_half"),
+    ),
+    indirect=["feature_image"],
+)
+def test_uefi_info(feature_image: ultra.DiskImage, firmware, pytestconfig):
+    boot_and_check(feature_image, firmware, pytestconfig)
