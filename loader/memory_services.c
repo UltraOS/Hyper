@@ -489,8 +489,8 @@ inline const char *mme_type_to_str(struct memory_map_entry *me)
         return "reserved";
     case MEMORY_TYPE_ACPI_RECLAIMABLE:
         return "ACPI-reclaim";
-    case MEMORY_TYPE_NVS:
-        return "NVS";
+    case MEMORY_TYPE_ACPI_NVS:
+        return "ACPI-NVS";
     case MEMORY_TYPE_UNUSABLE:
         return "unusable";
     case MEMORY_TYPE_DISABLED:

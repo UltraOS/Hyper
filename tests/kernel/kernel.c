@@ -19,10 +19,10 @@ static const char *me_type_to_str(u64 type)
         return "free";
     case ULTRA_MEMORY_TYPE_RESERVED:
         return "reserved";
-    case ULTRA_MEMORY_TYPE_RECLAIMABLE:
+    case ULTRA_MEMORY_TYPE_ACPI_RECLAIMABLE:
         return "reclaim";
-    case ULTRA_MEMORY_TYPE_NVS:
-        return "nvs";
+    case ULTRA_MEMORY_TYPE_ACPI_NVS:
+        return "acpi-nvs";
     case ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE:
         return "loader-reclaim";
     case ULTRA_MEMORY_TYPE_MODULE:
@@ -92,8 +92,8 @@ static void validate_memory_map(struct ultra_memory_map_attribute *mm)
         switch (this->type) {
         case ULTRA_MEMORY_TYPE_FREE:
         case ULTRA_MEMORY_TYPE_RESERVED:
-        case ULTRA_MEMORY_TYPE_RECLAIMABLE:
-        case ULTRA_MEMORY_TYPE_NVS:
+        case ULTRA_MEMORY_TYPE_ACPI_RECLAIMABLE:
+        case ULTRA_MEMORY_TYPE_ACPI_NVS:
         case ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE:
         case ULTRA_MEMORY_TYPE_MODULE:
             break;

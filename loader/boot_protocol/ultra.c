@@ -612,7 +612,7 @@ static void ultra_memory_map_entry_convert(struct memory_map_entry *entry,
     ue->size = entry->size_in_bytes;
 
     // Direct mapping
-    if (entry->type <= MEMORY_TYPE_NVS ||
+    if (entry->type <= MEMORY_TYPE_ACPI_NVS ||
         entry->type >= ULTRA_MEMORY_TYPE_LOADER_RECLAIMABLE) {
         ue->type = entry->type;
     } else if (entry->type == MEMORY_TYPE_LOADER_RECLAIMABLE) {
@@ -1096,7 +1096,7 @@ static bool mme_is_ram(u64 type)
     switch (type) {
     case MEMORY_TYPE_FREE:
     case MEMORY_TYPE_ACPI_RECLAIMABLE:
-    case MEMORY_TYPE_NVS:
+    case MEMORY_TYPE_ACPI_NVS:
         return true;
     default:
         /*
@@ -1476,7 +1476,7 @@ static u64 ultra_known_mm_types[] = {
     MEMORY_TYPE_FREE,
     MEMORY_TYPE_RESERVED,
     MEMORY_TYPE_ACPI_RECLAIMABLE,
-    MEMORY_TYPE_NVS,
+    MEMORY_TYPE_ACPI_NVS,
     MEMORY_TYPE_LOADER_RECLAIMABLE,
     MEMORY_TYPE_INVALID,
 };
