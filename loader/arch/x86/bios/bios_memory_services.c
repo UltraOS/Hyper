@@ -76,11 +76,6 @@ static void load_e820(void)
             continue;
         }
 
-        if (regs.ecx == sizeof(entry) && !(entry.attributes & 1)) {
-            print_warn("E820 attribute reserved bit not set, skipped\n");
-            continue;
-        }
-
         print_info("range: 0x%016llX -> 0x%016llX, type: 0x%02X\n", entry.address,
                    entry.address + entry.size_in_bytes, entry.type);
 
