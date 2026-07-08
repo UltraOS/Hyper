@@ -6,6 +6,7 @@ import pytest
 import options
 import disk_image as di
 from image_utils import multipart as mp
+import pxe_image as pxe
 from typing import List
 from image_utils import ultra
 
@@ -68,22 +69,14 @@ def print_output(stdout):
     print(stdout.decode("ascii"))
 
 
-def do_run_qemu(
-    arch_postfix: str, args: List[str], disk_image: ultra.DiskImage,
-    config: str, timeout: int
-) -> bytes:
-    qemu_args = [f"qemu-system-{arch_postfix}",
-                 "-cdrom" if disk_image.is_cd() else "-hda",
-                 disk_image.path]
-    qemu_args.extend(args)
-
+def run_qemu_command(qemu_args: List[str], config: str, timeout: int) -> bytes:
     with_gui = config.getoption(options.QEMU_GUI_OPT)
     if not with_gui:
         qemu_args.append("-nographic")
 
     qp = subprocess.Popen(qemu_args, stdout=subprocess.PIPE)
     try:
-        ret = qp.wait(timeout)
+        qp.wait(timeout)
     except:
         print("Test timeout!")
         qp.kill()
@@ -95,6 +88,18 @@ def do_run_qemu(
 
     stdout, _ = qp.communicate()
     return stdout
+
+
+def do_run_qemu(
+    arch_postfix: str, args: List[str], disk_image: ultra.DiskImage,
+    config: str, timeout: int
+) -> bytes:
+    qemu_args = [f"qemu-system-{arch_postfix}",
+                 "-cdrom" if disk_image.is_cd() else "-hda",
+                 disk_image.path]
+    qemu_args.extend(args)
+
+    return run_qemu_command(qemu_args, config, timeout)
 
 
 def run_qemu_x86(
@@ -118,6 +123,37 @@ def run_qemu_aarch64(disk_image: ultra.DiskImage, config: str) -> bytes:
     qemu_args = ["-M", "virt", "-cpu", "cortex-a72", "-device", "ramfb",
                  "-bios", config.getoption(options.AA64_UEFI_FIRMWARE_OPT)]
     return do_run_qemu("aarch64", qemu_args, disk_image, config, 30)
+
+
+def run_qemu_x86_pxe(
+    tftp_dir: str, boot_name: str, is_uefi: bool, config: str
+) -> bytes:
+    # QEMU's user-mode networking is its own DHCP + TFTP server: it hands the
+    # firmware `boot_name` off `tftp_dir`, and the loader then TFTPs the config,
+    # kernel and modules from there too.
+    qemu_args = ["qemu-system-x86_64",
+                 "-netdev", f"user,id=n0,tftp={tftp_dir},bootfile={boot_name}",
+                 "-boot", "n",
+                 "-debugcon", "stdio", "-serial", "mon:null",
+                 "-cpu", "qemu64,la57=on"]
+
+    if is_uefi:
+        firmware_path = config.getoption(options.X64_UEFI_FIRMWARE_OPT)
+        if not firmware_path:
+            pytest.skip("No UEFI firmware provided")
+
+        qemu_args += [
+            "-drive", f"file={firmware_path},if=pflash,format=raw,readonly=on",
+            "-device", "virtio-net-pci,netdev=n0",
+            # EDK2's UEFI network stack won't come up (so it never PXE boots)
+            # without an entropy source to seed it.
+            "-device", "virtio-rng-pci",
+        ]
+    else:
+        # A NIC with a PXE option ROM; QEMU ships iPXE for rtl8139.
+        qemu_args += ["-device", "rtl8139,netdev=n0"]
+
+    return run_qemu_command(qemu_args, config, 30)
 
 
 TEST_SUCCESS = b'\xCA\xFE\xBA\xBE'
@@ -563,6 +599,49 @@ def test_boot_partition_selection(layout, boot_index, is_uefi, pytestconfig):
                        pytestconfig)
     finally:
         shutil.rmtree(tmp)
+
+
+#
+# Network (PXE) boot.
+#
+# There is no disk at all: QEMU's user-mode networking acts as the DHCP + TFTP
+# server, handing the firmware the boot image (the BIOS PXE blob, or the UEFI
+# binary) and then serving the config, kernel and modules the loader TFTPs. The
+# UEFI path needs a virtio-rng device or EDK2's network stack never comes up.
+#
+_PXE_BIOS_MARKS = [pytest.mark.bios, pytest.mark.pxe]
+_PXE_UEFI_MARKS = [pytest.mark.uefi_x64, pytest.mark.pxe]
+
+_PXE_PARAMS = [
+    # (kernel_type, is_uefi)
+    pytest.param("amd64_higher_half", False, marks=_PXE_BIOS_MARKS,
+                 id="pxe-bios-amd64-higher"),
+    pytest.param("i686_lower_half", False, marks=_PXE_BIOS_MARKS,
+                 id="pxe-bios-i686-lower"),
+    pytest.param("amd64_higher_half", True, marks=_PXE_UEFI_MARKS,
+                 id="pxe-uefi-x64-amd64-higher"),
+]
+
+
+def _pxe_boot_image(getopt, is_uefi):
+    """(source path, TFTP file name) of the image the firmware fetches."""
+    if is_uefi:
+        return getopt(options.X64_HYPER_UEFI_OPT), "BOOTX64.EFI"
+    return getopt(options.HYPER_PXE_OPT), "hyper_pxe"
+
+
+@pytest.mark.parametrize("kernel_type,is_uefi", _PXE_PARAMS)
+def test_pxe_boot(kernel_type, is_uefi, pytestconfig):
+    getopt = pytestconfig.getoption
+    boot_image, boot_name = _pxe_boot_image(getopt, is_uefi)
+
+    tftp = pxe.build_pxe_root(getopt(options.KERNEL_DIR_OPT), kernel_type,
+                              boot_image, boot_name)
+    try:
+        res = run_qemu_x86_pxe(tftp, boot_name, is_uefi, pytestconfig)
+        check_qemu_run(res)
+    finally:
+        shutil.rmtree(tftp)
 
 
 #

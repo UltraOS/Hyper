@@ -30,6 +30,14 @@ def pytest_collection_modifyitems(config, items):
                 )
             continue
 
+        # BIOS PXE (the UEFI PXE variants are handled by the uefi_* branches).
+        if "pxe" in item.keywords:
+            if config.getoption(options.HYPER_PXE_OPT) is None:
+                item.add_marker(
+                    pytest.mark.skip(reason="missing hyper PXE loader")
+                )
+            continue
+
         if not has_bios and "fat" in item.keywords:
             item.add_marker(pytest.mark.skip(reason="missing hyper installer"))
             continue
