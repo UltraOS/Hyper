@@ -2,7 +2,9 @@
 # This file was generated from hyper_install.py.in - do not edit directly.
 #
 # Self-contained Hyper installer: writes the (MBR or ISO) boot record and, for
-# non-ISO images, the stage2 loader into the gap before the first partition.
+# non-ISO images, the stage2 loader. On MBR that goes into the gap before the
+# first partition; on GPT, where there is no such gap, it goes into a dedicated
+# BIOS boot partition (synthesized by us or supplied via --stage2-partition).
 #
 # The boot blobs are baked in at build time as deflate-compressed base64 by
 # installer/embed_blobs.py, so the produced script is fully portable and needs
@@ -12,6 +14,7 @@ import base64
 import struct
 import sys
 import zlib
+import uuid
 
 MBR_DATA = zlib.decompress(base64.b64decode("@MBR_B64@"))
 ISO_MBR_DATA = zlib.decompress(base64.b64decode("@ISO_MBR_B64@"))
@@ -37,6 +40,17 @@ STAGE2_MAGIC = b"HyperST2"
 STAGE2_BOOT_PARTITION_OFF = len(STAGE2_MAGIC)
 BOOT_PARTITION_UNSPECIFIED = 0xFFFFFFFF
 
+# The LBA stage2 starts at, as a field inside the boot record that stage1 reads
+# to locate stage2. It defaults to sector 1 (the gap right after the MBR); on
+# GPT we patch it to the BIOS boot partition. STAGE1_STAGE2_LBA_OFF must match
+# STAGE2_LBA_PATCH_OFF in boot_record.asm.
+STAGE2_BASE_SECTOR = 1
+STAGE1_STAGE2_LBA_OFF = 0x1B0
+
+# stage1 always pulls a fixed span for stage2 (STAGE2_BYTES_TO_LOAD in
+# boot_record.asm), so whatever we place it in must be at least this large.
+STAGE2_SPAN = 128 * 1024
+
 ISO9660_LOGICAL_SECTOR_SIZE = 2048
 ISO9660_SYSTEM_AREA_BLOCKS = 16
 ISO9660_PVD_OFF = ISO9660_LOGICAL_SECTOR_SIZE * ISO9660_SYSTEM_AREA_BLOCKS + 1
@@ -44,6 +58,37 @@ ISO9660_IDENTIFIER = b"CD001"
 
 # "EFI PART", the GPT header signature.
 GPT_SIGNATURE = b"EFI PART"
+
+# The logical block sizes a GPT header can sit at (LBA 1). The BIOS boot chain
+# hardcodes 512-byte sectors, so that's the only one we can install to, but we
+# still detect 4096 to reject it with a clear message instead of misreading it.
+GPT_BLOCK_SIZES = (512, 4096)
+
+# Field offsets within the GPT header.
+GPT_HEADER_SIZE_OFF = 12
+GPT_HEADER_CRC_OFF = 16
+GPT_BACKUP_LBA_OFF = 32
+GPT_FIRST_USABLE_OFF = 40
+GPT_LAST_USABLE_OFF = 48
+GPT_ENTRIES_LBA_OFF = 72
+GPT_NUM_ENTRIES_OFF = 80
+GPT_ENTRY_SIZE_OFF = 84
+GPT_ARRAY_CRC_OFF = 88
+
+# Field offsets within a GPT partition entry.
+GPT_ENTRY_TYPE_GUID_OFF = 0
+GPT_ENTRY_UNIQUE_GUID_OFF = 16
+GPT_ENTRY_FIRST_LBA_OFF = 32
+GPT_ENTRY_LAST_LBA_OFF = 40
+GPT_ENTRY_NAME_OFF = 56
+GPT_GUID_SIZE = 16
+
+# A partition whose type GUID is all-zero is an empty slot.
+GPT_UNUSED_TYPE_GUID = b"\x00" * GPT_GUID_SIZE
+# The BIOS boot partition type: holds boot loader code rather than a file
+# system, which is exactly what we synthesize to house stage2.
+GPT_BIOS_BOOT_TYPE_GUID = \
+    uuid.UUID("21686148-6449-6E6F-744E-656564454649").bytes_le
 
 
 def panic(msg):
@@ -131,20 +176,179 @@ def is_iso_disk(img):
     return read_at(img, ISO9660_PVD_OFF, len(ISO9660_IDENTIFIER)) == ISO9660_IDENTIFIER
 
 
-def ensure_no_gpt(img):
-    for off in (512, 4096):
-        if read_at(img, off, len(GPT_SIGNATURE)) == GPT_SIGNATURE:
-            panic("Installing to GPT images is currently not supported")
+def gpt_block_size(img):
+    """Logical block size if `img` is GPT-partitioned, else None."""
+    for block in GPT_BLOCK_SIZES:
+        if read_at(img, block, len(GPT_SIGNATURE)) == GPT_SIGNATURE:
+            return block
+    return None
 
 
-def write_hyper(img, partitions, is_iso, stage2):
+class Gpt:
+    """
+    Just enough GPT read/modify/write to slot in one partition. Only the primary
+    header is parsed; the backup is located through it and kept in sync so we
+    never leave the two copies disagreeing (which firmware may "repair" behind
+    our back, undoing the install).
+    """
+
+    def __init__(self, img, block):
+        self.img = img
+        self.block = block
+        self.primary_lba = 1
+        self.header = self._read_header(self.primary_lba)
+        self.entries_lba = self._field(GPT_ENTRIES_LBA_OFF, 8)
+        self.num_entries = self._field(GPT_NUM_ENTRIES_OFF, 4)
+        self.entry_size = self._field(GPT_ENTRY_SIZE_OFF, 4)
+        self.first_usable = self._field(GPT_FIRST_USABLE_OFF, 8)
+        self.last_usable = self._field(GPT_LAST_USABLE_OFF, 8)
+        self.backup_lba = self._field(GPT_BACKUP_LBA_OFF, 8)
+        self.array = bytearray(read_at(img, self.entries_lba * block,
+                                       self.num_entries * self.entry_size))
+
+    def _read_header(self, lba):
+        off = lba * self.block
+        if read_at(self.img, off, len(GPT_SIGNATURE)) != GPT_SIGNATURE:
+            panic(f"GPT header at LBA {lba} is missing its 'EFI PART' signature")
+        (size,) = struct.unpack("<I",
+                                read_at(self.img, off + GPT_HEADER_SIZE_OFF, 4))
+        return bytearray(read_at(self.img, off, size))
+
+    def _field(self, off, size):
+        return int.from_bytes(self.header[off:off + size], "little")
+
+    def _entry_field(self, index, off, size):
+        base = index * self.entry_size + off
+        return int.from_bytes(self.array[base:base + size], "little")
+
+    def _entry_type(self, index):
+        base = index * self.entry_size + GPT_ENTRY_TYPE_GUID_OFF
+        return bytes(self.array[base:base + GPT_GUID_SIZE])
+
+    def sectors_for(self, nbytes):
+        return (nbytes + self.block - 1) // self.block
+
+    def find_free_slot(self):
+        for i in range(self.num_entries):
+            if self._entry_type(i) == GPT_UNUSED_TYPE_GUID:
+                return i
+        panic("The GPT partition array is full, no room for a boot partition")
+
+    def find_free_range(self, sectors):
+        """Lowest [first, last] LBA window in the usable area that fits."""
+        used = []
+        for i in range(self.num_entries):
+            if self._entry_type(i) == GPT_UNUSED_TYPE_GUID:
+                continue
+            used.append((self._entry_field(i, GPT_ENTRY_FIRST_LBA_OFF, 8),
+                         self._entry_field(i, GPT_ENTRY_LAST_LBA_OFF, 8)))
+
+        cursor = self.first_usable
+        for first, last in sorted(used):
+            if first - cursor >= sectors:
+                break
+            cursor = max(cursor, last + 1)
+
+        if self.last_usable - cursor + 1 < sectors:
+            panic("Not enough free space in the GPT to fit a boot partition "
+                  f"for stage2 ({sectors} sectors); free up some space or pass "
+                  "--stage2-partition to reuse an existing one")
+        return cursor, cursor + sectors - 1
+
+    def reuse_partition(self, index, sectors, what=None):
+        """Validate an existing partition can hold stage2, return its start."""
+        what = what or f"--stage2-partition {index}"
+        if index >= self.num_entries:
+            panic(f"{what} is out of range (0..{self.num_entries - 1})")
+        if self._entry_type(index) == GPT_UNUSED_TYPE_GUID:
+            panic(f"{what} is empty")
+
+        first = self._entry_field(index, GPT_ENTRY_FIRST_LBA_OFF, 8)
+        last = self._entry_field(index, GPT_ENTRY_LAST_LBA_OFF, 8)
+        if last - first + 1 < sectors:
+            panic(f"{what} is too small for stage2: need {sectors} sectors, "
+                  f"have {last - first + 1}")
+        return first
+
+    def find_bios_boot(self):
+        for i in range(self.num_entries):
+            if self._entry_type(i) == GPT_BIOS_BOOT_TYPE_GUID:
+                return i
+        return None
+
+    def synthesize_bios_boot(self, sectors):
+        """
+        Return the start LBA of a BIOS boot partition holding stage2, adding one
+        if there isn't a usable one already. An existing BIOS boot partition
+        (ours from a prior install, or e.g. one GRUB left) is reused as-is, so
+        reinstalling is idempotent rather than piling up duplicates.
+        """
+        existing = self.find_bios_boot()
+        if existing is not None:
+            return self.reuse_partition(
+                existing, sectors,
+                f"the existing BIOS boot partition (entry {existing})")
+
+        slot = self.find_free_slot()
+        first, last = self.find_free_range(sectors)
+
+        entry = bytearray(self.entry_size)
+        entry[GPT_ENTRY_TYPE_GUID_OFF:GPT_ENTRY_TYPE_GUID_OFF + GPT_GUID_SIZE] \
+            = GPT_BIOS_BOOT_TYPE_GUID
+        entry[GPT_ENTRY_UNIQUE_GUID_OFF:
+              GPT_ENTRY_UNIQUE_GUID_OFF + GPT_GUID_SIZE] = uuid.uuid4().bytes_le
+        struct.pack_into("<Q", entry, GPT_ENTRY_FIRST_LBA_OFF, first)
+        struct.pack_into("<Q", entry, GPT_ENTRY_LAST_LBA_OFF, last)
+        name = "Hyper stage2".encode("utf-16-le")
+        entry[GPT_ENTRY_NAME_OFF:GPT_ENTRY_NAME_OFF + len(name)] = name
+
+        base = slot * self.entry_size
+        self.array[base:base + self.entry_size] = entry
+        self._flush()
+        return first
+
+    def _flush(self):
+        """Recompute CRCs and write the array + both headers back to disk."""
+        array_crc = zlib.crc32(self.array) & 0xFFFFFFFF
+
+        write_at(self.img, self.entries_lba * self.block, self.array)
+        self._write_header(self.header, self.primary_lba, array_crc)
+
+        # The backup header sits at backup_lba and points at its own array copy.
+        backup = self._read_header(self.backup_lba)
+        backup_entries_lba = int.from_bytes(
+            backup[GPT_ENTRIES_LBA_OFF:GPT_ENTRIES_LBA_OFF + 8], "little")
+        write_at(self.img, backup_entries_lba * self.block, self.array)
+        self._write_header(backup, self.backup_lba, array_crc)
+
+    def _write_header(self, header, lba, array_crc):
+        struct.pack_into("<I", header, GPT_ARRAY_CRC_OFF, array_crc)
+        # The header CRC covers the header with its own CRC field zeroed.
+        struct.pack_into("<I", header, GPT_HEADER_CRC_OFF, 0)
+        header_crc = zlib.crc32(header) & 0xFFFFFFFF
+        struct.pack_into("<I", header, GPT_HEADER_CRC_OFF, header_crc)
+        write_at(self.img, lba * self.block, header)
+
+
+def mbr_with_stage2_lba(stage2_lba):
+    data = bytearray(MBR_DATA)
+    struct.pack_into("<I", data, STAGE1_STAGE2_LBA_OFF, stage2_lba)
+    return bytes(data)
+
+
+def write_hyper(img, partitions, is_iso, stage2, stage2_lba=STAGE2_BASE_SECTOR):
     # Lay down our boot record, then restore the original partition table it may
-    # have overwritten.
-    write_at(img, 0, ISO_MBR_DATA if is_iso else MBR_DATA)
+    # have overwritten (on GPT this is the protective MBR entry).
+    if is_iso:
+        write_at(img, 0, ISO_MBR_DATA)
+    else:
+        # Tell stage1 where stage2 lives: the MBR gap by default, or the GPT
+        # partition we placed it in.
+        write_at(img, 0, mbr_with_stage2_lba(stage2_lba))
     write_at(img, OFFSET_TO_MBR_PARTITION_LIST, partitions)
 
     if not is_iso:
-        write_at(img, MBR_BLOCK_SIZE, stage2)
+        write_at(img, stage2_lba * MBR_BLOCK_SIZE, stage2)
 
 
 def parse_args():
@@ -156,8 +360,14 @@ def parse_args():
         "-p", "--boot-partition", type=int, default=None, metavar="INDEX",
         help="0-based index of the partition Hyper is installed to; makes '/' "
              "and the disk/partition reported to the kernel resolve to it "
-             "deterministically. MBR (non-ISO) images only; omit to let the "
+             "deterministically. MBR/GPT (non-ISO) images only; omit to let the "
              "loader scan for the config."
+    )
+    parser.add_argument(
+        "--stage2-partition", type=int, default=None, metavar="INDEX",
+        help="GPT only: 0-based index of an existing partition to store stage2 "
+             "in, instead of synthesizing a dedicated BIOS boot partition. It "
+             "must be at least 128 KiB and its contents are overwritten."
     )
 
     args = parser.parse_args()
@@ -168,6 +378,8 @@ def parse_args():
     if args.boot_partition is not None and \
        args.boot_partition >= BOOT_PARTITION_UNSPECIFIED:
         parser.error("--boot-partition is too large")
+    if args.stage2_partition is not None and args.stage2_partition < 0:
+        parser.error("--stage2-partition must not be negative")
 
     return args
 
@@ -178,18 +390,34 @@ def main():
     with open(args.image, "r+b") as img:
         partitions = read_mbr_partition_list(img)
         is_iso = is_iso_disk(img)
+        gpt_block = None if is_iso else gpt_block_size(img)
 
         if is_iso:
             if args.boot_partition is not None:
                 warn("--boot-partition is ignored for ISO images")
-            stage2 = STAGE2_DATA
+            if args.stage2_partition is not None:
+                warn("--stage2-partition is ignored for ISO images")
+            write_hyper(img, partitions, is_iso, STAGE2_DATA)
+        elif gpt_block is not None:
+            if gpt_block != 512:
+                panic(f"GPT disks with {gpt_block}-byte logical sectors are not "
+                      "supported (the BIOS boot chain assumes 512)")
+
+            stage2 = stage2_with_boot_partition(partitions, args.boot_partition)
+            gpt = Gpt(img, gpt_block)
+            sectors = gpt.sectors_for(max(len(stage2), STAGE2_SPAN))
+            if args.stage2_partition is not None:
+                stage2_lba = gpt.reuse_partition(args.stage2_partition, sectors)
+            else:
+                stage2_lba = gpt.synthesize_bios_boot(sectors)
+
+            write_hyper(img, partitions, is_iso, stage2, stage2_lba)
         else:
-            # GPT is currently unsupported.
-            ensure_no_gpt(img)
+            if args.stage2_partition is not None:
+                warn("--stage2-partition is ignored for MBR images")
             ensure_stage2_fits(partitions)
             stage2 = stage2_with_boot_partition(partitions, args.boot_partition)
-
-        write_hyper(img, partitions, is_iso, stage2)
+            write_hyper(img, partitions, is_iso, stage2)
 
     return 0
 
