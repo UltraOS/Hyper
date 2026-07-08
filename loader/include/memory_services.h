@@ -88,6 +88,48 @@ size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
                                   mme_convert_t entry_convert);
 
 /*
+ * UEFI-specific information needed to hand the firmware environment (runtime
+ * services & configuration tables) over to the kernel. Only meaningful under
+ * UEFI; the BIOS provider has no such notion.
+ */
+struct uefi_handoff_info {
+    u64 system_table;
+
+    u32 descriptor_size;
+    u32 descriptor_version;
+
+    // Width of the UEFI firmware in bits, either 32 or 64.
+    u32 firmware_width;
+
+    /*
+     * Capacity in bytes of the buffer reserved for the raw EFI memory map
+     * capture, an upper bound on the size of the map that ends up captured
+     * (see services_get_captured_uefi_map()).
+     */
+    size_t memory_map_capacity;
+};
+
+/*
+ * Prepares the UEFI handoff and returns true when the loader is running under
+ * UEFI: fills '*out' with the current handoff information and reserves an
+ * internal buffer that receives a verbatim copy of the raw EFI memory map (an
+ * array of firmware EFI_MEMORY_DESCRIPTORs) during the final
+ * services_release_resources() call, right before ExitBootServices() so that
+ * it matches the map key handed to the firmware.
+ * On BIOS this returns false and '*out' is left untouched.
+ */
+bool services_setup_uefi_handoff(struct uefi_handoff_info *out);
+
+/*
+ * Returns the captured raw EFI memory map, valid once
+ * services_release_resources() has exited boot services (and callable past
+ * that point, as it only reads loader-owned memory). NULL when no capture
+ * buffer was ever reserved, and always NULL on BIOS.
+ * out_size -> receives the size of the captured map in bytes.
+ */
+const void *services_get_captured_uefi_map(size_t *out_size);
+
+/*
  * A handler that is invoked once per each range in the memory map
  * user -> a user provided opaque pointer.
  * entry -> current memory map entry.

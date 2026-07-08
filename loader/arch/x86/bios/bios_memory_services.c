@@ -310,6 +310,19 @@ void ms_free_pages(u64 address, size_t count)
     allocate_out_of(mme_idx, &freed_mme);
 }
 
+bool services_setup_uefi_handoff(struct uefi_handoff_info *out)
+{
+    // The BIOS platform has no UEFI environment to hand over.
+    (void)out;
+    return false;
+}
+
+const void *services_get_captured_uefi_map(size_t *out_size)
+{
+    *out_size = 0;
+    return NULL;
+}
+
 size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
                                   mme_convert_t entry_convert)
 {
