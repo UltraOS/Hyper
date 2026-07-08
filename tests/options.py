@@ -6,6 +6,7 @@ INSTALLER_OPT = "--hyper-install-path"
 X64_HYPER_UEFI_OPT = "--x64-hyper-uefi-path"
 AA64_HYPER_UEFI_OPT = "--aa64-hyper-uefi-path"
 HYPER_ISO_BR_OPT = "--hyper-iso-br-path"
+HYPER_PXE_OPT = "--hyper-pxe-path"
 X64_UEFI_FIRMWARE_OPT = "--x64-uefi-firmware-path"
 AA64_UEFI_FIRMWARE_OPT = "--aa64-uefi-firmware-path"
 QEMU_GUI_OPT = "--qemu-enable-gui"
@@ -17,6 +18,7 @@ def add_base_options(add_opt_cb):
     hyper_x64_uefi_path = path_guesser.guess_path_to_hyper_uefi("amd64")
     hyper_aa64_uefi_path = path_guesser.guess_path_to_hyper_uefi("aarch64")
     hyper_iso_br_path = path_guesser.guess_path_to_hyper_iso_br()
+    hyper_pxe_path = path_guesser.guess_path_to_hyper_pxe()
 
     add_opt_cb(KERNEL_DIR_OPT, type=str,
                default=binaries_path,
@@ -37,6 +39,9 @@ def add_base_options(add_opt_cb):
     add_opt_cb(HYPER_ISO_BR_OPT, type=str,
                 default=hyper_iso_br_path,
                 help="Path to the hyper ISO boot record")
+    add_opt_cb(HYPER_PXE_OPT, type=str,
+               default=hyper_pxe_path,
+               help="Path to the hyper PXE boot image")
 
 
 def add_test_options(add_opt_cb):

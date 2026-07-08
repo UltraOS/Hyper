@@ -58,5 +58,11 @@ def guess_path_to_hyper_iso_br():
     )
 
 
+def guess_path_to_hyper_pxe():
+    return _hyper_build_or_none(
+        ["build-clang-i686-bios", "build-gcc-i686-bios"],
+        os.path.join("loader", "hyper_pxe"))
+
+
 def guess_path_to_uefi_firmware(arch):
     return uefi.get_path_to_qemu_uefi_firmware(arch)
