@@ -582,11 +582,29 @@ static bool apm_setup(struct config *cfg, struct loadable_entry *le,
     return services_setup_apm(out_info);
 }
 
+static bool uefi_info_setup(struct config *cfg, struct loadable_entry *le,
+                            struct uefi_handoff_info *out_info)
+{
+    bool wants_uefi_info = false;
+
+    cfg_get_bool(cfg, le, SV("pass-uefi-info"), &wants_uefi_info);
+    if (!wants_uefi_info)
+        return false;
+
+    if (!services_setup_uefi_handoff(out_info)) {
+        print_info("ignoring request to pass UEFI info on non-UEFI platform\n");
+        return false;
+    }
+
+    return true;
+}
+
 struct attribute_array_spec {
     bool higher_half_pointers;
     bool fb_present;
     bool cmdline_present;
     bool apm_info_present;
+    bool uefi_info_present;
     uint8_t page_table_depth;
 
     struct ultra_framebuffer fb;
@@ -597,6 +615,7 @@ struct attribute_array_spec {
     struct dynamic_buffer module_buf;
 
     struct apm_info apm_info;
+    struct uefi_handoff_info uefi_info;
 
     ptr_t acpi_rsdp_address;
     ptr_t dtb_address;
@@ -761,6 +780,28 @@ static void *write_memory_map(void *attr_ptr, size_t entry_count)
     return entry_ptr + entries_bytes;
 }
 
+static void *write_uefi_info(void *attr_ptr,
+                             const struct uefi_handoff_info *info)
+{
+    struct ultra_uefi_info_attribute *ui = attr_ptr;
+    const void *raw_map;
+    size_t raw_map_bytes;
+    u32 size;
+
+    raw_map = services_get_captured_uefi_map(&raw_map_bytes);
+    size = ALIGN_UP(sizeof(*ui) + raw_map_bytes, 8);
+
+    ui->header.type = ULTRA_ATTRIBUTE_UEFI_INFO;
+    ui->header.size = size;
+    ui->system_table_address = info->system_table;
+    ui->descriptor_size = info->descriptor_size;
+    ui->descriptor_version = info->descriptor_version;
+    ui->firmware_width = info->firmware_width;
+    memcpy(ui->memory_descriptors, raw_map, raw_map_bytes);
+
+    return attr_ptr + size;
+}
+
 static void *write_command_line_attribute(void *attr_ptr,
                                           struct string_view cmdline,
                                           size_t aligned_len)
@@ -836,6 +877,9 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
                         sizeof(struct ultra_framebuffer_attribute);
     bytes_needed += spec->apm_info_present *
                         sizeof(struct ultra_apm_attribute);
+    if (spec->uefi_info_present)
+        bytes_needed += ALIGN_UP(sizeof(struct ultra_uefi_info_attribute)
+                                 + spec->uefi_info.memory_map_capacity, 8);
     bytes_needed += sizeof(struct ultra_memory_map_attribute);
 
     // Add 2 to give some leeway for memory map growth after the next allocation
@@ -912,8 +956,21 @@ static ptr_t build_attribute_array(const struct attribute_array_spec *spec,
         *attr_count += 1;
     }
 
+    /*
+     * The memory map is acquired here, which also exits boot services and
+     * captures the raw EFI memory map if a capture buffer was reserved (see
+     * services_setup_uefi_handoff()). The UEFI info attribute is written last
+     * so its variable size (which is only known once the map is captured)
+     * doesn't shift any attribute after it.
+     */
     attr_ptr = write_memory_map(attr_ptr, mm_entry_count);
     *attr_count += 1;
+
+    if (spec->uefi_info_present) {
+        attr_ptr = write_uefi_info(attr_ptr, &spec->uefi_info);
+        *attr_count += 1;
+    }
+
     return ret;
 }
 
@@ -1437,6 +1494,7 @@ static void ultra_protocol_boot(struct config *cfg, struct loadable_entry *le)
     spec.smbios_address = services_find_smbios();
 
     spec.apm_info_present = apm_setup(cfg, le, &spec.apm_info);
+    spec.uefi_info_present = uefi_info_setup(cfg, le, &spec.uefi_info);
 
    /*
     * Attempt to set video mode last, as we're not going to be able to use

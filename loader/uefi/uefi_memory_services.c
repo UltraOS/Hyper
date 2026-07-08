@@ -15,6 +15,17 @@ static size_t buf_byte_capacity = 0;
 static size_t buf_entry_count = 0;
 static size_t map_key = 0;
 static size_t map_efi_desc_size = 0;
+static u32 map_efi_desc_version = 0;
+static size_t map_raw_bytes = 0;
+
+/*
+ * Buffer holding a verbatim copy of the raw EFI memory map, reserved by
+ * services_setup_uefi_handoff() and filled right before ExitBootServices()
+ * (see capture_raw_efi_memory_map()).
+ */
+static void *uefi_map_capture_buf = NULL;
+static size_t uefi_map_capture_capacity = 0;
+static size_t uefi_map_captured_bytes = 0;
 
 /*
  * Storage for protocol-specific allocations that use custom memory types.
@@ -153,17 +164,18 @@ void ms_free_pages(u64 address, size_t count)
     }
 }
 
-static void internal_buf_ensure_capacity(size_t bytes)
+static void page_buf_ensure_capacity(void **buf, size_t *byte_capacity,
+                                     size_t bytes)
 {
     size_t rounded_up_bytes = PAGE_ROUND_UP(bytes);
     size_t page_count = rounded_up_bytes / PAGE_SIZE;
     EFI_PHYSICAL_ADDRESS addr;
     EFI_STATUS ret;
 
-    if (rounded_up_bytes <= buf_byte_capacity)
+    if (rounded_up_bytes <= *byte_capacity)
         return;
-    if (memory_map_buf)
-        ms_free_pages((u64)memory_map_buf, buf_byte_capacity / PAGE_SIZE);
+    if (*buf)
+        ms_free_pages((u64)*buf, *byte_capacity / PAGE_SIZE);
 
     ret = g_st->BootServices->AllocatePages(AllocateAnyPages, EfiLoaderData, page_count, &addr);
     if (unlikely_efi_error(ret)) {
@@ -171,8 +183,8 @@ static void internal_buf_ensure_capacity(size_t bytes)
         panic("failed to allocate internal memory buffer (%zu pages): %pSV\n", page_count, &err_msg);
     }
 
-    memory_map_buf = (void*)addr;
-    buf_byte_capacity = rounded_up_bytes;
+    *buf = (void*)addr;
+    *byte_capacity = rounded_up_bytes;
 }
 
 static EFI_MEMORY_DESCRIPTOR *efi_md_at(size_t i)
@@ -228,7 +240,14 @@ static void efi_memory_map_fixup(void)
     );
 }
 
-static void fill_internal_memory_map_buffer(void)
+/*
+ * Fetch the firmware memory map into memory_map_buf in its raw EFI descriptor
+ * form, growing the buffer as needed. Leaves buf_entry_count as the raw
+ * descriptor count and map_raw_bytes as its size in bytes. The map_key is only
+ * valid as long as no allocation happens afterwards, so any use of it (i.e.
+ * ExitBootServices) must follow immediately.
+ */
+static void acquire_efi_memory_map(void)
 {
     UINT32 descriptor_version;
     UINTN bytes_inout;
@@ -251,14 +270,75 @@ static void fill_internal_memory_map_buffer(void)
                   sizeof(EFI_MEMORY_DESCRIPTOR), map_efi_desc_size);
         }
 
-        internal_buf_ensure_capacity(
+        page_buf_ensure_capacity(
+            &memory_map_buf, &buf_byte_capacity,
             bytes_inout +
             protocol_allocations_count * sizeof(struct memory_map_entry)
         );
     }
 
+    map_efi_desc_version = descriptor_version;
+    map_raw_bytes = bytes_inout;
     buf_entry_count = bytes_inout / map_efi_desc_size;
+}
+
+/*
+ * If a capture buffer was reserved, copy the raw EFI memory map that was just
+ * acquired into it. This runs between acquiring the map and converting it in
+ * place to the native format (which destroys the EFI descriptors), and involves
+ * no allocation, so on the final acquisition the copy matches the map key used
+ * for ExitBootServices().
+ */
+static void capture_raw_efi_memory_map(void)
+{
+    if (!uefi_map_capture_buf)
+        return;
+
+    BUG_ON(map_raw_bytes > uefi_map_capture_capacity);
+    memcpy(uefi_map_capture_buf, memory_map_buf, map_raw_bytes);
+    uefi_map_captured_bytes = map_raw_bytes;
+}
+
+static void fill_internal_memory_map_buffer(void)
+{
+    acquire_efi_memory_map();
     efi_memory_map_fixup();
+}
+
+bool services_setup_uefi_handoff(struct uefi_handoff_info *out)
+{
+    SERVICE_FUNCTION();
+
+    fill_internal_memory_map_buffer();
+
+    /*
+     * Reserve the buffer for the raw map capture done right before
+     * ExitBootServices(). The map can still grow between now and then as
+     * allocations (including this one) perturb it, so keep a page of slack
+     * over the current size to absorb that.
+     */
+    page_buf_ensure_capacity(&uefi_map_capture_buf,
+                             &uefi_map_capture_capacity,
+                             map_raw_bytes + PAGE_SIZE);
+
+    out->system_table = (u64)(ptr_t)g_st;
+    out->descriptor_size = map_efi_desc_size;
+    out->descriptor_version = map_efi_desc_version;
+    out->memory_map_capacity = uefi_map_capture_capacity;
+
+    // A UEFI application runs at the firmware's native width, so ours is it.
+    out->firmware_width = sizeof(void*) * 8;
+    return true;
+}
+
+/*
+ * Deliberately not a SERVICE_FUNCTION(): the capture is consumed after
+ * ExitBootServices(), and this only reads loader-owned memory.
+ */
+const void *services_get_captured_uefi_map(size_t *out_size)
+{
+    *out_size = uefi_map_captured_bytes;
+    return uefi_map_capture_buf;
 }
 
 size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
@@ -273,7 +353,18 @@ size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
      * as WriteString() is allowed to allocate.
      */
     logger_set_level(LOG_LEVEL_ERR);
-    fill_internal_memory_map_buffer();
+
+    /*
+     * Hand the kernel the exact map used for ExitBootServices() below: capture
+     * the raw EFI descriptors before converting the buffer to the native format
+     * in place. Probing calls (buf == NULL) never reach ExitBootServices(), so
+     * skip the copy for those. No allocation happens between here and
+     * ExitBootServices(), so the map key stays valid.
+     */
+    acquire_efi_memory_map();
+    if (buf)
+        capture_raw_efi_memory_map();
+    efi_memory_map_fixup();
 
     if (capacity < buf_entry_count)
         return buf_entry_count;
