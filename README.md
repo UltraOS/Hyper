@@ -233,3 +233,16 @@ Currently supported package managers:
 
 Support for other systems/package managers can be trivially added by extending
 the [BuildUtils](https://github.com/UltraOS/BuildUtils) library.
+
+### Making a release
+
+Releases are built by the `Release` GitHub Actions workflow. Push a `v*` tag
+(from a commit that contains the workflow) and it builds every artifact and
+opens a **draft** release with them attached:
+```
+git tag v0.11.0
+git push origin v0.11.0
+```
+Then review/edit the auto-generated notes on the Releases page and hit publish.
+The workflow can also be run manually from the Actions tab against an existing
+tag.
