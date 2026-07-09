@@ -340,6 +340,8 @@ static void load_kernel(struct config *cfg, struct loadable_entry *entry,
         goto elf_error;
 
     hi->entrypoint = bi->entrypoint_address;
+    hi->kernel_binary_base = bi->physical_base;
+    hi->kernel_binary_size = bi->physical_ceiling - bi->physical_base;
     info->is_higher_half = hi->entrypoint >= spec.higher_half_base;
     return;
 

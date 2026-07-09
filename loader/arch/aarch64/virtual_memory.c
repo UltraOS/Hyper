@@ -5,6 +5,8 @@
 #include "virtual_memory.h"
 #include "virtual_memory_impl.h"
 
+u32 g_aarch64_sh_mask;
+
 /*
  * We pretend TTBR0 & 1 are actually entries inside an extra page table level
  * for simplicity to make it more like x86.
@@ -19,6 +21,13 @@ void page_table_init(struct page_table *pt, enum pt_type type,
 {
     ptr_t root_page = pt_get_table_page(max_table_address);
     OOPS_ON(!root_page);
+
+    /*
+     * The 52-bit format implies TCR.DS, which repurposes the descriptor SH
+     * bits as OA[51:50]; shareability comes from TCR.SH{0,1} there instead.
+     */
+    g_aarch64_sh_mask = type == PT_TYPE_AARCH64_4K_GRANULE_52_BIT ?
+                            0 : PAGE_AARCH64_SH_INNER;
 
     pt->root = ADDR_TO_PTR(root_page);
     pt->levels = unified_pt_depth(type);

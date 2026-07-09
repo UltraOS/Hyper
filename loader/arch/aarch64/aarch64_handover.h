@@ -14,6 +14,7 @@
 #define handover_info_aarch64_sctlr 72
 
 #define handover_info_aarch64_unmap_lower_half 80
+#define handover_info_aarch64_enable_vhe 81
 
 #else
 #include "common/types.h"
@@ -32,15 +33,17 @@ struct handover_info_aarch64 {
     u64 sctlr;
 
     bool unmap_lower_half;
+    // Enable VHE (HCR_EL2.{E2H, TGE}) during handover, only valid at EL2
+    bool enable_vhe;
 };
 
 NORETURN
 void kernel_handover_aarch64(struct handover_info_aarch64 *hia);
 
+// Marks the end of the trampoline code, for cache maintenance purposes
+extern char kernel_handover_aarch64_end[];
+
 u32 current_el(void);
 u64 read_id_aa64mmfr0_el1(void);
 u64 read_id_aa64mmfr1_el1(void);
-
-u64 read_hcr_el2(void);
-void write_hcr_el2(u64);
 #endif
