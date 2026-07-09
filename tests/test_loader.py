@@ -66,7 +66,8 @@ def disk_image_pretty_name(param):
 
 def print_output(stdout):
     print("Kernel/loader output:")
-    print(stdout.decode("ascii"))
+    # The kernel appends a non-ASCII result magic; don't choke decoding it
+    print(stdout.decode("ascii", errors="replace"))
 
 
 def run_qemu_command(qemu_args: List[str], config: str, timeout: int) -> bytes:
