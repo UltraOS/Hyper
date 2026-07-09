@@ -68,10 +68,11 @@ void fb_tty_init(struct ultra_boot_context *bctx)
     fb_height = fb->height;
 
     /*
-     * The loader only direct-maps RAM, so map the framebuffer (device memory)
-     * ourselves before touching it.
+     * The loader only direct-maps RAM, so map the framebuffer ourselves before
+     * touching it. A linear framebuffer wants Normal Non-cacheable (MMIO_WC).
      */
-    fb_ptr = mmio_map(bctx, fb->physical_address, fb->pitch * fb->height);
+    fb_ptr = mmio_map(bctx, fb->physical_address, fb->pitch * fb->height,
+                      MMIO_WC);
 
     rows = fb_height / FONT_HEIGHT;
     columns = fb_width / FONT_WIDTH;
