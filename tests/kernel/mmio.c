@@ -114,13 +114,16 @@ static void x86_level_index(u8 depth, size_t level, unsigned *shift, u64 *mask)
     *mask = (level == 0 && depth == 3) ? 0x3 : 0x1FF;
 }
 
-static void arch_map_page(u8 depth, u64 va, u64 phys)
+static void arch_map_page(u8 depth, u64 va, u64 phys, enum mmio_type type)
 {
     bool is32 = depth == 2;
     u64 table = x86_root_table(depth);
     unsigned shift;
     u64 mask;
     size_t level, idx;
+
+    // x86 has no Device vs Non-cacheable distinction here: PCD covers both
+    (void)type;
 
     // Walk/populate the intermediate levels
     for (level = 0; level + 1 < depth; ++level) {
@@ -185,6 +188,11 @@ static ptr_t arch_reserve_va(u64 page_phys, size_t pages)
 #define AARCH64_AF        (1ull << 10)
 #define AARCH64_ADDR_MASK 0x0000FFFFFFFFF000ull
 
+// AttrIndx[4:2] into the loader-provided MAIR (see the AARCH64 handoff state)
+#define AARCH64_ATTRINDX(n) ((u64)(n) << 2)
+#define AARCH64_MAIR_DEVICE 1 // Device-nGnRnE
+#define AARCH64_MAIR_NC     2 // Normal Non-cacheable
+
 static u64 arch_root_table(void)
 {
     u64 ttbr;
@@ -194,9 +202,10 @@ static u64 arch_root_table(void)
     return ttbr & AARCH64_ADDR_MASK;
 }
 
-static void arch_map_page(u8 depth, u64 va, u64 phys)
+static void arch_map_page(u8 depth, u64 va, u64 phys, enum mmio_type type)
 {
     u64 table = arch_root_table();
+    u64 attr_indx;
     size_t level, idx;
 
     for (level = 0; level + 1 < depth; ++level) {
@@ -227,10 +236,16 @@ static void arch_map_page(u8 depth, u64 va, u64 phys)
         table = ent;
     }
 
-    // Level 3 page descriptor: Normal-NC (AttrIndx 0), matching the loader
+    /*
+     * Level 3 page descriptor. RAM is Write-Back cacheable now, so device
+     * memory must use a non-cacheable MAIR index: Device-nGnRnE for registers,
+     * Normal Non-cacheable for a linear framebuffer.
+     */
+    attr_indx = type == MMIO_DEVICE ? AARCH64_MAIR_DEVICE : AARCH64_MAIR_NC;
     idx = (va >> 12) & 0x1FF;
     ((volatile u64*)phys_to_virt(table))[idx] =
-        (phys & AARCH64_ADDR_MASK) | AARCH64_VALID | AARCH64_TABLE | AARCH64_AF;
+        (phys & AARCH64_ADDR_MASK) | AARCH64_ATTRINDX(attr_indx) |
+        AARCH64_VALID | AARCH64_TABLE | AARCH64_AF;
 }
 
 static void arch_flush_tlb(void)
@@ -248,7 +263,8 @@ static ptr_t arch_reserve_va(u64 page_phys, size_t pages)
 #error "Unsupported architecture"
 #endif
 
-void *mmio_map(struct ultra_boot_context *bctx, u64 phys, size_t size)
+void *mmio_map(struct ultra_boot_context *bctx, u64 phys, size_t size,
+               enum mmio_type type)
 {
     static bool alloc_ready;
     struct ultra_platform_info_attribute *pi;
@@ -270,7 +286,7 @@ void *mmio_map(struct ultra_boot_context *bctx, u64 phys, size_t size)
 
     for (i = 0; i < pages; ++i) {
         arch_map_page(pi->page_table_depth, va + (i << PAGE_SHIFT),
-                      page_phys + ((u64)i << PAGE_SHIFT));
+                      page_phys + ((u64)i << PAGE_SHIFT), type);
     }
 
     arch_flush_tlb();
