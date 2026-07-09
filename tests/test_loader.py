@@ -119,8 +119,19 @@ def run_qemu_x86(
     return do_run_qemu("x86_64", qemu_args, disk_image, config, 30 if is_uefi else 3)
 
 
-def run_qemu_aarch64(disk_image: ultra.DiskImage, config: str) -> bytes:
-    qemu_args = ["-M", "virt", "-cpu", "cortex-a72", "-device", "ramfb",
+def run_qemu_aarch64(
+    disk_image: ultra.DiskImage, config: str, el2: bool = False
+) -> bytes:
+    # By default the loader is handed EL1. 'el2' boots at EL2 instead
+    # (virtualization=on) to exercise the VHE handover path, which needs a
+    # FEAT_VHE-capable core: cortex-a72 (the EL1 default) is ARMv8.0 and lacks
+    # it, while -cpu max has hung EDK2 on boot, so use cortex-a76.
+    if el2:
+        machine, cpu = "virt,virtualization=on", "cortex-a76"
+    else:
+        machine, cpu = "virt", "cortex-a72"
+
+    qemu_args = ["-M", machine, "-cpu", cpu, "-device", "ramfb",
                  "-bios", config.getoption(options.AA64_UEFI_FIRMWARE_OPT)]
     return do_run_qemu("aarch64", qemu_args, disk_image, config, 30)
 
@@ -324,6 +335,26 @@ def test_normal_uefi_x64_boot_iso(disk_image: ultra.DiskImage, pytestconfig):
 @pytest.mark.hdd
 def test_normal_uefi_aarch64_boot_fat(disk_image: ultra.DiskImage, pytestconfig):
     res = run_qemu_aarch64(disk_image, pytestconfig)
+    check_qemu_run(res)
+
+
+@pytest.mark.parametrize(
+    'disk_image',
+    (
+        # A higher-half kernel exercises the lower-half unmap after the VHE
+        # transition; a lower-half one keeps the identity map.
+        ("MBR", "FAT32", "aarch64_higher_half"),
+        ("MBR", "FAT16", "aarch64_lower_half"),
+    ),
+    indirect=True,
+    ids=disk_image_pretty_name
+)
+@pytest.mark.uefi_aarch64
+@pytest.mark.fat
+@pytest.mark.hdd
+def test_uefi_aarch64_boot_el2(disk_image: ultra.DiskImage, pytestconfig):
+    # Boot at EL2 so the VHE (HCR_EL2.{E2H,TGE}) handover path is exercised.
+    res = run_qemu_aarch64(disk_image, pytestconfig, el2=True)
     check_qemu_run(res)
 
 
