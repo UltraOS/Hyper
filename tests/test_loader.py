@@ -159,6 +159,20 @@ def boot_and_check(disk_image, firmware: str, config) -> None:
     check_qemu_run(res)
 
 
+@pytest.fixture
+def feature_image(request, fs_root):
+    """
+    Build a single-partition image from a pre-rendered (br_type, fs_type,
+    config) param. Lets a feature test parametrize the whole boot config inline
+    instead of each one growing its own near-identical fixture.
+    """
+    br_type, fs_type, boot_cfg = request.param
+    cfg = request.config
+
+    options.check_availability(cfg.getoption)
+    yield from di.build(cfg.getoption, br_type, fs_type, boot_cfg)
+
+
 @pytest.mark.parametrize(
     'disk_image',
     (
@@ -418,6 +432,7 @@ _GPT_CASELESS = dict(
 
 _BIOS_MARKS = [pytest.mark.bios, pytest.mark.fat, pytest.mark.hdd]
 _UEFI_MARKS = [pytest.mark.uefi_x64, pytest.mark.fat, pytest.mark.hdd]
+_AA64_MARKS = [pytest.mark.uefi_aarch64, pytest.mark.fat, pytest.mark.hdd]
 
 _PARTITION_PARAMS = [
     # MBR/EBR work under both BIOS and UEFI.
