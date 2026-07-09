@@ -197,6 +197,29 @@ higher-half-exclusive = true
 """
 
 
+def make_single_entry_config(
+    binary: str, cmdline: str = "", *, extra: str = ""
+) -> str:
+    """
+    Build a minimal single-entry ultra config that boots 'binary' (a config
+    path, optionally carrying a disk/partition prefix) with 'cmdline'. 'extra'
+    is appended verbatim to the entry, for the occasional extra option
+    ('pass-uefi-info = true') or trailing 'module:' blocks a test needs.
+    """
+    return (
+        'default-entry = "t"\n\n'
+        "[t]\n"
+        "protocol = ultra\n"
+        f'cmdline = "{cmdline}"\n'
+        "binary:\n"
+        f'    path = "{binary}"\n'
+        "    allocate-anywhere = true\n"
+        "higher-half-exclusive = true\n"
+        "video-mode = unset\n"
+        f"{extra}"
+    )
+
+
 def make_normal_boot_config(
     default_entry: str, cmdline: str,
     modules: Optional[List['ultra.Module']] = None

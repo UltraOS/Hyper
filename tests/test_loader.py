@@ -143,6 +143,20 @@ def check_qemu_run(stdout: bytes) -> None:
     raise RuntimeError("Kernel reported an error")
 
 
+def boot_and_check(disk_image, firmware: str, config) -> None:
+    """
+    Boot 'disk_image' under the given firmware ("bios", "uefi_x64" or
+    "uefi_aarch64") and assert the kernel reported success. Collapses the
+    per-test "run the right qemu, then check_qemu_run" boilerplate.
+    """
+    if firmware == "uefi_aarch64":
+        res = run_qemu_aarch64(disk_image, config)
+    else:
+        res = run_qemu_x86(disk_image, firmware == "uefi_x64", config)
+
+    check_qemu_run(res)
+
+
 @pytest.mark.parametrize(
     'disk_image',
     (
