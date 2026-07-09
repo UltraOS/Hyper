@@ -34,6 +34,14 @@ struct handover_info {
     u64 arg0, arg1;
     u64 direct_map_base;
 
+/*
+ * Physical extent of the loaded kernel binary. Used by 'handover_prepare_for'
+ * to make the freshly-written image coherent with the instruction stream on
+ * architectures that need it (e.g. aarch64 I-cache maintenance).
+ */
+    u64 kernel_binary_base;
+    u64 kernel_binary_size;
+
     struct page_table pt;
 /*
  * If set, unmaps the first table or handover_get_minimum_map_length()

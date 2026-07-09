@@ -164,13 +164,66 @@ u64 handover_get_max_pt_address(u64 direct_map_base, u32 flags)
     return 0xFFFFFFFFFFFFFFFF;
 }
 
+#define CTR_IMINLINE_MASK 0xF
+#define CTR_DMINLINE_SHIFT 16
+#define CTR_DMINLINE_MASK 0xF
+#define CTR_IDC (1ull << 28)
+#define CTR_DIC (1ull << 29)
+
+#define CACHE_OP_RANGE(op, start, end, line)                  \
+    do {                                                      \
+        u64 addr_ = ALIGN_DOWN(start, line);                  \
+                                                              \
+        for (; addr_ < (end); addr_ += (line))                \
+            asm volatile(op ", %0" :: "r"(addr_) : "memory"); \
+    } while (0)
+
+/*
+ * Make the freshly-loaded kernel image coherent with the instruction stream:
+ * clean it out of the data cache to the Point of Unification, then invalidate
+ * the instruction cache over the same range. The loader still runs under the
+ * firmware's identity-mapped, cacheable translation, so we operate on the
+ * physical (identity) addresses.
+ */
 void handover_prepare_for(struct handover_info *hi)
 {
-    UNUSED(hi);
+    u64 ctr, dline, iline, end;
+
+    asm volatile("mrs %0, ctr_el0" : "=r"(ctr));
+
+    // Both are log2 of the line size in words, hence the 4ull
+    dline = 4ull << ((ctr >> CTR_DMINLINE_SHIFT) & CTR_DMINLINE_MASK);
+    iline = 4ull << (ctr & CTR_IMINLINE_MASK);
+
+    /*
+     * CTR_EL0.{IDC,DIC} waive the respective PoU maintenance steps for
+     * instruction-to-data coherence. Note that they say nothing about the
+     * PoC clean of the trampoline below, which is needed regardless.
+     */
+    end = hi->kernel_binary_base + hi->kernel_binary_size;
+    if (!(ctr & CTR_IDC))
+        CACHE_OP_RANGE("dc cvau", hi->kernel_binary_base, end, dline);
+    asm volatile("dsb ish" ::: "memory");
+    if (!(ctr & CTR_DIC))
+        CACHE_OP_RANGE("ic ivau", hi->kernel_binary_base, end, iline);
+
+    /*
+     * The handover trampoline executes with the MMU off, where instruction
+     * fetches are made with mismatched attributes (Outer Shareable, Write-
+     * Through) against the Write-Back writes that loaded this image, and so
+     * are only guaranteed to observe them once they reach the PoC. The
+     * firmware only cleans loaded images to the PoU, so clean the trampoline
+     * code to the PoC ourselves.
+     */
+    CACHE_OP_RANGE("dc cvac", (ptr_t)kernel_handover_aarch64,
+                   (ptr_t)kernel_handover_aarch64_end, dline);
+
+    asm volatile("dsb sy; isb" ::: "memory");
 }
 
-#define NORMAL_NON_CACHEABLE 0b00
-#define OUTER_SHAREABLE 0b10
+// TCR IRGN/ORGN encoding for Normal Write-Back Read-Allocate Write-Allocate
+#define NORMAL_WRITE_BACK 0b01
+#define INNER_SHAREABLE 0b11
 
 #define TCR_DS (1ull << 59)
 #define TCR_HA (1ull << 39)
@@ -196,9 +249,9 @@ static u64 build_tcr(struct handover_info *hi)
 
     ret |= g_ips_bits;
 
-    ret |= NORMAL_NON_CACHEABLE << TCR_IRGN0_SHIFT;
-    ret |= NORMAL_NON_CACHEABLE << TCR_ORGN0_SHIFT;
-    ret |= OUTER_SHAREABLE << TCR_SH0_SHIFT;
+    ret |= NORMAL_WRITE_BACK << TCR_IRGN0_SHIFT;
+    ret |= NORMAL_WRITE_BACK << TCR_ORGN0_SHIFT;
+    ret |= INNER_SHAREABLE << TCR_SH0_SHIFT;
     ret |= TCR_TG1_4K_GRANULE;
 
     if (hi->flags & HO_AARCH64_52_BIT_IA) {
@@ -219,9 +272,9 @@ static u64 build_tcr(struct handover_info *hi)
 
     ret |= tsz << TCR_T1SZ_SHIFT;
 
-    ret |= NORMAL_NON_CACHEABLE << TCR_IRGN1_SHIFT;
-    ret |= NORMAL_NON_CACHEABLE << TCR_ORGN1_SHIFT;
-    ret |= OUTER_SHAREABLE << TCR_SH1_SHIFT;
+    ret |= NORMAL_WRITE_BACK << TCR_IRGN1_SHIFT;
+    ret |= NORMAL_WRITE_BACK << TCR_ORGN1_SHIFT;
+    ret |= INNER_SHAREABLE << TCR_SH1_SHIFT;
 
     ret |= TCR_TG0_4K_GRANULE;
     ret |= tsz << TCR_T0SZ_SHIFT;
@@ -229,14 +282,24 @@ static u64 build_tcr(struct handover_info *hi)
     return ret;
 }
 
-#define HCR_E2H (1ull << 34)
-#define HCR_TGE (1ull << 27)
+#define SCTLR_M  (1 << 0)
+#define SCTLR_C  (1 << 2)
 #define SCTLR_SA (1 << 3)
-#define SCTLR_M (1 << 0)
+#define SCTLR_I  (1 << 12)
 
-#define MAIR_NON_CACHEABLE 0b0100
-#define MAIR_I_SHIFT 0
-#define MAIR_O_SHIFT 4
+/*
+ * Guaranteed MAIR layout (see the AARCH64 handoff state in the protocol spec):
+ *   AttrIndx 0 - Normal, Inner+Outer Write-Back non-transient RA/WA (0xFF)
+ *   AttrIndx 1 - Device-nGnRnE                                      (0x00)
+ *   AttrIndx 2 - Normal, Inner+Outer Non-cacheable                  (0x44)
+ * All RAM is mapped with AttrIndx 0; the kernel maps device memory
+ * (MMIO/framebuffer) with AttrIndx 1 or 2.
+ */
+#define MAIR_NORMAL_WB     0xFFull
+#define MAIR_DEVICE_nGnRnE 0x00ull
+#define MAIR_NORMAL_NC     0x44ull
+
+#define MAIR_ATTR(idx, val) ((val) << ((idx) * 8))
 
 NORETURN
 void kernel_handover(struct handover_info *hi)
@@ -248,31 +311,31 @@ void kernel_handover(struct handover_info *hi)
         .entrypoint = hi->entrypoint,
         .stack = hi->stack,
         .unmap_lower_half = hi->flags & HO_HIGHER_HALF_ONLY,
+
+        /*
+         * Request the trampoline to enable VHE (HCR_EL2.{E2H, TGE}) if running
+         * at EL2, so that TTBR1_EL2 and the EL1-format control registers become
+         * usable. The flip is deferred to the trampoline (with the MMU already
+         * disabled) because setting E2H reinterprets the live SCTLR_EL2/TCR_EL2
+         * in VHE format. VHE support is verified during initialization.
+         */
+        .enable_vhe = g_current_el == 2,
     };
 
     hia.ttbr0 = pt_get_root_pte_at(&hi->pt, 0x0000000000000000);
     hia.ttbr1 = pt_get_root_pte_at(&hi->pt, hi->direct_map_base);
 
-    /*
-     * Enable E2H if running at EL2 to enable TTBR1_EL2
-     * TGE is enabled for sanity reasons
-     */
-    if (g_current_el == 2) {
-        // NOTE: VHE support is verified during initialization
-        u64 hcr;
-
-        hcr = read_hcr_el2();
-        hcr |= HCR_E2H | HCR_TGE;
-        write_hcr_el2(hcr);
-    }
-
-    // Just play it safe
-    hia.mair = (MAIR_NON_CACHEABLE << MAIR_O_SHIFT) |
-               (MAIR_NON_CACHEABLE << MAIR_I_SHIFT);
+    hia.mair = MAIR_ATTR(0, MAIR_NORMAL_WB) |
+               MAIR_ATTR(1, MAIR_DEVICE_nGnRnE) |
+               MAIR_ATTR(2, MAIR_NORMAL_NC);
     hia.tcr = build_tcr(hi);
 
-    // Cache disabled, stack alignment checking enabled, MMU enabled
-    hia.sctlr = SCTLR_SA | SCTLR_M;
+    /*
+     * Bits the trampoline forces on in SCTLR (OR'd onto the live register so
+     * reserved bits are preserved): MMU, data & instruction caches, stack
+     * alignment checking.
+     */
+    hia.sctlr = SCTLR_M | SCTLR_C | SCTLR_I | SCTLR_SA;
 
     kernel_handover_aarch64(&hia);
 }
