@@ -169,8 +169,17 @@ const struct fs_entry *fst_fs_by_full_path(const struct full_path *path)
             continue;
         }
 
-        if (raw_partition)
-            return (entry->loc.entry_type == FSE_TYPE_RAW) ? entry : NULL;
+        if (raw_partition) {
+            // Only whole-disk (raw) media satisfies a raw selector
+            if (entry->loc.entry_type == FSE_TYPE_RAW)
+                return entry;
+
+            continue;
+        }
+
+        // A raw entry has no partition index nor GUID to match against
+        if (entry->loc.entry_type == FSE_TYPE_RAW)
+            continue;
 
         if (by_partition_index) {
             if (partition_index != entry->loc.partition_index)

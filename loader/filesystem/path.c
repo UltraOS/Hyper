@@ -220,6 +220,9 @@ bool path_parse(struct string_view path, struct full_path *out_path)
 {
     struct string_view disk_path;
 
+    // Start from a clean slate so unset identifiers never read as garbage
+    *out_path = (struct full_path) { 0 };
+
     // path relative to config disk
     if (sv_starts_with(path, SV("/")) || sv_starts_with(path, SV("::/"))) {
         out_path->disk_id_type = DISK_IDENTIFIER_ORIGIN;
