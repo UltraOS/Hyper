@@ -90,19 +90,13 @@ static void detect_raw(const struct disk *d, struct block_cache *bc)
 
 void fs_detect_all(struct disk *d, struct block_cache *bc)
 {
-    if (detect_cd(d, bc))
-        return;
+    if (likely(block_cache_refill(bc, 0))) {
+        if (!gpt_initialize(d, bc))
+            mbr_initialize(d, bc);
+    }
 
-    if (!block_cache_refill(bc, 0))
-        return;
-
-    if (gpt_initialize(d, bc))
-        return;
-
-    if (mbr_initialize(d, bc))
-        return;
-
-    detect_raw(d, bc);
+    if (!detect_cd(d, bc))
+        detect_raw(d, bc);
 }
 
 void fs_detect_pxe(void)
