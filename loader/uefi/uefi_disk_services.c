@@ -494,8 +494,8 @@ static void enumerate_disks(void)
                          buf, PAGE_SIZE >> block_shift);
         block_cache_enable_direct_io(&d->bc);
 
-        print_info("detected disk: block-size %u, %llu blocks\n",
-                   bio->Media->BlockSize, bio->Media->LastBlock + 1);
+        print_info("detected disk[%zu]: block-size %u, %llu blocks\n",
+                   i, bio->Media->BlockSize, bio->Media->LastBlock + 1);
     }
 
     classify_disks(handles, handle_count);
