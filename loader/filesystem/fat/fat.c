@@ -221,10 +221,16 @@ static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
     if (fs->fat_view_offset == index)
         return true;
 
-    fs->fat_view_offset = index;
     first_block = fs->fat_lba_range.begin + (index >> (d->block_shift - FAT32_FAT_INDEX_SHIFT));
     blocks_to_read = MIN(range_length(&fs->fat_lba_range), FAT_VIEW_BYTES >> d->block_shift);
-    return ds_read_blocks(d->handle, fs->fat_view, first_block, blocks_to_read);
+
+    if (!ds_read_blocks(d->handle, fs->fat_view, first_block, blocks_to_read)) {
+        fs->fat_view_offset = FAT_VIEW_OFF_INVALID;
+        return false;
+    }
+
+    fs->fat_view_offset = index;
+    return true;
 }
 
 static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
@@ -240,11 +246,14 @@ static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
     if (fs->fat_view_offset != FAT_VIEW_OFF_INVALID)
         return true;
 
-    fs->fat_view_offset = 0;
     blocks_to_read = MIN(range_length(&fs->fat_lba_range),
                          FAT_VIEW_BYTES >> d->block_shift);
-    return ds_read_blocks(d->handle, fs->fat_view, fs->fat_lba_range.begin,
-                          blocks_to_read);
+    if (!ds_read_blocks(d->handle, fs->fat_view, fs->fat_lba_range.begin,
+                        blocks_to_read))
+        return false;
+
+    fs->fat_view_offset = 0;
+    return true;
 }
 
 static u32 get_fat_entry_fat12(struct fat_filesystem *fs, u32 index)
