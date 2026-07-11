@@ -741,7 +741,7 @@ static bool fat_file_get_range(struct file *base_file, u64 file_block_off,
         }
 
         next_range = get_range(ranges, range_idx, fops->range_stride);
-        range_len = fops->range_get_offset(next_range) - this_range_offset;
+        range_len = fops->range_get_offset(next_range) - file_block_off;
     }
 
     this_range_offset += fops->range_get_global_cluster(this_range);
