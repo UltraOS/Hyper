@@ -364,10 +364,10 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
 
         switch (entry_type_of_fat_value(next_cluster, fs->fops)) {
         case FAT_ENTRY_END_OF_CHAIN: {
-            u32 chain_bytes = current_file_offset << cs;
+            u64 chain_bytes = (u64)current_file_offset << cs;
 
             if (unlikely(chain_bytes < file->f.size)) {
-                print_warn("FAT chain is smaller than the declared file size (%u vs %llu)\n",
+                print_warn("FAT chain is smaller than the declared file size (%llu vs %llu)\n",
                            chain_bytes, file->f.size);
                 file->f.size = chain_bytes;
             }
@@ -431,7 +431,7 @@ static bool fat_read(struct fat_filesystem *fs, u32 cluster, u32 offset, u32 byt
 
     offset_to_read = fs->data_lba_range.begin;
     offset_to_read <<= fs->f.d.block_shift;
-    offset_to_read += cluster << cluster_shift(fs);
+    offset_to_read += (u64)cluster << cluster_shift(fs);
     offset_to_read += offset;
 
     return ds_read(fs->f.d.handle, buffer, offset_to_read, bytes);
