@@ -543,6 +543,92 @@ def test_partition_addressing(scenario, is_uefi, pytestconfig):
 
 
 #
+# Whole-disk (raw) addressing of a hybrid image.
+#
+# An ISO9660 image built with a UEFI ESP is a hybrid: it carries a GPT (the ESP
+# plus the El Torito gap partitions) *and* a whole-disk ISO9660 filesystem. Now
+# that fs_detect_all no longer short circuits, such a disk exposes both the GPT
+# partition entries and a raw entry at once, so a raw selector has to resolve to
+# the ISO9660 filesystem rather than trip over the partitions that share the
+# disk. Load the kernel through an explicit whole-disk prefix and confirm the
+# loader reports the origin as raw (partition 0, no GUIDs).
+#
+# The same image is addressed as cd0::/ when booted off a CD (-cdrom) and as
+# hd0::/ when booted as a hard disk (-hda); the disk kind the loader assigns
+# follows how the firmware handed it to us.
+#
+_RAW_KERNEL = "amd64_higher_half"
+
+
+def _hybrid_raw_image(br_type: str, prefix: str):
+    cfg = di.make_single_entry_config(
+        f"{prefix}::/boot/kernel_{_RAW_KERNEL}",
+        "part-type=raw disk-index=0 part-index=0")
+    return (br_type, "ISO9660", cfg)
+
+
+@pytest.mark.parametrize(
+    "feature_image,firmware",
+    (
+        pytest.param(_hybrid_raw_image("CD", "cd0"), "bios",
+                     marks=[pytest.mark.bios, pytest.mark.iso], id="cd0-bios"),
+        pytest.param(_hybrid_raw_image("HDD", "hd0"), "bios",
+                     marks=[pytest.mark.bios, pytest.mark.iso, pytest.mark.hdd],
+                     id="hd0-bios"),
+        pytest.param(_hybrid_raw_image("CD", "cd0"), "uefi_x64",
+                     marks=[pytest.mark.uefi_x64, pytest.mark.iso], id="cd0-uefi"),
+        pytest.param(_hybrid_raw_image("HDD", "hd0"), "uefi_x64",
+                     marks=[pytest.mark.uefi_x64, pytest.mark.iso, pytest.mark.hdd],
+                     id="hd0-uefi"),
+    ),
+    indirect=["feature_image"],
+)
+def test_hybrid_raw_addressing(feature_image: ultra.DiskImage, firmware,
+                               pytestconfig):
+    boot_and_check(feature_image, firmware, pytestconfig)
+
+
+#
+# Partition embedded inside a hybrid image.
+#
+# The counterpart to the raw test above: the very same hybrid also has to let
+# the partitions that share the disk be addressed. The EFI system partition of a
+# UEFI ISO lives inside the ISO9660 data yet is described by the GPT, so it is
+# reachable as hd0-part1::/ (GPT slot 1) once the disk is scanned past its first
+# matching scheme. With the old short-circuit the ISO9660 detection returned
+# first, the GPT was never parsed, and this partition was completely invisible.
+# Seed a kernel into the ESP and load it through the partition prefix to prove it
+# resolves (and reports a gpt origin), which would fail outright before the fix.
+#
+# The ESP lands at GPT partition 2 (Gap0, ESP, Gap1); hyper numbers GPT slots
+# from zero, so the loader sees it as partition 1.
+_HYBRID_ESP_PART_NUM = 2
+_HYBRID_ESP_PART_INDEX = 1
+
+
+@pytest.mark.uefi_x64
+@pytest.mark.iso
+@pytest.mark.hdd
+def test_hybrid_embedded_partition(pytestconfig):
+    getopt = pytestconfig.getoption
+    options.check_availability(getopt)
+    if getopt(options.X64_HYPER_UEFI_OPT) is None:
+        pytest.skip("no x64 UEFI loader to embed an ESP with")
+
+    kernel_src = os.path.join(getopt(options.KERNEL_DIR_OPT),
+                              f"kernel_{_RAW_KERNEL}")
+    kernel_arc = f"boot/kernel_{_RAW_KERNEL}"
+    cfg = di.make_single_entry_config(
+        f"hd0-part{_HYBRID_ESP_PART_INDEX}::/{kernel_arc}",
+        f"part-type=gpt disk-index=0 part-index={_HYBRID_ESP_PART_INDEX}")
+
+    for image in di.build(getopt, "HDD", "ISO9660", cfg):
+        mp.inject_into_esp(image.path, _HYBRID_ESP_PART_NUM,
+                           {kernel_arc: kernel_src})
+        boot_and_check(image, "uefi_x64", pytestconfig)
+
+
+#
 # Boot partition auto-selection.
 #
 # Unlike test_partition_addressing (which loads the kernel via an explicit
