@@ -547,12 +547,6 @@ static size_t ucs2_to_ascii(const u8 *ucs2, size_t count, char **out)
 #define MAX_NAME_LENGTH 255
 BUILD_BUG_ON(MAX_NAME_LENGTH > DIR_REC_MAX_NAME_LEN);
 
-/*
- * Since you can have at max 20 chained long entries, the theoretical limit is 20 * 13 characters,
- * however, the actual allowed limit is 255, which would limit the 20th entry contribution to only 8 characters.
- */
-#define CHARS_FOR_LAST_LONG_ENTRY 8
-
 static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ctx,
                              struct dir_rec *out_rec)
 {
@@ -567,7 +561,7 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
         bool is_long;
         struct long_name_fat_directory_entry *long_entry;
         u8 checksum, initial_sequence_number, sequence_number;
-        char *name_ptr;
+        char long_name[MAX_SEQUENCE_NUMBER * CHARS_PER_LONG_ENTRY];
         size_t i, chars_written = 0;
         u32 checksum_array[MAX_SEQUENCE_NUMBER] = { 0 };
 
@@ -608,11 +602,9 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
             return false;
         }
 
-        name_ptr = out_rec->name + MAX_NAME_LENGTH;
-        name_ptr -= CHARS_FOR_LAST_LONG_ENTRY;
-
         for (;;) {
-            char *local_name_ptr = name_ptr;
+            char *local_name_ptr = long_name +
+                                   ((sequence_number - 1) * CHARS_PER_LONG_ENTRY);
             size_t name_chars;
 
             name_chars = ucs2_to_ascii(long_entry->name_1, NAME_1_CHARS, &local_name_ptr);
@@ -641,14 +633,15 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
                 return false;
 
             --sequence_number;
-            name_ptr -= CHARS_PER_LONG_ENTRY;
         }
 
-        BUG_ON(chars_written >= MAX_NAME_LENGTH);
+        if (unlikely(chars_written > MAX_NAME_LENGTH)) {
+            print_warn("long name is too long (%zu characters)\n",
+                       chars_written);
+            return false;
+        }
 
-        if (name_ptr != out_rec->name)
-            memmove(out_rec->name, name_ptr, chars_written);
-
+        memcpy(out_rec->name, long_name, chars_written);
         out_rec->name_len = chars_written;
         checksum = generate_short_name_checksum(normal_entry.filename);
 
