@@ -230,6 +230,7 @@ static bool ensure_fat_entry_cached_fat32(struct fat_filesystem *fs, u32 index)
 static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
 {
     struct disk *d = &fs->f.d;
+    u64 blocks_to_read;
     UNUSED(index); // we cache the entire fat anyway
 
     if (!ensure_fat_view(fs))
@@ -240,8 +241,10 @@ static bool ensure_fat_cached_fat12_or_16(struct fat_filesystem *fs, u32 index)
         return true;
 
     fs->fat_view_offset = 0;
+    blocks_to_read = MIN(range_length(&fs->fat_lba_range),
+                         FAT_VIEW_BYTES >> d->block_shift);
     return ds_read_blocks(d->handle, fs->fat_view, fs->fat_lba_range.begin,
-                          range_length(&fs->fat_lba_range));
+                          blocks_to_read);
 }
 
 static u32 get_fat_entry_fat12(struct fat_filesystem *fs, u32 index)
