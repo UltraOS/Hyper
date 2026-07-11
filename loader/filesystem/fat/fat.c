@@ -601,6 +601,13 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
         if (!(long_entry->sequence_number & LAST_LOGICAL_ENTRY_BIT))
             return false;
 
+        if (initial_sequence_number == 0 ||
+            initial_sequence_number > MAX_SEQUENCE_NUMBER) {
+            print_warn("invalid long entry sequence number %u\n",
+                       initial_sequence_number);
+            return false;
+        }
+
         name_ptr = out_rec->name + MAX_NAME_LENGTH;
         name_ptr -= CHARS_FOR_LAST_LONG_ENTRY;
 
