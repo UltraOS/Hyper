@@ -302,6 +302,86 @@ def test_normal_uefi_x64_boot_fat(disk_image: ultra.DiskImage, pytestconfig):
     check_qemu_run(res)
 
 
+# Fragmented file regression tests.
+#
+# Freshly created images only ever produce contiguous files, which take the
+# single-range fast path in the FAT driver, so none of the range bookkeeping for
+# fragmented files is otherwise exercised. The image builder scatters a
+# fill-validated module ("55-fill", see validate_modules in the test kernel)
+# across the requested number of single-cluster fragments, with the holes between
+# them holding 0xAA padding, so a lookup that resolves any part of the file to a
+# wrong cluster is caught by the kernel-side fill check.
+_FRAG_MODULE_NAME = "55-fill"
+_FRAG_MODULE_FILL = 0x55
+_FRAG_FILE_NAME = "frag.bin"
+
+# Enough fragments that the range array spills out of the in-place capacity
+# (~500 for FAT32) into the separately allocated one, covering that machinery
+# too. FAT12/16 ranges are half the size with about double the in-place capacity;
+# spilling those would need a subdirectory-based layout (their fixed root
+# directory can't hold enough padding entries), so they only cover the in-place
+# path.
+_FRAG_COUNT_SPILL = 600
+
+
+@pytest.fixture
+def fragmented_disk_image(request, fs_root, default_modules):
+    br_type, fs_type, kernel_type, fragments = request.param
+    cfg = request.config
+
+    options.check_availability(cfg.getoption)
+
+    modules = default_modules + [
+        ultra.Module(_FRAG_MODULE_NAME, True, path="/" + _FRAG_FILE_NAME),
+    ]
+    boot_cfg = di.make_normal_boot_config(kernel_type, kernel_type, modules)
+
+    yield from di.build(
+        cfg.getoption, br_type, fs_type, boot_cfg,
+        fragmented_files=[(_FRAG_FILE_NAME, _FRAG_MODULE_FILL, fragments)]
+    )
+
+
+def fragmented_image_pretty_name(param):
+    br_type, fs_type, kernel_type, fragments = param
+    return f"{br_type}-{fs_type}-{kernel_type}-{fragments}-fragments"
+
+
+@pytest.mark.parametrize(
+    'fragmented_disk_image',
+    (
+        ("MBR", "FAT12", "i686_lower_half", 64),
+        ("MBR", "FAT16", "amd64_lower_half", 128),
+        ("MBR", "FAT32", "amd64_higher_half", _FRAG_COUNT_SPILL),
+    ),
+    indirect=True,
+    ids=fragmented_image_pretty_name
+)
+@pytest.mark.bios
+@pytest.mark.fat
+@pytest.mark.hdd
+def test_fragmented_file_bios(fragmented_disk_image: ultra.DiskImage, pytestconfig):
+    res = run_qemu_x86(fragmented_disk_image, False, pytestconfig)
+    check_qemu_run(res)
+
+
+@pytest.mark.parametrize(
+    'fragmented_disk_image',
+    (
+        ("GPT", "FAT32", "amd64_higher_half", _FRAG_COUNT_SPILL),
+    ),
+    indirect=True,
+    ids=fragmented_image_pretty_name
+)
+@pytest.mark.uefi_x64
+@pytest.mark.fat
+@pytest.mark.hdd
+def test_fragmented_file_uefi_x64(fragmented_disk_image: ultra.DiskImage,
+                                  pytestconfig):
+    res = run_qemu_x86(fragmented_disk_image, True, pytestconfig)
+    check_qemu_run(res)
+
+
 @pytest.mark.parametrize(
     'disk_image',
     (

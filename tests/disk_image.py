@@ -3,7 +3,7 @@ import shutil
 import os
 import options
 from image_utils import ultra
-from typing import Optional, List, Callable, Generator
+from typing import Optional, List, Callable, Generator, Tuple
 
 normal_boot_cfgs = \
 """
@@ -239,7 +239,8 @@ def make_normal_boot_config(
 def build(
     opt_getter: Callable, br_type: str, fs_type: str,
     config: str, out_path: Optional[str] = None,
-    cleanup: bool = True
+    cleanup: bool = True,
+    fragmented_files: Optional[List[Tuple[str, int, int]]] = None
 ) -> Generator[ultra.DiskImage, None, None]:
     uefi_paths = [
         opt_getter(options.X64_HYPER_UEFI_OPT),
@@ -271,6 +272,7 @@ def build(
         hyper_uefi_binary_paths=uefi_paths,
         hyper_iso_br_path=opt_getter(options.HYPER_ISO_BR_OPT),
         hyper_installer_path=opt_getter(options.INSTALLER_OPT),
-        out_path=out_path, cleanup=cleanup
+        out_path=out_path, cleanup=cleanup,
+        fragmented_files=fragmented_files
     ) as di:
         yield di
