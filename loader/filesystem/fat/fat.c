@@ -869,6 +869,7 @@ static bool detect_fat(const struct disk *d, struct range lba_range, struct dos3
     struct fat32_ebpb *ebpb32 = (struct fat32_ebpb*)bpb33;
     bool ebpb16_valid = false, ebpb32_valid = false;
     u32 root_dir_bytes, data_sectors;
+    u64 meta_sectors;
 
     if (__builtin_popcount(bpb20->bytes_per_sector) != 1)
         return false;
@@ -906,11 +907,13 @@ static bool detect_fat(const struct disk *d, struct range lba_range, struct dos3
     root_dir_bytes = out_info->max_root_dir_entries * sizeof(struct fat_directory_entry);
     out_info->root_dir_sectors = CEILING_DIVIDE(root_dir_bytes, 1ul << d->block_shift);
 
-    data_sectors = range_length(&lba_range);
+    meta_sectors = out_info->reserved_sectors;
+    meta_sectors += out_info->root_dir_sectors;
+    meta_sectors += (u64)out_info->fat_count * out_info->sectors_per_fat;
+    if (meta_sectors >= range_length(&lba_range))
+        return false;
 
-    data_sectors -= out_info->reserved_sectors;
-    data_sectors -= out_info->root_dir_sectors;
-    data_sectors -= out_info->fat_count * out_info->sectors_per_fat;
+    data_sectors = range_length(&lba_range) - meta_sectors;
     out_info->cluster_count = data_sectors / out_info->sectors_per_cluster;
 
     if (out_info->cluster_count < FAT16_MIN_CLUSTER_COUNT) {
