@@ -723,6 +723,8 @@ static bool fat_file_get_range(struct file *base_file, u64 file_block_off,
         range_idx_global = fops->in_place_range_cap;
         ranges = f->ranges_extra;
         range_count -= range_idx_global;
+    } else if (f->ranges_extra) {
+        range_count = fops->in_place_range_cap;
     }
 
     range_idx = find_range_idx(ranges, range_count, file_block_off, fops);
