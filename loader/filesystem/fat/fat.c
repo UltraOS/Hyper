@@ -605,7 +605,7 @@ static bool fat_next_dir_rec(struct filesystem *base_fs, struct dir_iter_ctx *ct
         initial_sequence_number = long_entry->sequence_number & SEQUENCE_NUM_BIT_MASK;
         sequence_number = initial_sequence_number;
         if (!(long_entry->sequence_number & LAST_LOGICAL_ENTRY_BIT))
-            return false;
+            continue;
 
         if (initial_sequence_number == 0 ||
             initial_sequence_number > MAX_SEQUENCE_NUMBER) {
