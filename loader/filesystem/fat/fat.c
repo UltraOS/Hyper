@@ -384,7 +384,7 @@ static bool file_compute_contiguous_ranges(struct fat_file *file)
             if (!file_emplace_range(file, range, fs->fops))
                 goto error_out;
 
-            range = (struct contiguous_file_range32) { current_file_offset + 1, next_cluster };
+            range = (struct contiguous_file_range32) { current_file_offset, next_cluster };
             break;
         default:
             print_warn("Unexpected cluster %u in chain after %u\n", next_cluster, current_cluster);
