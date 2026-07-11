@@ -346,7 +346,8 @@ static bool file_emplace_range(struct fat_file *file, struct contiguous_file_ran
         file->ranges_extra = new_extra;
     }
 
-    fops->file_insert_range(file->ranges_extra, file->range_count++, range);
+    fops->file_insert_range(file->ranges_extra, offset_into_extra, range);
+    file->range_count++;
     return true;
 }
 
