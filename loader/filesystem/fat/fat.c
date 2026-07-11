@@ -309,9 +309,9 @@ static void file_free_chain(struct fat_file *file, struct fat_ops *fops)
 {
     if (file->ranges_extra) {
         size_t offset_into_extra = file->range_count - fops->in_place_range_cap;
-        size_t extra_range_capacity = CEILING_DIVIDE(offset_into_extra,
-                                                     fops->ranges_per_page);
-        free_pages(file->ranges_extra, extra_range_capacity);
+        size_t extra_range_pages = CEILING_DIVIDE(offset_into_extra,
+                                                  fops->ranges_per_page);
+        free_pages(file->ranges_extra, extra_range_pages);
     }
 
     file->range_count = 0;
@@ -334,12 +334,15 @@ static bool file_emplace_range(struct fat_file *file, struct contiguous_file_ran
     extra_range_capacity = extra_range_pages * fops->ranges_per_page;
 
     if (extra_range_capacity == offset_into_extra) {
-        struct contiguous_file_range *new_extra = allocate_pages(extra_range_pages + 1);
+        void *new_extra = allocate_pages(extra_range_pages + 1);
         if (!new_extra)
             return false;
 
-        memcpy(new_extra, file->ranges_extra, extra_range_pages * PAGE_SIZE);
-        free_pages(file->ranges_extra, extra_range_pages);
+        if (file->ranges_extra) {
+            memcpy(new_extra, file->ranges_extra, extra_range_pages * PAGE_SIZE);
+            free_pages(file->ranges_extra, extra_range_pages);
+        }
+
         file->ranges_extra = new_extra;
     }
 
