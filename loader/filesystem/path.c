@@ -219,16 +219,20 @@ static bool path_consume_pxe_identifier(struct string_view *path,
 bool path_parse(struct string_view path, struct full_path *out_path)
 {
     struct string_view disk_path;
+    bool double_colon = false;
 
     // Start from a clean slate so unset identifiers never read as garbage
     *out_path = (struct full_path) { 0 };
 
     // path relative to config disk
-    if (sv_starts_with(path, SV("/")) || sv_starts_with(path, SV("::/"))) {
+    if (sv_starts_with(path, SV("/")) ||
+        (double_colon = sv_starts_with(path, SV("::/")))) {
         out_path->disk_id_type = DISK_IDENTIFIER_ORIGIN;
         out_path->partition_id_type = PARTITION_IDENTIFIER_ORIGIN;
 
-        sv_offset_by(&path, path.text[0] == ':' ? 2 : 0);
+        if (double_colon)
+            sv_offset_by(&path, 2);
+
         out_path->path_within_partition = path;
         return true;
     }
