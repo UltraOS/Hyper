@@ -52,6 +52,10 @@ BITS 32
     mov gs, ax
     mov ss, ax
 
+    ; sp was only loaded as a 16-bit register so far, the upper half of esp
+    ; still holds whatever the BIOS left in it, reload it in full
+    mov esp, STAGE2_STACK_END
+
 %ifdef STACK_DEBUG_SPRAY
     mov eax, 0xCAFEBABE
     mov ecx, (STAGE2_STACK_END - STAGE2_STACK_BEGIN) / 4
