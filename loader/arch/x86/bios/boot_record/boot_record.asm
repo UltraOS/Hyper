@@ -155,22 +155,19 @@ skip_bpb:
     mov [DAP.sector_begin_low], eax
 %endif
 %endif
-    mov ebx, STAGE2_LOAD_BASE
     mov cx, STAGE2_SECTORS_TO_LOAD
 
+    ; The load cursor (LBA and destination segment) lives in the DAP itself
+    ; and is advanced in place: no extended register survives an INT 13h call
+    ; here. Some BIOSes destroy the upper halves of 32-bit registers inside
+    ; their INT 13h handler (observed on a Samsung NF110 netbook, whose USB-HDD
+    ; emulation truncated the destination previously kept in ebx to 16 bits,
+    ; silently making later batches overwrite earlier ones).
     load_stage2:
-        movzx ax, bl
-        and ax, ~0xF0
-        mov [DAP.read_into_offset], ax
-
-        mov eax, ebx
-        shr eax, 4
-        mov [DAP.read_into_segment], ax
-
         call read_disk
 
         add [DAP.sector_begin_low], dword SECTORS_PER_BATCH
-        add ebx, BYTES_PER_BATCH
+        add [DAP.read_into_segment], word BYTES_PER_BATCH >> 4
         sub cx, SECTORS_PER_BATCH
         jnz load_stage2
 %endif
@@ -256,8 +253,8 @@ DAP:
     .size:              db DAP_SIZE
     .unused:            db 0x00
     .sector_count:      dw SECTORS_PER_BATCH
-    .read_into_offset:  dw STAGE2_LOAD_BASE
-    .read_into_segment: dw 0x0000
+    .read_into_offset:  dw 0x0000
+    .read_into_segment: dw STAGE2_LOAD_BASE >> 4
 %ifdef HYPER_ISO_MBR
     .sector_begin_low:  dd ISO9660_VOLUME_DESCRIPTOR0_LBA * 4
 %else
