@@ -25,6 +25,12 @@ MBR_MAGIC = 0xAA55
 OFFSET_TO_MBR_MAGIC = 510
 OFFSET_TO_MBR_PARTITION_LIST = 0x01BE
 
+# The NT disk signature plus the two bytes following it (usually zero, but
+# 0x5A5A means copy-protected). Windows identifies disks by the signature,
+# e.g. BCD boot entries reference the boot disk through it.
+MBR_DISK_SIGNATURE_OFF = 0x01B8
+MBR_DISK_SIGNATURE_SIZE = 6
+
 MBR_PARTITION_COUNT = 4
 MBR_PARTITION_ENTRY_SIZE = 16
 # Offset of the type byte within a partition entry (0 == empty slot).
@@ -342,9 +348,12 @@ def write_hyper(img, partitions, is_iso, stage2, stage2_lba=STAGE2_BASE_SECTOR):
     if is_iso:
         write_at(img, 0, ISO_MBR_DATA)
     else:
+        disk_signature = read_at(img, MBR_DISK_SIGNATURE_OFF,
+                                 MBR_DISK_SIGNATURE_SIZE)
         # Tell stage1 where stage2 lives: the MBR gap by default, or the GPT
         # partition we placed it in.
         write_at(img, 0, mbr_with_stage2_lba(stage2_lba))
+        write_at(img, MBR_DISK_SIGNATURE_OFF, disk_signature)
     write_at(img, OFFSET_TO_MBR_PARTITION_LIST, partitions)
 
     if not is_iso:
