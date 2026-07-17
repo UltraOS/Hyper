@@ -33,11 +33,41 @@ ORG MBR_LOAD_BASE
 
 start:
 %ifndef HYPER_ISO_BOOT_RECORD
-    jmp skip_bpb
+    jmp short skip_bpb
+    nop
 
-    ; BPB + one extra nop after jmp
-    ; NOTE: this could be used as a scratch area in the future if needed
-    times 36 - ($ - $$) db 0x90 ; nops
+    ; A fake BPB filled with sane dummy values. LBA 0 is a (protective) MBR
+    ; and never a real FAT volume, but some firmware treats whatever sector
+    ; it boots as one:
+    ; - IBM-style El Torito/USB emulation "fixes up" the BPB by writing the
+    ;   fields marked (W) below into the in-memory copy of this sector, so
+    ;   everything through the end of the EBPB must be data, never code
+    ;   (our entry point used to sit at 0x24, exactly the drive number byte).
+    ; - Quirky BIOSes (ThinkPads) refuse to recognize the disk as bootable
+    ;   unless the fields marked (T) below hold plausible values.
+    bpb:
+        .oem_id:              db "HYPER   "
+        .bytes_per_sector:    dw 512          ; (T)
+        .sectors_per_cluster: db 0
+        .reserved_sectors:    dw 0
+        .fat_count:           db 0
+        .root_dir_entries:    dw 0
+        .sector_count:        dw 0
+        .media_type:          db 0            ; (W)
+        .sectors_per_fat:     dw 0
+        .sectors_per_track:   dw 18           ; (T)
+        .head_count:          dw 2            ; (T)
+        .hidden_sectors:      dd 0            ; (W)
+        .large_sector_count:  dd 0
+        .drive_number:        db 0            ; (W)
+        .reserved:            db 0
+        .signature:           db 0
+        .volume_id:           dd 0
+        .volume_label:        db "HYPER      "
+        .fs_type:     times 8 db 0
+
+    ; guards the field layout above: the EBPB ends right before 0x3E
+    times 0x3E - ($ - $$) db 0
 
 skip_bpb:
 %endif
