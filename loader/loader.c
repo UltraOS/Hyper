@@ -136,6 +136,13 @@ static void print_boot_device(const struct boot_device_info *bd,
         return;
     }
 
+    if (boot_entry->loc.entry_type == FSE_TYPE_GPT) {
+        print_info("Boot device is %pGUID, partition %pGUID\n",
+                   &boot_entry->loc.disk_guid,
+                   &boot_entry->loc.partition_guid);
+        return;
+    }
+
     print_info("Boot device is %s%u, partition %u\n", kind, bd->disk_id,
                boot_entry->loc.partition_index);
 }
