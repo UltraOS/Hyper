@@ -52,8 +52,7 @@ static bool path_consume_numeric_sequence(struct string_view *str, u32 *out)
     return !sv_empty(prefix_str) && str_to_u32_with_base(prefix_str, out, 16);
 }
 
-// 4 dashes + 32 characters, e.g E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A
-#define CHARS_PER_GUID (32 + 4)
+// e.g E0E0D5FB-48FA-4428-B73D-43D3F7E49A8A
 #define CHARS_PER_HEX_BYTE 2
 
 static bool consume_guid_part(struct string_view *str, void *out, u8 width, bool has_dash)
