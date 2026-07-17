@@ -111,12 +111,13 @@ struct string_view uefi_status_to_string(EFI_STATUS sts)
     }
 }
 
-bool uefi_get_protocol_handles(EFI_GUID *guid, EFI_HANDLE **array, UINTN *count)
+static bool do_get_protocol_handles(
+    EFI_GUID *guid, EFI_HANDLE **array, UINTN *count, bool warn_on_failure
+)
 {
     EFI_BOOT_SERVICES *bs = g_st->BootServices;
     UINTN bytes_needed = 0;
     EFI_STATUS ret;
-    struct string_view err_msg;
     *array = NULL;
 
     ret = bs->LocateHandle(ByProtocol, guid, NULL, &bytes_needed, NULL);
@@ -140,9 +141,27 @@ efi_error:
     if (*array)
         bs->FreePool(*array);
 
-    err_msg = uefi_status_to_string(ret);
-    print_warn("get_protocol_handles() error: %pSV\n", &err_msg);
+    if (warn_on_failure) {
+        struct string_view err_msg;
+
+        err_msg = uefi_status_to_string(ret);
+        print_warn("get_protocol_handles() error: %pSV\n", &err_msg);
+    }
     return false;
+}
+
+bool uefi_get_protocol_handles(
+    EFI_GUID *guid, EFI_HANDLE **array, UINTN *count
+)
+{
+    return do_get_protocol_handles(guid, array, count, true);
+}
+
+bool uefi_get_protocol_handles_nowarn(
+    EFI_GUID *guid, EFI_HANDLE **array, UINTN *count
+)
+{
+    return do_get_protocol_handles(guid, array, count, false);
 }
 
 void *uefi_find_configuration(EFI_GUID *guid)
