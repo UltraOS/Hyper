@@ -4,6 +4,7 @@
 #include "common/string.h"
 #include "common/minmax.h"
 #include "common/string_view.h"
+#include "filesystem/guid.h"
 #include "ip.h"
 
 struct fmt_buf_state {
@@ -324,6 +325,26 @@ int vsnprintf(char *buffer, size_t capacity, const char *fmt, va_list vlist)
                     write_many(&fb_state, as_str, len);
                 }
 
+                continue;
+            }
+
+            if (consume(&fmt, "GUID")) {
+                char as_str[CHARS_PER_GUID + 1];
+                struct guid *guid = va_arg(vlist, struct guid*);
+                int len;
+
+                len = snprintf(
+                    as_str, sizeof(as_str),
+                    "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+                    guid->data1, guid->data2, guid->data3,
+                    guid->data4[0], guid->data4[1], guid->data4[2],
+                    guid->data4[3], guid->data4[4], guid->data4[5],
+                    guid->data4[6], guid->data4[7]
+                );
+                if (unlikely(len < 0))
+                    return len;
+
+                write_many(&fb_state, as_str, len);
                 continue;
             }
 
