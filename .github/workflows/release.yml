@@ -48,10 +48,18 @@ jobs:
           cp build-clang-i686-bios/loader/hyper_pxe      release/hyper_pxe
           cp installer/hyper_install                     release/hyper_install
 
+      - name: Resolve release version
+        id: version
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: "Release ${{ steps.version.outputs.version }}"
+          tag_name: ${{ steps.version.outputs.tag }}
           draft: true
           generate_release_notes: true
           files: release/*
