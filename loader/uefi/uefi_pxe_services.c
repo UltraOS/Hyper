@@ -49,9 +49,9 @@ bool pxe_services_setup(void)
     EFI_HANDLE *handles;
     UINTN handle_count, i;
 
-    if (unlikely(!uefi_get_protocol_handles(&pxe_guid, &handles,
-                                            &handle_count)))
-        return false;
+    if (!uefi_get_protocol_handles_nowarn(&pxe_guid, &handles,
+                                          &handle_count))
+	    return false;
 
     for (i = 0; i < handle_count; ++i) {
         EFI_PXE_BASE_CODE_PROTOCOL *pxe = NULL;
