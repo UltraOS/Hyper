@@ -145,7 +145,8 @@ efi_error:
         struct string_view err_msg;
 
         err_msg = uefi_status_to_string(ret);
-        print_warn("get_protocol_handles() error: %pSV\n", &err_msg);
+        print_warn("get_protocol_handles(%pGUID) error: %pSV\n",
+                   guid, &err_msg);
     }
     return false;
 }
