@@ -232,6 +232,10 @@ def feature_image(request, fs_root):
         ("MBR", "FAT16", "amd64_lower_half_5lvl"),
         ("MBR", "FAT32", "i686_higher_half"),
         ("MBR", "FAT32", "i686_higher_half_pae"),
+        # GPT under BIOS: the installer houses stage2 in a synthesized BIOS
+        # boot partition, since the protective MBR leaves no gap for it.
+        ("GPT", "FAT12", "amd64_lower_half"),
+        ("GPT", "FAT32", "amd64_higher_half"),
     ),
     indirect=True,
     ids=disk_image_pretty_name
