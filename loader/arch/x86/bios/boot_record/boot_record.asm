@@ -10,6 +10,16 @@ SECTORS_PER_BATCH:      equ 64
 
 ISO9660_VOLUME_DESCRIPTOR0_LBA: equ 16
 
+; The plain MBR variant is the one built with no variant define at all, give
+; it an explicit name so it can be tested for directly.
+%ifndef HYPER_ISO_MBR
+%ifndef HYPER_ISO_BOOT_RECORD
+%ifndef HYPER_PXE_BOOT_RECORD
+%define HYPER_PLAIN_MBR
+%endif
+%endif
+%endif
+
 MBR_LOAD_BASE:          equ 0x7C00
 MBR_SIZE_IN_BYTES:      equ 512
 
@@ -19,7 +29,7 @@ PXE_BOOT_DRIVE:         equ 0xFF
 STAGE2_LOAD_BASE:       equ (MBR_LOAD_BASE + MBR_SIZE_IN_BYTES)
 STAGE2_BASE_SECTOR:     equ 1
 
-; The LBA stage2 starts at lives as a patchable dword at this fixed offset,
+; The LBA stage2 starts at lives as a patchable qword at this fixed offset,
 ; right below the NT disk signature (0x1B8) and clear of the BPB area, which
 ; some firmware treats as its own (validating it, or even writing into the
 ; in-memory copy of this sector). Keep in sync with STAGE1_STAGE2_LBA_OFF in
@@ -179,11 +189,11 @@ skip_bpb:
 ; A plain MBR reads stage2 from the installer-patched LBA (the MBR gap by
 ; default, or a GPT partition). The ISO variants set the DAP themselves above,
 ; so leave theirs alone.
-%ifndef HYPER_ISO_MBR
-%ifndef HYPER_ISO_BOOT_RECORD
+%ifdef HYPER_PLAIN_MBR
     mov eax, [stage2_lba]
     mov [DAP.sector_begin_low], eax
-%endif
+    mov eax, [stage2_lba + 4]
+    mov [DAP.sector_begin_high], eax
 %endif
     mov cx, STAGE2_SECTORS_TO_LOAD
 
@@ -197,6 +207,11 @@ skip_bpb:
         call read_disk
 
         add [DAP.sector_begin_low], dword SECTORS_PER_BATCH
+%ifdef HYPER_PLAIN_MBR
+        ; the start LBA is a full qword here, ripple the carry into the
+        ; high half
+        adc [DAP.sector_begin_high], dword 0
+%endif
         add [DAP.read_into_segment], word BYTES_PER_BATCH >> 4
         sub cx, SECTORS_PER_BATCH
         jnz load_stage2
@@ -322,7 +337,7 @@ times BYTES_PER_SECTOR - ($ - $$) db 0
 ; inside a GPT partition where there is no usable gap before the first
 ; partition.
 times STAGE2_LBA_PATCH_OFF - ($ - $$) db 0
-stage2_lba: dd STAGE2_BASE_SECTOR
+stage2_lba: dq STAGE2_BASE_SECTOR
 
 ; padding before partition list (0x1B8 is the NT disk signature, keep zero)
 times 446 - ($ - $$) db 0

@@ -332,7 +332,7 @@ class Gpt:
 
 def mbr_with_stage2_lba(stage2_lba):
     data = bytearray(MBR_DATA)
-    struct.pack_into("<I", data, STAGE1_STAGE2_LBA_OFF, stage2_lba)
+    struct.pack_into("<Q", data, STAGE1_STAGE2_LBA_OFF, stage2_lba)
     return bytes(data)
 
 
