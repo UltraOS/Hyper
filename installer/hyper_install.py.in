@@ -147,7 +147,7 @@ def ensure_stage2_fits(partitions):
               f"Need at least {len(STAGE2_DATA)}, have {gap_size}")
 
 
-def warn_if_primary_partition_absent(partitions, partition_index):
+def warn_if_mbr_partition_absent(partitions, partition_index):
     # Only primary partitions (0-3) live in the MBR table; logical ones don't,
     # so an out-of-range index is assumed to be a logical partition and left be.
     if partition_index >= MBR_PARTITION_COUNT:
@@ -159,7 +159,7 @@ def warn_if_primary_partition_absent(partitions, partition_index):
              "double-check the index")
 
 
-def stage2_with_boot_partition(partitions, partition_index):
+def stage2_with_boot_partition(partition_index):
     if STAGE2_DATA[:len(STAGE2_MAGIC)] != STAGE2_MAGIC:
         panic("stage2 loader is missing its magic, the installer is corrupt")
 
@@ -170,8 +170,6 @@ def stage2_with_boot_partition(partitions, partition_index):
              "scanning and '/' may resolve to an arbitrary partition on the "
              "boot disk; pass --boot-partition for deterministic behavior")
         return STAGE2_DATA
-
-    warn_if_primary_partition_absent(partitions, partition_index)
 
     data = bytearray(STAGE2_DATA)
     struct.pack_into("<I", data, STAGE2_BOOT_PARTITION_OFF, partition_index)
@@ -275,6 +273,16 @@ class Gpt:
             panic(f"{what} is too small for stage2: need {sectors} sectors, "
                   f"have {last - first + 1}")
         return first
+
+    def warn_if_partition_absent(self, index):
+        # The loader enumerates GPT partitions by their raw slot in the entry
+        # array (gpt.c walks every slot, used or not), so --boot-partition N
+        # lines up with array slot N -- validate against that, not the
+        # protective MBR, which only ever has the single 0xEE entry.
+        if (index >= self.num_entries or
+           self._entry_type(index) == GPT_UNUSED_TYPE_GUID):
+            warn(f"partition {index} is empty in the GPT partition table, "
+                 "double-check the index")
 
     def find_bios_boot(self):
         for i in range(self.num_entries):
@@ -412,8 +420,10 @@ def main():
                 panic(f"GPT disks with {gpt_block}-byte logical sectors are not "
                       "supported (the BIOS boot chain assumes 512)")
 
-            stage2 = stage2_with_boot_partition(partitions, args.boot_partition)
             gpt = Gpt(img, gpt_block)
+            if args.boot_partition is not None:
+                gpt.warn_if_partition_absent(args.boot_partition)
+            stage2 = stage2_with_boot_partition(args.boot_partition)
             sectors = gpt.sectors_for(max(len(stage2), STAGE2_SPAN))
             if args.stage2_partition is not None:
                 stage2_lba = gpt.reuse_partition(args.stage2_partition, sectors)
@@ -425,7 +435,9 @@ def main():
             if args.stage2_partition is not None:
                 warn("--stage2-partition is ignored for MBR images")
             ensure_stage2_fits(partitions)
-            stage2 = stage2_with_boot_partition(partitions, args.boot_partition)
+            if args.boot_partition is not None:
+                warn_if_mbr_partition_absent(partitions, args.boot_partition)
+            stage2 = stage2_with_boot_partition(args.boot_partition)
             write_hyper(img, partitions, is_iso, stage2)
 
     return 0
