@@ -228,6 +228,14 @@ skip_bpb:
         ; jump to base + 16 to skip stage 2 signature
         jmp STAGE2_LOAD_BASE + 16
 
+%ifndef HYPER_ISO_BOOT_RECORD
+; Windows 95/98/ME stamp a "disk timestamp" into bytes 0xDA-0xDF of the boot
+; drive's MBR, on disk. Keep code and data out of that range so the stamp
+; lands in padding instead of corrupting us.
+times 0xDA - ($ - $$) db 0
+times 6 db 0
+%endif
+
 BITS 16
 
 ; void read_disk()
