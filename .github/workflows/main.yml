@@ -40,15 +40,34 @@ jobs:
           submodules: true
 
       - if: ${{ matrix.toolchain == 'gcc' }}
-        name: Restore cache
-        uses: actions/cache@v4.2.2
-        env:
-          gcc-version: 13.2.0
+        id: toolchain-version
+        name: Get the toolchain version
+        run: |
+          python3 -c 'import build_utils.toolchain_builder as tb
+          print(f"key=gcc-{tb.GCC_VERSION}-binutils-{tb.BINUTILS_VERSION}")' \
+            >> "$GITHUB_OUTPUT"
+
+      - if: ${{ matrix.toolchain == 'gcc' }}
+        id: toolchain-cache
+        name: Restore the toolchain cache
+        uses: actions/cache/restore@v4.2.2
         with:
           path: "${{ github.workspace }}/toolchain/tools_${{ matrix.arch }}_${{ matrix.platform }}_gcc"
-          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ matrix.platform }}-gcc-${{ env.gcc-version }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ matrix.platform }}-${{ steps.toolchain-version.outputs.key }}"
 
-      - name: Build platform toolchain & Hyper
+      - name: Build the platform toolchain
+        run: "${{ github.workspace }}/build.py --arch ${{ matrix.arch }} --platform ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --no-tune-native --toolchain-only"
+
+      # Save right away rather than in a post step, which only runs if the
+      # whole job succeeds and would throw the toolchain away on a failed test
+      - if: ${{ matrix.toolchain == 'gcc' && steps.toolchain-cache.outputs.cache-hit != 'true' }}
+        name: Save the toolchain cache
+        uses: actions/cache/save@v4.2.2
+        with:
+          path: "${{ github.workspace }}/toolchain/tools_${{ matrix.arch }}_${{ matrix.platform }}_gcc"
+          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
+
+      - name: Build Hyper
         run: "${{ github.workspace }}/build.py --arch ${{ matrix.arch }} --platform ${{ matrix.platform }} --toolchain ${{ matrix.toolchain }} --fetch-test-dependencies --no-tune-native --e9-debug-log=on"
 
       - name: Build test kernel
