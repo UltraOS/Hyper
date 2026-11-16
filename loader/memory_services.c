@@ -212,6 +212,11 @@ range_place:
 
 struct fixup_result {
     bool lhs_type_changed;
+
+    // RHS was absorbed into LHS, its slot is now stale and must be skipped
+    bool rhs_consumed;
+
+    // Number of entries physically present in the buffer after the fixup
     size_t new_count;
 };
 
@@ -337,17 +342,14 @@ static void mm_overlap_fixup(
         print_info("\n");
     }
 
-    res->new_count = count - 1;
-
-    if (or.entries[0].type != lhs->type)
-        res->lhs_type_changed = true;
+    res->new_count = count;
+    res->lhs_type_changed = or.entries[0].type != lhs->type;
+    res->rhs_consumed = or.entry_count == 1;
 
     *lhs = or.entries[0];
 
-    if (or.entry_count >= 2) {
+    if (or.entry_count >= 2)
         *rhs = or.entries[1];
-        res->new_count++;
-    }
 
     if (or.entry_count == 3) {
         res->new_count += mme_insert_try_merge(buf + rhs_idx, &or.entries[2],
@@ -388,7 +390,7 @@ static size_t mm_do_fixup(
             mm_overlap_fixup(buf, j, i, count, buf_cap, &fr, is_intentional);
 
             // Both ranges collapsed into one, skip rhs
-            if (fr.new_count < count)
+            if (fr.rhs_consumed)
                 ++i;
 
             count = fr.new_count;
