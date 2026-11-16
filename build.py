@@ -34,7 +34,8 @@ TEST_DEPS = {
         "xorriso",
         "mtools",
         "qemu-system-x86",
-        "qemu-system-aarch64",
+        # qemu-system-aarch64 is only a virtual package here
+        "qemu-system-arm",
     ],
     "pacman": [
         "parted",
