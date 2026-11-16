@@ -45,7 +45,7 @@ jobs:
           cp build-clang-amd64-uefi/loader/hyper_uefi    release/BOOTX64.EFI
           cp build-clang-aarch64-uefi/loader/hyper_uefi  release/BOOTAA64.EFI
           cp build-clang-i686-bios/loader/hyper_iso_boot release/hyper_iso_boot
-          cp build-clang-i686-bios/loader/hyper_pxe      release/hyper_pxe
+          cp build-clang-i686-bios/loader/hyper.pxe      release/hyper.pxe
           cp installer/hyper_install                     release/hyper_install
 
       - name: Resolve release version
