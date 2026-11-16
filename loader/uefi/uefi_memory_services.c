@@ -343,12 +343,28 @@ const void *services_get_captured_uefi_map(size_t *out_size)
     return uefi_map_capture_buf;
 }
 
+/*
+ * The UEFI firmware allows drivers to register an event listener for
+ * ExitBootServices() events via EFI_EVENT_GROUP_BEFORE_EXIT_BOOT_SERVICES.
+ *
+ * For example, EDK2 after 12c5ded ("FatPkg: Clean any volume caches during
+ * exit boot services") registers such a handler and flushes dirty FAT blocks
+ * back to disk, which causes a few allocations and frees to take place, thus
+ * invalidating the memory map key we're holding.
+ *
+ * This means we must retry ExitBootServices() in a loop, 2 should be enough
+ * for EDK2 specifically, but let's give some leeway for other implementations
+ * as well.
+ */
+#define EXIT_BOOT_SERVICES_MAX_ATTEMPTS 5
+
 size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
                                   mme_convert_t entry_convert)
 {
     SERVICE_FUNCTION();
+    struct string_view err_msg;
     EFI_STATUS ret;
-    size_t i;
+    size_t i, attempt;
 
     /*
      * Only log errors after first call to GetMemoryMap,
@@ -356,48 +372,79 @@ size_t services_release_resources(void *buf, size_t capacity, size_t elem_size,
      */
     logger_set_level(LOG_LEVEL_ERR);
 
-    /*
-     * Hand the kernel the exact map used for ExitBootServices() below: capture
-     * the raw EFI descriptors before converting the buffer to the native format
-     * in place. Probing calls (buf == NULL) never reach ExitBootServices(), so
-     * skip the copy for those. No allocation happens between here and
-     * ExitBootServices(), so the map key stays valid.
-     */
-    acquire_efi_memory_map();
-    if (buf)
-        capture_raw_efi_memory_map();
-    efi_memory_map_fixup();
+    for (attempt = 1;; attempt++) {
+        void *out = buf;
 
-    if (capacity < buf_entry_count)
-        return buf_entry_count;
+        /*
+         * Hand the kernel the exact map used for ExitBootServices() below:
+         * capture the raw EFI descriptors before converting the buffer to the
+         * native format in place. Probing calls (buf == NULL) never reach
+         * ExitBootServices(), so skip the copy for those. No allocation happens
+         * between here and ExitBootServices(), so the map key stays valid.
+         */
+        acquire_efi_memory_map();
+        if (buf)
+            capture_raw_efi_memory_map();
+        efi_memory_map_fixup();
 
-    /*
-     * The buffer is finally large enough, we can now destroy loader
-     * reclaimable memory if the protocol doesn't support it and
-     * transform it into MEMORY_TYPE_FREE safely as services are now
-     * disabled.
-     */
-    buf_entry_count = mm_fixup(memory_map_buf, buf_entry_count,
-                               buf_byte_capacity / sizeof(struct memory_map_entry),
-                               FIXUP_NO_PRESERVE_LOADER_RECLAIM);
+        if (capacity < buf_entry_count) {
+            /*
+             * The firmware changed the map behind our back after a failed
+             * ExitBootServices(). Growing the buffer would still be allowed
+             * (it only takes memory allocation services), but the caller has
+             * already sized and laid out its buffer by now and doesn't expect
+             * to be asked again, so there's no recovering from this.
+             */
+            if (unlikely(attempt > 1)) {
+                panic(
+                    "memory map grew to %zu entries (capacity %zu) after "
+                    "a failed ExitBootServices()\n", buf_entry_count, capacity
+                );
+            }
 
-    for (i = 0; i < buf_entry_count; ++i) {
-        struct memory_map_entry *me = mm_entry_at(i);
-
-        if (entry_convert) {
-            entry_convert(me, buf);
-        } else {
-            memcpy(buf, me, sizeof(struct memory_map_entry));
+            return buf_entry_count;
         }
 
-        buf += elem_size;
+        /*
+         * The buffer is finally large enough, we can now destroy loader
+         * reclaimable memory if the protocol doesn't support it and
+         * transform it into MEMORY_TYPE_FREE safely as services are now
+         * disabled.
+         */
+        buf_entry_count = mm_fixup(
+            memory_map_buf, buf_entry_count,
+            buf_byte_capacity / sizeof(struct memory_map_entry),
+            FIXUP_NO_PRESERVE_LOADER_RECLAIM
+        );
+
+        for (i = 0; i < buf_entry_count; ++i) {
+            struct memory_map_entry *me = mm_entry_at(i);
+
+            if (entry_convert) {
+                entry_convert(me, out);
+            } else {
+                memcpy(out, me, sizeof(struct memory_map_entry));
+            }
+
+            out += elem_size;
+        }
+
+        ret = g_st->BootServices->ExitBootServices(g_img, map_key);
+        if (!EFI_ERROR(ret))
+            break;
+
+        if (ret != EFI_INVALID_PARAMETER ||
+            attempt == EXIT_BOOT_SERVICES_MAX_ATTEMPTS)
+            goto ebs_failed;
     }
 
-    ret = g_st->BootServices->ExitBootServices(g_img, map_key);
-    BUG_ON(EFI_ERROR(ret));
     services_offline = true;
-
     return buf_entry_count;
+
+ebs_failed:
+    err_msg = uefi_status_to_string(ret);
+    panic("ExitBootServices() failed after %zu attempt(s): %pSV\n",
+          attempt, &err_msg);
 }
 
 void mm_foreach_entry(mme_foreach_t func, void *user)
