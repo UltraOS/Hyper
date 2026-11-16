@@ -68,7 +68,6 @@ TEST_DEPS = {
         "lld",
         "xorriso",
         "mtools",
-        "gdisk",
         "gptfdisk",
         "qemu",
     ],
