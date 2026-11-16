@@ -829,7 +829,7 @@ def _pxe_boot_image(getopt, is_uefi):
     """(source path, TFTP file name) of the image the firmware fetches."""
     if is_uefi:
         return getopt(options.X64_HYPER_UEFI_OPT), "BOOTX64.EFI"
-    return getopt(options.HYPER_PXE_OPT), "hyper_pxe"
+    return getopt(options.HYPER_PXE_OPT), "hyper.pxe"
 
 
 @pytest.mark.parametrize("kernel_type,is_uefi", _PXE_PARAMS)
