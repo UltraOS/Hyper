@@ -227,7 +227,7 @@ void handover_prepare_for(struct handover_info *hi)
 
 #define TCR_DS (1ull << 59)
 #define TCR_HA (1ull << 39)
-#define TCR_TG1_4K_GRANULE (0b10 << 30)
+#define TCR_TG1_4K_GRANULE (0b10ull << 30)
 #define TCR_TG0_4K_GRANULE (0b00 << 14)
 #define TCR_SH1_SHIFT 28
 #define TCR_ORGN1_SHIFT 26
