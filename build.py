@@ -206,6 +206,8 @@ def main():
                         help="skip base dependencies")
     parser.add_argument("--fetch-test-dependencies", action="store_true",
                         help="also fetch packages used for running the loader tests")
+    parser.add_argument("--toolchain-only", action="store_true",
+                        help="build the toolchain and exit")
     parser.add_argument("--reconfigure", action="store_true",
                         help="Reconfigure cmake before building")
     parser.add_argument("--e9-debug-log", choices=["on", "off"],
@@ -221,6 +223,10 @@ def main():
     args = parser.parse_args()
 
     args.arch, args.platform = pick_arch_and_platform(args.arch, args.platform)
+
+    if args.toolchain_only:
+        build_toolchain(args)
+        return
 
     build_hyper(args)
 
