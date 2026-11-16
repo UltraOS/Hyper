@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """
 Hyper-specific wiring for a (simulated) PXE boot: assembles the normal boot
 config plus the same module set the disk tests use, then hands it to the generic
