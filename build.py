@@ -18,6 +18,10 @@ BASE_DEPS = {
         "nasm",
         "cmake",
     ],
+    "dnf": [
+        "nasm",
+        "cmake",
+    ],
     "brew": [
         "nasm",
         "cmake",
@@ -41,6 +45,17 @@ TEST_DEPS = {
         "parted",
         "gptfdisk",
         "python-pytest",
+        "clang",
+        "lld",
+        "xorriso",
+        "mtools",
+        "qemu-system-x86",
+        "qemu-system-aarch64",
+    ],
+    "dnf": [
+        "parted",
+        "gdisk",
+        "python3-pytest",
         "clang",
         "lld",
         "xorriso",
